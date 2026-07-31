@@ -15,6 +15,7 @@ export type ProductIdentity = {
   dataNamespace: string
   credentialNamespace: string
   artifactPrefix: string
+  linuxPackageName: string
   compatibleDataNamespaces: readonly string[]
   publish?: ProductPublish
 }
@@ -30,6 +31,7 @@ const identities: Record<ProductChannel, ProductIdentity> = {
     appId: "dev.agent.desktop",
     protocolScheme: "agent-desktop-dev",
     artifactPrefix: "agent-desktop-dev",
+    linuxPackageName: "agent-desktop-dev",
     compatibleDataNamespaces: ["dev.agent.desktop"],
   }),
   beta: defineProductIdentity({
@@ -38,6 +40,7 @@ const identities: Record<ProductChannel, ProductIdentity> = {
     appId: "ai.opencode.desktop.beta",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
+    linuxPackageName: "opencode-beta",
     compatibleDataNamespaces: openCodeDataNamespaces,
     publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
   }),
@@ -47,6 +50,7 @@ const identities: Record<ProductChannel, ProductIdentity> = {
     appId: "ai.opencode.desktop",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
+    linuxPackageName: "opencode",
     compatibleDataNamespaces: openCodeDataNamespaces,
     publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
   }),

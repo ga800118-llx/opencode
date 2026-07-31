@@ -10,6 +10,7 @@ describe("desktop product identity", () => {
       dataNamespace: "dev.agent.desktop",
       credentialNamespace: "dev.agent.desktop.credentials",
       artifactPrefix: "agent-desktop-dev",
+      linuxPackageName: "agent-desktop-dev",
       compatibleDataNamespaces: ["dev.agent.desktop"],
     })
   })
@@ -25,6 +26,7 @@ describe("desktop product identity", () => {
         identity.dataNamespace,
         identity.credentialNamespace,
         identity.artifactPrefix,
+        identity.linuxPackageName,
       ]),
     )
 
@@ -35,6 +37,7 @@ describe("desktop product identity", () => {
       development.dataNamespace,
       development.credentialNamespace,
       development.artifactPrefix,
+      development.linuxPackageName,
     ]) {
       expect(releaseIdentifiers.has(identifier)).toBe(false)
     }
@@ -49,6 +52,7 @@ describe("desktop product identity", () => {
       appId: "ai.opencode.desktop.beta",
       protocolScheme: "opencode",
       artifactPrefix: "opencode-desktop",
+      linuxPackageName: "opencode-beta",
       publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
     })
     expect(getProductIdentity("prod")).toMatchObject({
@@ -56,6 +60,7 @@ describe("desktop product identity", () => {
       appId: "ai.opencode.desktop",
       protocolScheme: "opencode",
       artifactPrefix: "opencode-desktop",
+      linuxPackageName: "opencode",
       publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
     })
   })

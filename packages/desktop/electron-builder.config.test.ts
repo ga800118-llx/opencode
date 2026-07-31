@@ -10,6 +10,7 @@ const channels = [
     productName: "Agent Desktop Dev",
     protocolScheme: "agent-desktop-dev",
     artifactPrefix: "agent-desktop-dev",
+    linuxPackageName: "agent-desktop-dev",
     publish: undefined,
   },
   {
@@ -18,6 +19,7 @@ const channels = [
     productName: "OpenCode Beta",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
+    linuxPackageName: "opencode-beta",
     publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
   },
   {
@@ -26,6 +28,7 @@ const channels = [
     productName: "OpenCode",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
+    linuxPackageName: "opencode",
     publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
   },
 ] as const
@@ -46,6 +49,7 @@ for (const channel of channels) {
     expect(config.protocols).toEqual({ name: channel.productName, schemes: [channel.protocolScheme] })
     expect(config.artifactName).toBe(channel.artifactPrefix + "-${os}-${arch}.${ext}")
     expect(config.publish).toEqual(channel.publish)
+    expect(config.rpm?.packageName).toBe(channel.linuxPackageName)
     expect(config.extraMetadata?.desktopName).toBe(`${channel.appId}.desktop`)
     expect(config.linux?.executableName).toBe(channel.appId)
     expect(config.linux?.desktop?.entry?.StartupWMClass).toBe(channel.appId)

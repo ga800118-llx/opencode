@@ -124,7 +124,7 @@ function getConfig() {
       return {
         ...base,
         deb: { fpm: [metainfoFpm(identity.appId)] },
-        rpm: { packageName: "opencode-dev", fpm: [metainfoFpm(identity.appId)] },
+        rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
     }
     case "beta": {
@@ -132,7 +132,7 @@ function getConfig() {
         ...base,
         publish: identity.publish,
         deb: { fpm: [metainfoFpm(identity.appId)] },
-        rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(identity.appId)] },
+        rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
     }
     case "prod": {
@@ -140,7 +140,7 @@ function getConfig() {
         ...base,
         publish: identity.publish,
         deb: { fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
-        rpm: { packageName: "opencode", fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
+        rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
       }
     }
   }
