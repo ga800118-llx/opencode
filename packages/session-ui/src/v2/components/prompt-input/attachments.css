@@ -1,3 +1,7 @@
+[data-component="prompt-input"]:empty::before {
+  content: "\200B";
+}
+
 @keyframes prompt-input-v2-attachments-fade-left {
   from {
     visibility: hidden;
