@@ -22,4 +22,17 @@ its application resources. Electron-builder currently packages Desktop `out` and
 this as an upstream distribution gap; the product build must add the MIT notice
 and verified third-party notices before any Phase 4 distribution.
 
+## Third-Party Review
+
+`third-party-licenses.md` records the reproducible Phase 0 scan of 2,336 unique
+packages in the frozen Bun installation. Manifest or bundled license evidence was
+identified for 2,332 packages. Four packages remain unresolved, and reciprocal,
+font, attribution, and source-available licenses are called out for explicit
+notice or compatibility handling.
+
+The current `.app` is not distribution-ready: it contains two native dependency
+license files but no complete generated notices. Phase 4 must generate notices
+from the exact shipped dependency and asset set, include the root MIT license,
+resolve every missing declaration, and verify the final archive contents.
+
 Phase 0 license review is an engineering inventory, not a legal opinion.

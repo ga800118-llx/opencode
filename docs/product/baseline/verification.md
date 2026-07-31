@@ -28,12 +28,54 @@
 | Core tests | `bun run --cwd packages/core test` | PASS | 41s; 1,080 pass, 0 fail |
 | Runtime tests | `bun run --cwd packages/opencode test` | PASS | 443s; 3,227 pass, 22 skip, 1 todo, 0 fail |
 | Desktop build | `MODELS_DEV_API_JSON=... OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build` | PASS | 76s |
+| Desktop development launch | `MODELS_DEV_API_JSON=... OPENCODE_CHANNEL=dev bun run --cwd packages/desktop dev` | PASS | Renderer on port 5173; Electron and sidecar ready |
 | Unsigned packaging | `electron-builder --mac dir ... identity=null notarize=false` | PASS | 8s |
 | Sidecar health | Authenticated `GET /global/health` | PASS | HTTP 200, `healthy: true` |
 | Git project | Authenticated `GET /project/current?directory=...` | PASS | HTTP 200, `vcs: git` |
 | Final Desktop typecheck gate | Detached `/tmp` worktree, `bun run --cwd packages/desktop typecheck` | PASS | Exit 0 |
 | Final Desktop test gate | Detached `/tmp` worktree, `(cd packages/desktop && bun test src)` | PASS | 1.72s; 59 pass, 0 fail |
 | Final Desktop build gate | Detached `/tmp` worktree with pinned Models.dev input | PASS | Exit 0; Electron main, preload, and renderer built |
+
+## Runtime Performance Baseline
+
+Measurements use the unsigned packaged arm64 app, a persisted temporary empty Git
+repository at `/tmp/opencode-phase0-smoke.dLpMsv`, and three independent app
+process launches. The host remained Apple Silicon macOS 26.3.1 (a). OS caches and
+the existing user-data directory were not cleared, so these are repeatable warm
+host/process-start baselines rather than first-install or reboot-cold numbers.
+
+Startup timestamps come from the existing main-process log:
+
+- start: `app starting`;
+- sidecar healthy: `loading task finished` after `health.wait`;
+- renderer ready: first `server ready` response;
+- application initialized: first-launch onboarding state resolved.
+
+| Sample | Sidecar healthy | Renderer ready | Application initialized |
+| ---: | ---: | ---: | ---: |
+| 1 | 1.055s | 1.432s | 1.524s |
+| 2 | 0.986s | 1.310s | 1.395s |
+| 3 | 0.993s | 1.321s | 1.397s |
+| **Median baseline** | **0.993s** | **1.321s** | **1.397s** |
+| **20% regression boundary** | **1.192s** | **1.585s** | **1.676s** |
+
+Task execution used the unmodified default `opencode/big-pickle` model and the
+prompt `Reply with exactly BASELINE_OK.` in the empty temporary repository. No
+project source was sent. Server message timestamps measure from user-message
+creation to the first assistant text part and to assistant completion.
+
+| Sample | First assistant text | Assistant complete |
+| ---: | ---: | ---: |
+| 1 | 3.325s | 3.479s |
+| 2 | 2.673s | 2.809s |
+| 3 | 2.497s | 2.614s |
+| **Median baseline** | **2.673s** | **2.809s** |
+| **20% regression boundary** | **3.208s** | **3.371s** |
+
+The model measurements include network and provider inference variance. They are
+a manual same-model/same-prompt comparison baseline, not a deterministic CI
+threshold. Phase 1 adds deterministic adapter timing tests and must report both
+those results and this end-to-end comparison.
 
 ## Unchanged Upstream Failures
 
@@ -75,8 +117,11 @@ Generated outputs:
 The unpacked app is about 577 MB. Packaging intentionally skipped signing and
 notarization. Electron-builder also reported missing package description, absent
 optional non-arm64 dependencies, and no `packages/desktop/native` directory.
-The `.app` does not include the root MIT `LICENSE`; this is a recorded packaging
-gap that must be fixed before Phase 4 distribution.
+The `.app` does not include the root MIT `LICENSE` or complete third-party
+notices; this is a recorded packaging gap that must be fixed before Phase 4
+distribution. `third-party-licenses.md` records the frozen installation scan,
+including four unresolved package-license declarations and the licenses requiring
+explicit notice or compatibility handling.
 
 ## Runtime Smoke
 
@@ -129,6 +174,7 @@ must both exit 0 in every Phase 1-3 gate.
 **PASS with recorded upstream defects.** Provenance, full upstream history,
 dependency reproducibility, all four type checks, desktop/Core/runtime tests,
 desktop build, unsigned packaging, sidecar health, Git project initialization,
-source ownership, parity, and the engineering license audit are complete. The two failing
-quality checks are unchanged upstream defects documented above and do not block
-Phase 1 adapter work.
+source ownership, parity, runtime performance baselines, and the scoped
+engineering license audit are complete. The current package is explicitly not
+approved for distribution. The two failing quality checks are unchanged upstream
+defects documented above and do not block Phase 1 adapter work.

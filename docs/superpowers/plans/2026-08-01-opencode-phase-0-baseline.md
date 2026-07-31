@@ -306,6 +306,20 @@ open "$app_path"
 
 Expected: the app opens to the OpenCode desktop shell, initializes its local sidecar, and can open a directory. Capture startup failures through the existing desktop logs before changing source.
 
+- [x] **Step 5: Verify the reproducible development launch**
+
+Run from the detached `/tmp` worktree so the locked `Documents` path cannot
+interfere with the process:
+
+```bash
+export PATH="$HOME/.bun/bin:$PATH"
+MODELS_DEV_API_JSON=/tmp/models-dev-410468e/packages/web/dist/_api.json \
+  OPENCODE_CHANNEL=dev bun run --cwd packages/desktop dev
+```
+
+Expected: Electron Vite builds main and preload, serves the renderer on port
+5173, launches Electron, and the local sidecar reaches healthy state.
+
 ### Task 6: Document upstream pin and source ownership
 
 **Files:**
@@ -476,6 +490,7 @@ Expected: commit succeeds and no OpenCode package source is modified.
 
 **Files:**
 - Create: `docs/product/baseline/licenses.md`
+- Create: `docs/product/baseline/third-party-licenses.md`
 - Create: `docs/product/baseline/verification.md`
 - Read: `LICENSE`
 - Read: `package.json`
@@ -512,6 +527,14 @@ OpenCode v1.18.10 is distributed under the MIT License. The fork must retain the
 Phase 0 license review is an engineering inventory, not a legal opinion.
 ```
 
+- [x] **Step 2a: Inventory installed third-party license declarations**
+
+Scan unique `name@version` entries in `node_modules/.bun`, preserve raw SPDX
+expressions, inspect packages with missing manifest declarations for bundled
+license files, and record distribution blockers. Also inspect the packaged app
+for included license and notice files. The exact scanner and results belong in
+`docs/product/baseline/third-party-licenses.md`.
+
 - [x] **Step 3: Write the verification report from observed command results**
 
 Create `docs/product/baseline/verification.md`. Include:
@@ -523,6 +546,7 @@ Create `docs/product/baseline/verification.md`. Include:
 - exact failing test names and first actionable error for any unchanged upstream failure;
 - paths to generated Electron output and the unpacked `.app`;
 - manual smoke result for launch, sidecar initialization, and opening a directory;
+- three-sample packaged startup and minimal task-execution baselines with 20% comparison boundaries;
 - final Phase 0 gate result as `PASS` only if every required item has evidence, otherwise `FAIL` with explicit unmet items.
 
 Do not alter upstream source merely to turn a baseline failure green.
@@ -533,7 +557,7 @@ Run:
 
 ```bash
 if rg -n 'TB[D]|TO[D]O|un''known|not'' run' docs/product/baseline; then exit 1; fi
-for file in upstream source-map feature-parity change-map licenses verification; do test -s "docs/product/baseline/$file.md"; done
+for file in upstream source-map feature-parity change-map licenses third-party-licenses verification; do test -s "docs/product/baseline/$file.md"; done
 git diff --check
 ```
 

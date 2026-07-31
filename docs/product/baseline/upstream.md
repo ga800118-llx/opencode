@@ -29,6 +29,8 @@ bun install --frozen-lockfile
 bun run --cwd packages/desktop typecheck
 (cd packages/desktop && bun test src)
 MODELS_DEV_API_JSON=/path/to/models.dev/_api.json \
+  OPENCODE_CHANNEL=dev bun run --cwd packages/desktop dev
+MODELS_DEV_API_JSON=/path/to/models.dev/_api.json \
   OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 
@@ -50,4 +52,7 @@ test "$(shasum -a 256 "$models_dir/packages/web/dist/_api.json" | cut -d' ' -f1)
 
 Use `$models_dir/packages/web/dist/_api.json` as the override path. The SHA-256
 assertion fixes both the source commit and the generated data consumed by the
-desktop build.
+desktop development launch and build. The Phase 0 development launch was
+verified from `/tmp/ai-agent-phase0-gate`: Electron Vite served the renderer on
+`http://localhost:5173`, launched Electron, started the sidecar, and reached the
+desktop screen successfully.
