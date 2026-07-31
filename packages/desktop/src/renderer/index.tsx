@@ -4,11 +4,13 @@ import {
   ACCEPTED_FILE_EXTENSIONS,
   AppBaseProviders,
   AppInterface,
+  createProductTaskAdapter,
   handleNotificationClick,
   loadLocaleDict,
   normalizeLocale,
   type Locale,
   type Platform,
+  type ProductRuntime,
   PlatformProvider,
   ServerConnection,
   useCommand,
@@ -35,6 +37,11 @@ const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   throw new Error(t("error.dev.rootNotFound"))
 }
+
+const DESKTOP_PRODUCT_RUNTIME = Object.freeze({
+  host: Object.freeze({ kind: "desktop" as const }),
+  createTaskAdapter: createProductTaskAdapter,
+}) satisfies ProductRuntime
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
@@ -444,7 +451,7 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
 
   return (
     <PlatformProvider value={platform}>
-      <AppBaseProviders locale={locale.latest}>
+      <AppBaseProviders locale={locale.latest} runtime={DESKTOP_PRODUCT_RUNTIME}>
         <Show when={true}>{(_) => <App />}</Show>
       </AppBaseProviders>
     </PlatformProvider>

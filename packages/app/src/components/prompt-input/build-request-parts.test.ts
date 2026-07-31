@@ -32,7 +32,7 @@ describe("buildRequestParts", () => {
     expect(result.requestParts[0]?.type).toBe("text")
     expect(result.requestParts.some((part) => part.type === "agent")).toBe(true)
     expect(
-      result.requestParts.some((part) => part.type === "file" && part.url.startsWith("file:///repo/src/foo.ts")),
+      result.requestParts.some((part) => part.type === "file" && part.uri.startsWith("file:///repo/src/foo.ts")),
     ).toBe(true)
     expect(result.requestParts.some((part) => part.type === "text" && part.synthetic)).toBe(true)
     expect(
@@ -40,13 +40,20 @@ describe("buildRequestParts", () => {
         (part) =>
           part.type === "text" &&
           part.synthetic &&
-          part.metadata?.opencodeComment &&
-          (part.metadata.opencodeComment as { comment?: string }).comment === "check this",
+          part.metadata?.comment?.comment === "check this",
       ),
     ).toBe(true)
 
     expect(result.optimisticParts).toHaveLength(result.requestParts.length)
     expect(result.optimisticParts.every((part) => part.sessionID === "ses_1" && part.messageID === "msg_1")).toBe(true)
+    expect(
+      result.optimisticParts.some(
+        (part) =>
+          part.type === "text" &&
+          ((part.metadata as { opencodeComment?: { comment?: string } } | undefined)?.opencodeComment?.comment ===
+            "check this"),
+      ),
+    ).toBe(true)
   })
 
   test("keeps multiple uploaded attachments in order", () => {
@@ -69,10 +76,10 @@ describe("buildRequestParts", () => {
       sessionDirectory: "/repo",
     })
 
-    const files = result.requestParts.filter((part) => part.type === "file" && part.url.startsWith("data:"))
+    const files = result.requestParts.filter((part) => part.type === "file" && part.uri.startsWith("data:"))
 
     expect(files).toHaveLength(2)
-    expect(files.map((part) => (part.type === "file" ? part.filename : ""))).toEqual(["a.png", "b.pdf"])
+    expect(files.map((part) => (part.type === "file" ? part.name : ""))).toEqual(["a.png", "b.pdf"])
   })
 
   test("preserves an external attachment source path for the model", () => {
@@ -95,7 +102,7 @@ describe("buildRequestParts", () => {
       sessionDirectory: "C:\\Repos\\sst\\opencode",
     })
 
-    expect(result.requestParts.find((part) => part.type === "file")?.filename).toBe(
+    expect(result.requestParts.find((part) => part.type === "file")?.name).toBe(
       "C:\\Users\\Luke\\AppData\\Roaming\\ai.opencode.desktop.beta\\opencode.global.dat",
     )
   })
@@ -125,8 +132,8 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       expect(filePart.mime).toBe("application/x-directory")
-      expect(filePart.filename).toBe("docs")
-      expect(filePart.url).toBe("file:///repo/../docs")
+      expect(filePart.name).toBe("docs")
+      expect(filePart.uri).toBe("file:///repo/../docs")
       expect(filePart.source?.type).toBe("file")
       if (filePart.source?.type === "file") {
         expect(filePart.source.path).toBe("/repo/../docs")
@@ -152,7 +159,7 @@ describe("buildRequestParts", () => {
     })
 
     const fooFiles = result.requestParts.filter(
-      (part) => part.type === "file" && part.url.startsWith("file:///repo/src/foo.ts"),
+      (part) => part.type === "file" && part.uri.startsWith("file:///repo/src/foo.ts"),
     )
     const synthetic = result.requestParts.filter((part) => part.type === "text" && part.synthetic)
 
@@ -180,8 +187,8 @@ describe("buildRequestParts", () => {
 
     const files = result.requestParts.filter((part) => part.type === "file")
     expect(files).toHaveLength(2)
-    expect(files.some((part) => part.type === "file" && part.url === "file:///repo/src/review.ts")).toBe(true)
-    expect(files.some((part) => part.type === "file" && part.url === "file:///repo/src/shared.ts")).toBe(true)
+    expect(files.some((part) => part.type === "file" && part.uri === "file:///repo/src/review.ts")).toBe(true)
+    expect(files.some((part) => part.type === "file" && part.uri === "file:///repo/src/shared.ts")).toBe(true)
   })
 
   test("handles Windows paths correctly (simulated on macOS)", () => {
@@ -202,11 +209,11 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // URL should be parseable
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Should not have encoded backslashes in wrong place
-      expect(filePart.url).not.toContain("%5C")
+      expect(filePart.uri).not.toContain("%5C")
       // Should have normalized to forward slashes
-      expect(filePart.url).toContain("/src/foo.ts")
+      expect(filePart.uri).toContain("/src/foo.ts")
     }
   })
 
@@ -227,11 +234,11 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // URL should be parseable
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Special chars should be encoded
-      expect(filePart.url).toContain("file%23name.txt")
+      expect(filePart.uri).toContain("file%23name.txt")
       // Should have Windows drive letter properly encoded
-      expect(filePart.url).toMatch(/file:\/\/\/[A-Z]:/)
+      expect(filePart.uri).toMatch(/file:\/\/\/[A-Z]:/)
     }
   })
 
@@ -252,9 +259,9 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // URL should be parseable
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Should be a normal Unix path
-      expect(filePart.url).toBe("file:///home/user/project/src/app.ts")
+      expect(filePart.uri).toBe("file:///home/user/project/src/app.ts")
     }
   })
 
@@ -275,9 +282,9 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // URL should be parseable
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Should be a normal Unix path
-      expect(filePart.url).toBe("file:///Users/kelvin/Projects/opencode/README.md")
+      expect(filePart.uri).toBe("file:///Users/kelvin/Projects/opencode/README.md")
     }
   })
 
@@ -303,8 +310,8 @@ describe("buildRequestParts", () => {
     // All file URLs should be valid
     fileParts.forEach((part) => {
       if (part.type === "file") {
-        expect(() => new URL(part.url)).not.toThrow()
-        expect(part.url).not.toContain("%5C") // No encoded backslashes
+        expect(() => new URL(part.uri)).not.toThrow()
+        expect(part.uri).not.toContain("%5C") // No encoded backslashes
       }
     })
   })
@@ -328,8 +335,8 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // Should handle absolute path that differs from sessionDirectory
-      expect(() => new URL(filePart.url)).not.toThrow()
-      expect(filePart.url).toContain("/D:/other/project/file.ts")
+      expect(() => new URL(filePart.uri)).not.toThrow()
+      expect(filePart.uri).toContain("/D:/other/project/file.ts")
     }
   })
 
@@ -359,11 +366,11 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // Should have query parameters
-      expect(filePart.url).toContain("?start=10&end=20")
+      expect(filePart.uri).toContain("?start=10&end=20")
       // Should be valid URL
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Query params should parse correctly
-      const url = new URL(filePart.url)
+      const url = new URL(filePart.uri)
       expect(url.searchParams.get("start")).toBe("10")
       expect(url.searchParams.get("end")).toBe("20")
     }
@@ -388,9 +395,9 @@ describe("buildRequestParts", () => {
     expect(filePart).toBeDefined()
     if (filePart?.type === "file") {
       // Should be valid URL
-      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(() => new URL(filePart.uri)).not.toThrow()
       // Should preserve .. segments (backend normalizes)
-      expect(filePart.url).toContain("/..")
+      expect(filePart.uri).toContain("/..")
     }
   })
 })

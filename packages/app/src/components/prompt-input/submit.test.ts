@@ -1,17 +1,22 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import type { SessionInfo } from "@opencode-ai/client/promise"
 import { createStore } from "solid-js/store"
 import type { Prompt, PromptStore } from "@/context/prompt"
 import type { ModelSelection } from "@/context/local"
+import type {
+  ProductCommandInput,
+  ProductCreateTaskInput,
+  ProductInterruptInput,
+  ProductPromptInput,
+  ProductShellInput,
+  ProductTaskAdapter,
+} from "@/product/contracts"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
-const sessionCreateInputs: Array<{
-  agent?: string
-  model?: { id: string; providerID: string; variant?: string }
-  location?: { directory: string }
-}> = []
+const sessionCreateInputs: ProductCreateTaskInput[] = []
 const enabledAutoAccept: Array<{ server: string; sessionID: string; directory: string }> = []
 const optimistic: Array<{
   directory?: string
@@ -25,14 +30,16 @@ const optimistic: Array<{
 const optimisticSeeded: boolean[] = []
 const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
-const sentShell: Array<{ sessionID: string; id?: string; command: string }> = []
+const sentShell: ProductShellInput[] = []
 const syncedDirectories: string[] = []
 const promotedDrafts: Array<{ draftID: string; server: string; sessionId: string }> = []
 const sentPrompts: string[] = []
-const promptInputs: unknown[] = []
-const sentCommands: unknown[] = []
+const promptInputs: ProductPromptInput[] = []
+const sentCommands: ProductCommandInput[] = []
+const interruptInputs: ProductInterruptInput[] = []
 const commands: Array<{ name: string }> = []
 let serverSessionSyncs = 0
+let directSessionCalls = 0
 
 let params: { id?: string } = {}
 let search: { draftId?: string } = {}
@@ -72,37 +79,18 @@ const prompt = {
 
 const clientFor = (directory: string) => {
   createdClients.push(directory)
+  const direct = async () => {
+    directSessionCalls++
+    throw new Error("Direct session task API call")
+  }
   return {
     api: {
       session: {
-        create: async (input: (typeof sessionCreateInputs)[number]) => {
-          await createSessionGate
-          const location = input.location?.directory ?? directory
-          createdSessions.push(location)
-          sessionCreateInputs.push(input)
-          return {
-            id: `session-${createdSessions.length}`,
-            projectID: "project",
-            agent: input.agent,
-            model: input.model,
-            cost: 0,
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-            time: { created: 1, updated: 1 },
-            title: `New session ${createdSessions.length}`,
-            location: { directory: location },
-          }
-        },
-        prompt: async (input: unknown) => {
-          sentPrompts.push(directory)
-          promptInputs.push(input)
-          return { data: undefined }
-        },
-        command: async (input: unknown) => {
-          sentCommands.push(input)
-        },
-        shell: async (input: { sessionID: string; id?: string; command: string }) => {
-          sentShell.push(input)
-        },
+        create: direct,
+        prompt: direct,
+        command: direct,
+        shell: direct,
+        interrupt: direct,
       },
     },
     session: {
@@ -113,6 +101,45 @@ const clientFor = (directory: string) => {
       create: async () => ({ data: { directory: `${directory}/new` } }),
     },
   }
+}
+
+const taskAdapter: ProductTaskAdapter<SessionInfo> = {
+  async create(input) {
+    await createSessionGate
+    createdSessions.push(input.directory)
+    sessionCreateInputs.push(input)
+    const record = {
+      id: `session-${createdSessions.length}`,
+      projectID: "project",
+      agent: input.agent,
+      model: { id: input.model.modelID, providerID: input.model.providerID, variant: input.model.variant },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1, updated: 1 },
+      title: `New session ${createdSessions.length}`,
+      location: { directory: input.directory },
+    } as SessionInfo
+    return {
+      task: { id: record.id, directory: record.location.directory, title: record.title },
+      record,
+    }
+  },
+  async prompt(input) {
+    sentPrompts.push(input.directory)
+    promptInputs.push(input)
+    return { taskID: input.taskID, operationID: input.messageID }
+  },
+  async command(input) {
+    sentCommands.push(input)
+    return { taskID: input.taskID, operationID: input.messageID }
+  },
+  async shell(input) {
+    sentShell.push(input)
+    return { taskID: input.taskID, operationID: input.operationID }
+  },
+  async interrupt(input) {
+    interruptInputs.push(input)
+  },
 }
 
 beforeAll(async () => {
@@ -208,6 +235,10 @@ beforeAll(async () => {
     },
   }))
 
+  mock.module("@/product/context", () => ({
+    useProductTaskAdapter: () => () => taskAdapter,
+  }))
+
   mock.module("@/context/sync", () => ({
     useSync: () => () => ({
       data: { command: commands },
@@ -290,6 +321,7 @@ beforeEach(() => {
   sentPrompts.length = 0
   promptInputs.length = 0
   sentCommands.length = 0
+  interruptInputs.length = 0
   commands.length = 0
   promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
   params = {}
@@ -301,6 +333,7 @@ beforeEach(() => {
   permissionServer = "server-a"
   createSessionGate = undefined
   serverSessionSyncs = 0
+  directSessionCalls = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -332,23 +365,23 @@ describe("prompt submit worktree selection", () => {
     selected = "/repo/worktree-b"
     await submit.handleSubmit(event)
 
-    expect(createdClients).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
+    expect(createdClients).toEqual([])
     expect(createdSessions).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
     expect(sessionCreateInputs).toEqual([
       {
         agent: "agent",
-        model: { id: "model", providerID: "provider", variant: undefined },
-        location: { directory: "/repo/worktree-a" },
+        directory: "/repo/worktree-a",
+        model: { modelID: "model", providerID: "provider", variant: undefined },
       },
       {
         agent: "agent",
-        model: { id: "model", providerID: "provider", variant: undefined },
-        location: { directory: "/repo/worktree-b" },
+        directory: "/repo/worktree-b",
+        model: { modelID: "model", providerID: "provider", variant: undefined },
       },
     ])
     expect(sentShell).toEqual([
-      expect.objectContaining({ sessionID: "session-1", id: expect.stringMatching(/^evt_/), command: "ls" }),
-      expect.objectContaining({ sessionID: "session-2", id: expect.stringMatching(/^evt_/), command: "ls" }),
+      expect.objectContaining({ taskID: "session-1", operationID: expect.stringMatching(/^evt_/), command: "ls" }),
+      expect.objectContaining({ taskID: "session-2", operationID: expect.stringMatching(/^evt_/), command: "ls" }),
     ])
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
     expect(serverSessionSyncs).toBe(0)
@@ -356,6 +389,7 @@ describe("prompt submit worktree selection", () => {
       { directory: "/repo/worktree-a", sessionID: "session-1" },
       { directory: "/repo/worktree-b", sessionID: "session-2" },
     ])
+    expect(directSessionCalls).toBe(0)
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
   })
 
@@ -483,18 +517,19 @@ describe("prompt submit worktree selection", () => {
     })
     expect(sentPrompts).toEqual(["/repo/main"])
     expect(promptInputs[0]).toMatchObject({
-      sessionID: "session-1",
-      text: "ls",
-      files: [],
-      agents: [],
+      taskID: "session-1",
+      directory: "/repo/main",
+      agent: "agent",
+      model: { providerID: "provider", modelID: "model", variant: "high" },
     })
-    expect((promptInputs[0] as { id?: string }).id).toStartWith("msg_")
-    expect((promptInputs[0] as { legacyParts?: { id: string; type: string; text?: string }[] }).legacyParts).toEqual([
+    expect(promptInputs[0]?.messageID).toStartWith("msg_")
+    expect(promptInputs[0]?.parts).toEqual([
       { id: expect.stringMatching(/^prt_/), type: "text", text: "ls" },
     ])
+    expect(directSessionCalls).toBe(0)
   })
 
-  test("submits slash commands through the current session API", async () => {
+  test("submits slash commands through the product adapter", async () => {
     params = { id: "session-1" }
     variant = "high"
     commands.push({ name: "review" })
@@ -521,16 +556,18 @@ describe("prompt submit worktree selection", () => {
 
     expect(sentCommands).toEqual([
       {
-        sessionID: "session-1",
-        id: expect.stringMatching(/^msg_/),
+        taskID: "session-1",
+        directory: "/repo/main",
+        messageID: expect.stringMatching(/^msg_/),
         command: "review",
         arguments: "staged changes",
         agent: "agent",
-        model: { id: "model", providerID: "provider", variant: "high" },
+        model: { modelID: "model", providerID: "provider", variant: "high" },
         files: [],
       },
     ])
     expect(serverSessionSyncs).toBe(0)
+    expect(directSessionCalls).toBe(0)
   })
 
   test("uses an injected model selection", async () => {

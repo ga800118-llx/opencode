@@ -1,12 +1,11 @@
 import { getFilename } from "@opencode-ai/core/util/path"
-import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { Part } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
 import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { ProductPromptPart } from "@/product/contracts"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
-
-type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
 type ContextFile = {
   key: string
@@ -52,7 +51,7 @@ const parseCommentMentions = (comment: string) => {
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
 
-const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
+const toOptimisticPart = (part: ProductPromptPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
     return {
       id: part.id,
@@ -61,7 +60,7 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
       synthetic: part.synthetic,
       ignored: part.ignored,
       time: part.time,
-      metadata: part.metadata,
+      metadata: part.metadata?.comment ? createCommentMetadata(part.metadata.comment) : undefined,
       sessionID,
       messageID,
     }
@@ -71,8 +70,8 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
       id: part.id,
       type: "file",
       mime: part.mime,
-      filename: part.filename,
-      url: part.url,
+      filename: part.name,
+      url: part.uri,
       source: part.source,
       sessionID,
       messageID,
@@ -82,14 +81,14 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
     id: part.id,
     type: "agent",
     name: part.name,
-    source: part.source,
+    source: part.mention && { value: part.mention.text, start: part.mention.start, end: part.mention.end },
     sessionID,
     messageID,
   }
 }
 
 export function buildRequestParts(input: BuildRequestPartsInput) {
-  const requestParts: PromptRequestPart[] = input.text.trim()
+  const requestParts: ProductPromptPart[] = input.text.trim()
     ? [
         {
           id: Identifier.ascending("part"),
@@ -123,10 +122,10 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
       id: Identifier.ascending("part"),
       type: "file",
       mime: attachment.mime ?? "text/plain",
-      url: attachment.url ?? `file://${encodeFilePath(path)}${fileQuery(attachment.selection)}`,
-      filename: attachment.filename ?? getFilename(attachment.path),
+      uri: attachment.url ?? `file://${encodeFilePath(path)}${fileQuery(attachment.selection)}`,
+      name: attachment.filename ?? getFilename(attachment.path),
       source,
-    } satisfies PromptRequestPart
+    } satisfies ProductPromptPart
   })
 
   const agents = input.prompt.filter(isAgentAttachment).map((attachment) => {
@@ -134,15 +133,15 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
       id: Identifier.ascending("part"),
       type: "agent",
       name: attachment.name,
-      source: {
-        value: attachment.content,
+      mention: {
+        text: attachment.content,
         start: attachment.start,
         end: attachment.end,
       },
-    } satisfies PromptRequestPart
+    } satisfies ProductPromptPart
   })
 
-  const used = new Set(files.map((part) => part.url))
+  const used = new Set(files.map((part) => part.uri))
   const context = input.context.flatMap((item) => {
     const path = absolute(input.sessionDirectory, item.path)
     const url = `file://${encodeFilePath(path)}${fileQuery(item.selection)}`
@@ -154,9 +153,9 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
       id: Identifier.ascending("part"),
       type: "file",
       mime: "text/plain",
-      url,
-      filename: getFilename(item.path),
-    } satisfies PromptRequestPart
+      uri: url,
+      name: getFilename(item.path),
+    } satisfies ProductPromptPart
 
     if (!comment) return [filePart]
 
@@ -169,9 +168,9 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
           id: Identifier.ascending("part"),
           type: "file",
           mime: "text/plain",
-          url,
-          filename: getFilename(path),
-        } satisfies PromptRequestPart,
+          uri: url,
+          name: getFilename(path),
+        } satisfies ProductPromptPart,
       ]
     })
 
@@ -181,14 +180,16 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
         type: "text",
         text: formatCommentNote({ path: item.path, selection: item.selection, comment }),
         synthetic: true,
-        metadata: createCommentMetadata({
-          path: item.path,
-          selection: item.selection,
-          comment,
-          preview: item.preview,
-          origin: item.commentOrigin,
-        }),
-      } satisfies PromptRequestPart,
+        metadata: {
+          comment: {
+            path: item.path,
+            selection: item.selection,
+            comment,
+            preview: item.preview,
+            origin: item.commentOrigin,
+          },
+        },
+      } satisfies ProductPromptPart,
       filePart,
       ...mentions,
     ]
@@ -199,9 +200,9 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
       id: Identifier.ascending("part"),
       type: "file",
       mime: attachment.mime,
-      url: attachment.dataUrl,
-      filename: attachment.sourcePath ?? attachment.filename,
-    } satisfies PromptRequestPart
+      uri: attachment.dataUrl,
+      name: attachment.sourcePath ?? attachment.filename,
+    } satisfies ProductPromptPart
   })
 
   requestParts.push(...files, ...context, ...agents, ...images)

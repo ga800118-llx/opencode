@@ -66,3 +66,14 @@ export {
 } from "./product/contracts"
 export { normalizeProductError } from "./product/errors"
 export { PRODUCT_FEATURES, type ProductFeatureFlags } from "./product/features"
+export {
+  BROWSER_PRODUCT_RUNTIME,
+  createRuntimeTaskAdapter,
+  ProductRuntimeProvider,
+  type ProductHost,
+  type ProductRuntime,
+  type ProductTaskAdapterFactory,
+  useProductRuntime,
+  useProductTaskAdapter,
+} from "./product/context"
+export { createProductTaskAdapter, type ProductTaskAdapterIDs } from "./product/task-adapter"

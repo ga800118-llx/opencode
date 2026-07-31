@@ -69,6 +69,7 @@ import { createSessionLineage } from "@/pages/session/session-lineage"
 import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } from "@/pages/session"
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
+import { ProductRuntimeProvider, type ProductRuntime } from "@/product/context"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -385,7 +386,7 @@ function DraftProviders(props: ParentProps) {
   )
 }
 
-export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
+export function AppBaseProviders(props: ParentProps<{ locale?: Locale; runtime?: ProductRuntime }>) {
   return (
     <MetaProvider>
       <Font />
@@ -394,26 +395,28 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
           void window.api?.setTitlebar?.({ mode, scheme })
         }}
       >
-        <LanguageProvider locale={props.locale}>
-          <UiI18nBridge>
-            <ErrorBoundary
-              fallback={(error) => {
-                Sentry.captureException(error)
-                return <ErrorPage error={error} />
-              }}
-            >
-              <QueryProvider>
-                <WslServersProvider>
-                  <DialogProvider>
-                    <MarkedProvider>
-                      <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
-                    </MarkedProvider>
-                  </DialogProvider>
-                </WslServersProvider>
-              </QueryProvider>
-            </ErrorBoundary>
-          </UiI18nBridge>
-        </LanguageProvider>
+        <ProductRuntimeProvider runtime={props.runtime}>
+          <LanguageProvider locale={props.locale}>
+            <UiI18nBridge>
+              <ErrorBoundary
+                fallback={(error) => {
+                  Sentry.captureException(error)
+                  return <ErrorPage error={error} />
+                }}
+              >
+                <QueryProvider>
+                  <WslServersProvider>
+                    <DialogProvider>
+                      <MarkedProvider>
+                        <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
+                      </MarkedProvider>
+                    </DialogProvider>
+                  </WslServersProvider>
+                </QueryProvider>
+              </ErrorBoundary>
+            </UiI18nBridge>
+          </LanguageProvider>
+        </ProductRuntimeProvider>
       </ThemeProvider>
     </MetaProvider>
   )

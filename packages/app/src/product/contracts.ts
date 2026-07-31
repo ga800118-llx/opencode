@@ -114,7 +114,6 @@ export type ProductTask = {
 
 export type ProductCreateTaskInput = {
   readonly directory: ProductDirectory
-  readonly title?: string
   readonly agent: string
   readonly model: ProductModelSelection
 }

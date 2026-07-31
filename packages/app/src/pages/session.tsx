@@ -64,6 +64,7 @@ import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
 import { promptLength } from "@/components/prompt-input/history"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
+import { useProductTaskAdapter } from "@/product/context"
 import {
   createPromptInputController,
   createSessionComposerController,
@@ -360,6 +361,7 @@ export default function Page() {
   const dialog = useDialog()
   const language = useLanguage()
   const sdk = useSDK()
+  const taskAdapter = useProductTaskAdapter()
   const serverSDK = useServerSDK()
   const settings = useSettings()
   const platform = usePlatform()
@@ -1724,7 +1726,7 @@ export default function Page() {
       setFollowup("failed", input.sessionID, undefined)
 
       const ok = await sendFollowupDraft({
-        api: sdk().api.session,
+        adapter: taskAdapter(),
         sync: sync(),
         serverSync: serverSync(),
         draft: item,
@@ -1819,8 +1821,8 @@ export default function Page() {
 
   const halt = (sessionID: string) =>
     busy(sessionID)
-      ? sdk()
-          .api.session.interrupt({ sessionID })
+      ? taskAdapter()
+          .interrupt({ taskID: sessionID, directory: sdk().directory })
           .catch(() => {})
       : Promise.resolve()
 

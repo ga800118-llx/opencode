@@ -1,3 +1,4 @@
+import type { SessionInfo } from "@opencode-ai/client/promise"
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
@@ -11,7 +12,9 @@ import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
-import { useSDK, type DirectorySDK } from "@/context/sdk"
+import { useSDK } from "@/context/sdk"
+import type { ProductTaskAdapter } from "@/product/contracts"
+import { useProductTaskAdapter } from "@/product/context"
 import { useSync, type DirectorySync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
@@ -41,7 +44,7 @@ export type FollowupDraft = {
 }
 
 type FollowupSendInput = {
-  api: DirectorySDK["api"]["session"]
+  adapter: ProductTaskAdapter<SessionInfo>
   serverSync: ServerSync
   sync: DirectorySync
   draft: FollowupDraft
@@ -84,20 +87,24 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       }
 
       const messageID = Identifier.ascending("message")
-      await input.api.command({
-        sessionID: input.draft.sessionID,
-        id: messageID,
+      await input.adapter.command({
+        taskID: input.draft.sessionID,
+        directory: input.draft.sessionDirectory,
+        messageID,
         command: cmd,
         arguments: tail.join(" "),
         agent: input.draft.agent,
         model: {
-          id: input.draft.model.modelID,
+          modelID: input.draft.model.modelID,
           providerID: input.draft.model.providerID,
           variant: input.draft.variant,
         },
         files: images.map((attachment) => ({
+          id: Identifier.ascending("part"),
+          type: "file" as const,
           uri: attachment.dataUrl,
           name: attachment.filename,
+          mime: attachment.mime,
         })),
       })
       return true
@@ -156,37 +163,13 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       return false
     }
 
-    await input.api.prompt({
-      sessionID: input.draft.sessionID,
-      id: messageID,
+    await input.adapter.prompt({
+      taskID: input.draft.sessionID,
+      directory: input.draft.sessionDirectory,
+      messageID,
       agent: input.draft.agent,
-      model: input.draft.model,
-      variant: input.draft.variant,
-      legacyParts: requestParts,
-      text: requestParts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-      files: requestParts.flatMap((part) => {
-        if (part.type !== "file") return []
-        const text = part.source?.text
-        return [
-          {
-            uri: part.url,
-            name: part.filename,
-            mention: text ? { start: text.start, end: text.end, text: text.value } : undefined,
-          },
-        ]
-      }),
-      agents: requestParts.flatMap((part) =>
-        part.type === "agent"
-          ? [
-              {
-                name: part.name,
-                mention: part.source
-                  ? { start: part.source.start, end: part.source.end, text: part.source.value }
-                  : undefined,
-              },
-            ]
-          : [],
-      ),
+      model: { ...input.draft.model, variant: input.draft.variant },
+      parts: requestParts,
     })
     return true
   } catch (err) {
@@ -225,6 +208,7 @@ type PromptSubmitInput = {
 export function createPromptSubmit(input: PromptSubmitInput) {
   const navigate = useNavigate()
   const sdk = useSDK()
+  const taskAdapter = useProductTaskAdapter()
   const sync = useSync()
   const serverSync = useServerSync()
   const local = useLocal()
@@ -263,8 +247,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       pending.delete(key)
       return Promise.resolve()
     }
-    return sdk()
-      .api.session.interrupt({ sessionID })
+    return taskAdapter()
+      .interrupt({ taskID: sessionID, directory: sdk().directory })
       .catch(() => {})
   }
 
@@ -348,11 +332,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
-    let client = sdk().client
-
     if (isNewSession) {
       if (worktreeSelection === "create") {
-        const createdWorktree = await client.worktree
+        const createdWorktree = await sdk().client.worktree
           .create({ directory: projectDirectory })
           .then((x) => x.data)
           .catch((err) => {
@@ -379,10 +361,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
 
       if (sessionDirectory !== projectDirectory) {
-        client = sdk().createClient({
-          directory: sessionDirectory,
-          throwOnError: true,
-        })
         serverSync().child(sessionDirectory)
       }
 
@@ -391,13 +369,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     let session = input.info()
     if (!session && isNewSession) {
-      const created = await sdk()
-        .api.session.create({
+      const created = await taskAdapter()
+        .create({
+          directory: sessionDirectory,
           agent: currentAgent.name,
-          model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
-          location: { directory: sessionDirectory },
+          model: { modelID: currentModel.id, providerID: currentModel.provider.id, variant },
         })
-        .then(normalizeSessionInfo)
+        .then((output) => normalizeSessionInfo(output.record))
         .catch((err) => {
           showToast({
             title: language.t("prompt.toast.sessionCreateFailed.title"),
@@ -482,13 +460,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (mode === "shell") {
       clearInput()
       const eventID = Event.ID.create()
-      sdk()
-        .api.session.shell({
-          sessionID: session.id,
-          id: eventID,
+      taskAdapter()
+        .shell({
+          taskID: session.id,
+          directory: sessionDirectory,
+          operationID: eventID,
           command: text,
           agent,
-          model,
+          model: { ...model, variant },
         })
         .catch((err) => {
           showToast({
@@ -508,17 +487,21 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         clearInput()
         const messageID = Identifier.ascending("message")
         serverSync().session.set("session_status", session.id, { type: "busy" })
-        sdk()
-          .api.session.command({
-            sessionID: session.id,
-            id: messageID,
+        taskAdapter()
+          .command({
+            taskID: session.id,
+            directory: sessionDirectory,
+            messageID,
             command: commandName,
             arguments: args.join(" "),
             agent,
-            model: { id: model.modelID, providerID: model.providerID, variant },
+            model: { ...model, variant },
             files: images.map((attachment) => ({
+              id: Identifier.ascending("part"),
+              type: "file" as const,
               uri: attachment.dataUrl,
               name: attachment.filename,
+              mime: attachment.mime,
             })),
           })
           .catch((err) => {
@@ -606,7 +589,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     void sendFollowupDraft({
-      api: sdk().api.session,
+      adapter: taskAdapter(),
       sync: sync(),
       serverSync: serverSync(),
       draft,

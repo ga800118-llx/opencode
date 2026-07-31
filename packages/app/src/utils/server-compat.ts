@@ -20,11 +20,14 @@ type LegacyClient = OpencodeClient
 type LegacyFor = (directory?: string) => LegacyClient
 type CompatibleSessionApi = Omit<
   SessionApi,
-  "prompt" | "command" | "shell" | "compact" | "rename" | "archive" | "remove"
+  "prompt" | "command" | "shell" | "interrupt" | "compact" | "rename" | "archive" | "remove"
 > & {
-  prompt: (input: SessionPromptInput & LegacyPrompt) => Promise<SessionPromptOutput>
-  command: (input: SessionCommandInput) => Promise<SessionCommandOutput>
-  shell: (input: SessionShellInput & LegacyPrompt) => Promise<SessionShellOutput>
+  prompt: (input: SessionPromptInput & LegacyPrompt & CompatibleLocation) => Promise<SessionPromptOutput>
+  command: (input: SessionCommandInput & CompatibleLocation) => Promise<SessionCommandOutput>
+  shell: (input: SessionShellInput & LegacyPrompt & CompatibleLocation) => Promise<SessionShellOutput>
+  interrupt: (
+    input: Parameters<SessionApi["interrupt"]>[0] & CompatibleLocation,
+  ) => ReturnType<SessionApi["interrupt"]>
   compact: (input: SessionCompactInput & { model?: LegacyPrompt["model"] }) => Promise<SessionCompactOutput>
   rename: (input: Parameters<SessionApi["rename"]>[0] & LegacyLocation) => ReturnType<SessionApi["rename"]>
   // archive: (input: Parameters<SessionApi["archive"]>[0] & LegacyLocation) => ReturnType<SessionApi["archive"]>
@@ -46,6 +49,7 @@ type LegacyPrompt = {
   legacyParts?: (TextPartInput | FilePartInput | AgentPartInput)[]
 }
 type LegacyLocation = { directory?: string }
+type CompatibleLocation = { location?: LegacyLocation }
 type CompatibleInput = {
   protocol: Promise<ServerProtocol>
   current: ServerApi
@@ -194,11 +198,11 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         if (!result.data) throw new Error("Failed to fork session")
         return sessionInfo(result.data)
       },
-      async interrupt(value: Parameters<ServerApi["session"]["interrupt"]>[0]) {
-        await legacy().session.abort(value)
+      async interrupt(value: Parameters<ServerApi["session"]["interrupt"]>[0] & CompatibleLocation) {
+        await legacy(value.location).session.abort({ sessionID: value.sessionID })
       },
-      async prompt(value: SessionPromptInput & LegacyPrompt) {
-        await legacy().session.promptAsync({
+      async prompt(value: SessionPromptInput & LegacyPrompt & CompatibleLocation) {
+        await legacy(value.location).session.promptAsync({
           sessionID: value.sessionID,
           messageID: value.id ?? undefined,
           agent: value.agent,
@@ -238,8 +242,8 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           delivery: value.delivery ?? "steer",
         }
       },
-      async command(value: SessionCommandInput) {
-        await legacy().session.command({
+      async command(value: SessionCommandInput & CompatibleLocation) {
+        await legacy(value.location).session.command({
           sessionID: value.sessionID,
           messageID: value.id ?? undefined,
           command: value.command,
@@ -264,8 +268,8 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           delivery: value.delivery ?? "steer",
         }
       },
-      async shell(value: SessionShellInput & LegacyPrompt) {
-        await legacy().session.shell({
+      async shell(value: SessionShellInput & LegacyPrompt & CompatibleLocation) {
+        await legacy(value.location).session.shell({
           sessionID: value.sessionID,
           command: value.command,
           agent: value.agent,
