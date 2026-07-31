@@ -5,33 +5,13 @@ import type { ProductTaskAdapter } from "./contracts"
 import {
   BROWSER_PRODUCT_RUNTIME,
   createRuntimeTaskAdapter,
-  ProductRuntimeProvider,
+  resolveProductRuntime,
   type ProductRuntime,
-  useProductRuntime,
 } from "./context"
-import { createComponent, createRoot } from "solid-js"
-
-function captureRuntime(runtime?: ProductRuntime) {
-  let captured: ProductRuntime | undefined
-  const Capture = () => {
-    captured = useProductRuntime()
-    return null
-  }
-  createRoot((dispose) => {
-    createComponent(ProductRuntimeProvider, {
-      runtime,
-      get children() {
-        return createComponent(Capture, {})
-      },
-    })
-    dispose()
-  })
-  return captured
-}
 
 describe("ProductRuntimeProvider", () => {
   test("defaults browser and test hosts to the standard adapter factory", () => {
-    expect(captureRuntime()).toBe(BROWSER_PRODUCT_RUNTIME)
+    expect(resolveProductRuntime()).toBe(BROWSER_PRODUCT_RUNTIME)
     expect(BROWSER_PRODUCT_RUNTIME.host).toEqual({ kind: "browser" })
   })
 
@@ -47,7 +27,7 @@ describe("ProductRuntimeProvider", () => {
     } satisfies ProductRuntime
     const api = {} as CompatibleApi
 
-    expect(captureRuntime(runtime)).toBe(runtime)
+    expect(resolveProductRuntime(runtime)).toBe(runtime)
     expect(createRuntimeTaskAdapter(runtime, api)).toBe(adapter)
     expect(calls).toEqual([api])
     expect(Object.keys(runtime.host)).toEqual(["kind"])

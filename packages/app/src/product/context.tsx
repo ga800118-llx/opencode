@@ -26,9 +26,13 @@ export function createRuntimeTaskAdapter(runtime: ProductRuntime, api: Compatibl
   return runtime.createTaskAdapter(api)
 }
 
+export function resolveProductRuntime(runtime?: ProductRuntime) {
+  return runtime ?? BROWSER_PRODUCT_RUNTIME
+}
+
 export const { use: useProductRuntime, provider: ProductRuntimeProvider } = createSimpleContext({
   name: "ProductRuntime",
-  init: (props: { runtime?: ProductRuntime }) => props.runtime ?? BROWSER_PRODUCT_RUNTIME,
+  init: (props: { runtime?: ProductRuntime }) => resolveProductRuntime(props.runtime),
 })
 
 export function useProductTaskAdapter() {
