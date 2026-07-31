@@ -28,3 +28,28 @@ export {
 } from "./wsl/types"
 export { ServerConnection } from "./context/server"
 export { handleNotificationClick } from "./utils/notification-click"
+export {
+  type ProductAgentInput,
+  type ProductCommandInput,
+  type ProductCreateTaskInput,
+  type ProductCreateTaskOutput,
+  type ProductDirectory,
+  type ProductError,
+  type ProductErrorDiagnostic,
+  type ProductErrorKind,
+  type ProductFileInput,
+  type ProductInterruptInput,
+  type ProductInterruptOutput,
+  type ProductMention,
+  type ProductMessageID,
+  type ProductMessageOutput,
+  type ProductModelSelection,
+  type ProductPromptInput,
+  type ProductShellInput,
+  type ProductTask,
+  type ProductTaskAdapter,
+  type ProductTaskEvent,
+  type ProductTaskID,
+} from "./product/contracts"
+export { normalizeProductError } from "./product/errors"
+export { PRODUCT_FEATURES, type ProductFeatureFlags } from "./product/features"
