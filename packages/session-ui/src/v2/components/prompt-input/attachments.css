@@ -1,4 +1,4 @@
-[data-component="prompt-input"]:empty::before {
+[data-component="prompt-input-v2"] [data-component="prompt-input"]:empty::before {
   content: "\200B";
 }
 
