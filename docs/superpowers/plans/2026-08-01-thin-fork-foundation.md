@@ -47,14 +47,16 @@ Phase 1 is complete only when:
 **Files:**
 
 - Modify: `packages/session-ui/src/v2/components/prompt-input/index.tsx`
-- Modify: `packages/app/src/i18n/ar.ts`
+- Modify: `packages/session-ui/src/v2/components/prompt-input/attachments.css`
+- Create: `packages/session-ui/src/v2/components/prompt-input/placeholder.test.ts`
+- Modify: `packages/app/src/i18n/{ar,br,bs,da,de,es,fr,ja,ko,no,pl,ru,th,tr,uk,zh,zht}.ts`
 - Test: `packages/app/src/i18n/parity.test.ts`
 
-- [ ] **Step 1: Add a focused regression assertion for the CSS content escape**
+- [x] **Step 1: Add a focused regression assertion for the CSS content escape**
 
 Use the CSS hexadecimal escape form that survives TypeScript string parsing and is accepted by oxlint. Keep the zero-width placeholder behavior unchanged.
 
-- [ ] **Step 2: Add the five missing Arabic catalog keys**
+- [x] **Step 2: Add the five missing catalog keys**
 
 Add translations for:
 
@@ -64,7 +66,11 @@ Add translations for:
 - `session.header.reveal.fileExplorer`
 - `session.header.reveal.containingFolder`
 
-- [ ] **Step 3: Run the inherited failure guards**
+The parity test stops at the first failing locale, so the Phase 0 report exposed
+Arabic only. After that repair, all other 16 non-English App catalogs reported
+the same five-key delta. Complete all 17 catalogs rather than weakening parity.
+
+- [x] **Step 3: Run the inherited failure guards**
 
 Run:
 
@@ -76,10 +82,10 @@ bun run --cwd packages/app test:unit
 
 Expected: both commands exit 0; the prior lint error and five-key parity delta are gone.
 
-- [ ] **Step 4: Commit the baseline repair**
+- [x] **Step 4: Commit the baseline repair**
 
 ```bash
-git add packages/session-ui/src/v2/components/prompt-input/index.tsx packages/app/src/i18n/ar.ts
+git add packages/session-ui/src/v2/components/prompt-input packages/app/src/i18n
 git commit -m "fix: clear inherited quality baseline failures"
 ```
 
