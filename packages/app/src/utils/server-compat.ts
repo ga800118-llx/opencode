@@ -201,11 +201,15 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         return sessionInfo(result.data)
       },
       async interrupt(value: Parameters<ServerApi["session"]["interrupt"]>[0] & CompatibleLocation) {
-        await legacy(value.location).session.abort({ sessionID: value.sessionID })
+        await legacy(value.location).session.abort({
+          sessionID: value.sessionID,
+          directory: directory(value.location),
+        })
       },
       async prompt(value: SessionPromptInput & LegacyPrompt & CompatibleLocation) {
         await legacy(value.location).session.promptAsync({
           sessionID: value.sessionID,
+          directory: directory(value.location),
           messageID: value.id ?? undefined,
           agent: value.agent,
           model: value.model,
@@ -247,6 +251,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       async command(value: SessionCommandInput & CompatibleLocation) {
         await legacy(value.location).session.command({
           sessionID: value.sessionID,
+          directory: directory(value.location),
           messageID: value.id ?? undefined,
           command: value.command,
           arguments: value.arguments ?? "",
@@ -274,6 +279,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         // The shell endpoint records local command output and has no model-variant field.
         await legacy(value.location).session.shell({
           sessionID: value.sessionID,
+          directory: directory(value.location),
           messageID: value.id ?? undefined,
           command: value.command,
           agent: value.agent,

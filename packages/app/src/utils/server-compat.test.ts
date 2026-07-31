@@ -126,6 +126,8 @@ describe("createCompatibleApi", () => {
       text: "hello @src/index.ts",
       agent: "build",
       model: { providerID: "provider", modelID: "model" },
+      variant: "high",
+      location: { directory: "/other" },
       files: [
         { uri: "file:///repo/src/index.ts", name: "index.ts", mention: { text: "@src/index.ts", start: 6, end: 19 } },
         { uri: "data:text/plain;base64,aGVsbG8=", name: "notes.txt" },
@@ -133,11 +135,13 @@ describe("createCompatibleApi", () => {
     })
 
     expect(new URL(requests[0]!.url).pathname).toBe("/session/ses_1/prompt_async")
+    expect(new URL(requests[0]!.url).searchParams.get("directory")).toBe("/other")
     const body = await requests[0]!.json()
     expect(body).toMatchObject({
       messageID: "msg_1",
       agent: "build",
       model: { providerID: "provider", modelID: "model" },
+      variant: "high",
       parts: [
         { type: "text", text: "hello @src/index.ts" },
         {
@@ -179,6 +183,40 @@ describe("createCompatibleApi", () => {
       { id: "prt_text", type: "text", text: "look" },
       { id: "prt_image", type: "file", mime: "image/png", url: "data:image/png;base64,AAAA", filename: "image.png" },
     ])
+  })
+
+  test("preserves IDs, variants, and directory for V1 commands", async () => {
+    const { api, requests } = setup("v1")
+    await api.session.command({
+      sessionID: "ses_1",
+      id: "msg_1",
+      command: "review",
+      arguments: "staged",
+      agent: "build",
+      model: { id: "model", providerID: "provider", variant: "high" },
+      location: { directory: "/other" },
+    })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session/ses_1/command")
+    expect(url.searchParams.get("directory")).toBe("/other")
+    expect(await requests[0]!.json()).toMatchObject({
+      messageID: "msg_1",
+      command: "review",
+      arguments: "staged",
+      agent: "build",
+      model: "provider/model",
+      variant: "high",
+    })
+  })
+
+  test("routes V1 interrupts through the requested directory", async () => {
+    const { api, requests } = setup("v1")
+    await api.session.interrupt({ sessionID: "ses_1", location: { directory: "/other" } })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session/ses_1/abort")
+    expect(url.searchParams.get("directory")).toBe("/other")
   })
 
   test("resolves protocol detection once across implementation methods", async () => {
