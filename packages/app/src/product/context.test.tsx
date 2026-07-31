@@ -9,24 +9,21 @@ import {
   type ProductRuntime,
   useProductRuntime,
 } from "./context"
-import { render } from "solid-js/web"
+import { renderToString } from "solid-js/web"
 
 function captureRuntime(runtime?: ProductRuntime) {
-  const root = document.createElement("div")
   let captured: ProductRuntime | undefined
   const Capture = () => {
     captured = useProductRuntime()
     return null
   }
-  const dispose = render(
+  renderToString(
     () => (
       <ProductRuntimeProvider runtime={runtime}>
         <Capture />
       </ProductRuntimeProvider>
     ),
-    root,
   )
-  dispose()
   return captured
 }
 
