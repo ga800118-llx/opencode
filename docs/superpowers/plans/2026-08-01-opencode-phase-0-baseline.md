@@ -266,7 +266,7 @@ Run:
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json \
+MODELS_DEV_API_JSON=/tmp/models-dev-410468e/packages/web/dist/_api.json \
   OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 
@@ -586,7 +586,7 @@ Run:
 export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/desktop typecheck
 (cd packages/desktop && bun test src)
-MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json \
+MODELS_DEV_API_JSON=/tmp/models-dev-410468e/packages/web/dist/_api.json \
   OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 

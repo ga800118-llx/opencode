@@ -59,7 +59,10 @@ These failures were present on the pinned source before product changes.
 
 The direct Models.dev API timed out in this network. The successful build used
 `MODELS_DEV_API_JSON` generated from Models.dev commit
-`410468e9bbcbeb2f6336f8ca3b555a9964317a81`.
+`410468e9bbcbeb2f6336f8ca3b555a9964317a81`. The generated `_api.json` SHA-256 is
+`0935bc2a6a6068e0355a94976211db2d9e7c0198ec3e22866dd996f61b2a8306`;
+`upstream.md` contains the complete clone, checkout, install, build, and checksum
+procedure.
 
 Generated outputs:
 
@@ -72,6 +75,8 @@ Generated outputs:
 The unpacked app is about 577 MB. Packaging intentionally skipped signing and
 notarization. Electron-builder also reported missing package description, absent
 optional non-arm64 dependencies, and no `packages/desktop/native` directory.
+The `.app` does not include the root MIT `LICENSE`; this is a recorded packaging
+gap that must be fixed before Phase 4 distribution.
 
 ## Runtime Smoke
 
@@ -110,11 +115,20 @@ Dev packaging also attempts a background install of `@opencode-ai/plugin@local`,
 which is unavailable from the public registry, and logs a warning. It does not
 prevent sidecar health, project initialization, or the desktop workflow.
 
+## Known-Failure Guard
+
+Phase 1 must repair the inherited lint escape and the five missing Arabic i18n
+keys before App or Session UI feature work begins. Until that repair is committed,
+quality runs are accepted only when their failure set exactly matches the two
+documented upstream failures above; any additional lint error or failing test is a
+product regression and blocks the phase. After the repair, lint and App unit tests
+must both exit 0 in every Phase 1-3 gate.
+
 ## Phase 0 Gate
 
 **PASS with recorded upstream defects.** Provenance, full upstream history,
 dependency reproducibility, all four type checks, desktop/Core/runtime tests,
 desktop build, unsigned packaging, sidecar health, Git project initialization,
-source ownership, parity, and license evidence are complete. The two failing
+source ownership, parity, and the engineering license audit are complete. The two failing
 quality checks are unchanged upstream defects documented above and do not block
 Phase 1 adapter work.

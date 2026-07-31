@@ -21,7 +21,7 @@ Phase 1-3 may simplify presentation but must not remove these capabilities.
 | Tabs and multiple tasks | Layout and tab contexts | Multiple sessions/new-session tabs remain open | Map clearly to task navigation |
 | Localization | App and Desktop i18n modules | English and Simplified Chinese catalogs load | Add product copy to both catalogs |
 | Diagnostics and recovery | Desktop logging, status, sidecar lifecycle | Logs, server health, revert, and restore paths exist | Add actionable product error mapping |
-| Multiple servers | Server context and settings | Local, HTTP, SSH, and WSL connection structures exist | Keep remote server support in Advanced mode |
+| Multiple servers | Server context and settings | Local sidecar, HTTP, and WSL connections are implemented; SSH is only a reserved type with no host or settings implementation | Keep implemented remote support in Advanced mode; do not claim SSH until it is built and tested |
 
 ## Provider Baseline
 

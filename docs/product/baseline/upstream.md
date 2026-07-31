@@ -33,6 +33,21 @@ MODELS_DEV_API_JSON=/path/to/models.dev/_api.json \
 ```
 
 The `MODELS_DEV_API_JSON` override is required in networks where
-`https://models.dev/api.json` is not reachable. The file must be generated from a
-pinned Models.dev checkout; Phase 0 used commit
-`410468e9bbcbeb2f6336f8ca3b555a9964317a81`.
+`https://models.dev/api.json` is not reachable. Reproduce the Phase 0 snapshot as
+follows:
+
+```bash
+export PATH="$HOME/.bun/bin:$PATH"
+models_dir=/tmp/models-dev-410468e
+git clone https://github.com/anomalyco/models.dev.git "$models_dir"
+git -C "$models_dir" checkout 410468e9bbcbeb2f6336f8ca3b555a9964317a81
+test "$(git -C "$models_dir" rev-parse HEAD)" = "410468e9bbcbeb2f6336f8ca3b555a9964317a81"
+(cd "$models_dir" && bun install --frozen-lockfile)
+bun run --cwd "$models_dir/packages/web" build
+test "$(shasum -a 256 "$models_dir/packages/web/dist/_api.json" | cut -d' ' -f1)" = \
+  "0935bc2a6a6068e0355a94976211db2d9e7c0198ec3e22866dd996f61b2a8306"
+```
+
+Use `$models_dir/packages/web/dist/_api.json` as the override path. The SHA-256
+assertion fixes both the source commit and the generated data consumed by the
+desktop build.

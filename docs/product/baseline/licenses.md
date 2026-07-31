@@ -14,4 +14,12 @@ in source and distributed copies.
 5. Review every newly added dependency for license compatibility.
 6. Preserve attribution when upstream source is modified or redistributed.
 
+## Current Packaging Gap
+
+The Phase 0 unsigned `.app` does not include the root OpenCode `LICENSE` text in
+its application resources. Electron-builder currently packages Desktop `out` and
+`resources`, while the root license remains outside the bundle. Phase 0 records
+this as an upstream distribution gap; the product build must add the MIT notice
+and verified third-party notices before any Phase 4 distribution.
+
 Phase 0 license review is an engineering inventory, not a legal opinion.
