@@ -4,9 +4,30 @@ import type { Configuration } from "electron-builder"
 const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
 
 const channels = [
-  { channel: "dev", appId: "ai.opencode.desktop.dev" },
-  { channel: "beta", appId: "ai.opencode.desktop.beta" },
-  { channel: "prod", appId: "ai.opencode.desktop" },
+  {
+    channel: "dev",
+    appId: "dev.agent.desktop",
+    productName: "Agent Desktop Dev",
+    protocolScheme: "agent-desktop-dev",
+    artifactPrefix: "agent-desktop-dev",
+    publish: undefined,
+  },
+  {
+    channel: "beta",
+    appId: "ai.opencode.desktop.beta",
+    productName: "OpenCode Beta",
+    protocolScheme: "opencode",
+    artifactPrefix: "opencode-desktop",
+    publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
+  },
+  {
+    channel: "prod",
+    appId: "ai.opencode.desktop",
+    productName: "OpenCode",
+    protocolScheme: "opencode",
+    artifactPrefix: "opencode-desktop",
+    publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
+  },
 ] as const
 
 for (const channel of channels) {
@@ -21,6 +42,10 @@ for (const channel of channels) {
     else process.env.OPENCODE_CHANNEL = previous
 
     expect(config.appId).toBe(channel.appId)
+    expect(config.productName).toBe(channel.productName)
+    expect(config.protocols).toEqual({ name: channel.productName, schemes: [channel.protocolScheme] })
+    expect(config.artifactName).toBe(channel.artifactPrefix + "-${os}-${arch}.${ext}")
+    expect(config.publish).toEqual(channel.publish)
     expect(config.extraMetadata?.desktopName).toBe(`${channel.appId}.desktop`)
     expect(config.linux?.executableName).toBe(channel.appId)
     expect(config.linux?.desktop?.entry?.StartupWMClass).toBe(channel.appId)

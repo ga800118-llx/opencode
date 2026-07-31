@@ -3,6 +3,7 @@ import log from "electron-log/main.js"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { getRuntimeProductIdentity } from "../product/identity"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
@@ -19,16 +20,6 @@ function tauriDir(id: string) {
     default:
       return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), id)
   }
-}
-
-// The Tauri app identifier changes between dev/beta/prod builds.
-const TAURI_APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
-}
-function tauriAppId() {
-  return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.
@@ -72,7 +63,7 @@ export function migrate() {
     return
   }
 
-  const dir = tauriDir(tauriAppId())
+  const dir = tauriDir(getRuntimeProductIdentity(CHANNEL, app.isPackaged).dataNamespace)
   log.log("tauri migration: starting", { dir })
 
   if (!existsSync(dir)) {

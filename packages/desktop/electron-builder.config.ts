@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { getProductIdentity, type ProductIdentity } from "./src/product/identity"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -35,14 +36,10 @@ const channel = (() => {
   return "dev"
 })()
 
-const APP_IDS = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
-} as const
-
-const getBase = (appId: string): Configuration => ({
-  artifactName: "opencode-desktop-${os}-${arch}.${ext}",
+const getBase = (identity: ProductIdentity): Configuration => ({
+  appId: identity.appId,
+  productName: identity.name,
+  artifactName: identity.artifactPrefix + "-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -53,7 +50,7 @@ const getBase = (appId: string): Configuration => ({
   // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
   // https://www.electron.build/docs/linux/
   extraMetadata: {
-    desktopName: `${appId}.desktop`,
+    desktopName: `${identity.appId}.desktop`,
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   extraResources: [
@@ -86,8 +83,8 @@ const getBase = (appId: string): Configuration => ({
     sign: true,
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: identity.name,
+    schemes: [identity.protocolScheme],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -106,12 +103,12 @@ const getBase = (appId: string): Configuration => ({
   linux: {
     icon: `resources/icons`,
     category: "Development",
-    executableName: appId,
+    executableName: identity.appId,
     desktop: {
       entry: {
         // Match the installed .desktop file and hicolor icon basename so
         // Linux shells can associate the running Electron window with its launcher.
-        StartupWMClass: appId,
+        StartupWMClass: identity.appId,
       },
     },
     target: ["AppImage", "deb", "rpm"],
@@ -119,39 +116,31 @@ const getBase = (appId: string): Configuration => ({
 })
 
 function getConfig() {
-  const appId = APP_IDS[channel]
-  const base = getBase(appId)
+  const identity = getProductIdentity(channel)
+  const base = getBase(identity)
 
   switch (channel) {
     case "dev": {
       return {
         ...base,
-        appId,
-        productName: "OpenCode Dev",
-        deb: { fpm: [metainfoFpm(appId)] },
-        rpm: { packageName: "opencode-dev", fpm: [metainfoFpm(appId)] },
+        deb: { fpm: [metainfoFpm(identity.appId)] },
+        rpm: { packageName: "opencode-dev", fpm: [metainfoFpm(identity.appId)] },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId,
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        deb: { fpm: [metainfoFpm(appId)] },
-        rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(appId)] },
+        publish: identity.publish,
+        deb: { fpm: [metainfoFpm(identity.appId)] },
+        rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(identity.appId)] },
       }
     }
     case "prod": {
       return {
         ...base,
-        appId,
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
-        deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
-        rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
+        publish: identity.publish,
+        deb: { fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
+        rpm: { packageName: "opencode", fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
       }
     }
   }
