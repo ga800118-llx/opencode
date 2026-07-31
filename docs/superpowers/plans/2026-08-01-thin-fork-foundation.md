@@ -185,23 +185,23 @@ git commit -m "feat: define product adapter contracts"
 - Modify: `packages/app/src/index.ts`
 - Modify: `packages/desktop/src/renderer/index.tsx`
 
-- [ ] **Step 1: Write task-adapter contract tests**
+- [x] **Step 1: Write task-adapter contract tests**
 
 Use a fake `CompatibleApi` session surface. Assert exact mapping for create, prompt, command, shell, and interrupt, including model, agent, variant, attachments, directory, and generated message identifiers.
 
-- [ ] **Step 2: Implement the adapter over `CompatibleApi`**
+- [x] **Step 2: Implement the adapter over `CompatibleApi`**
 
 The adapter owns product naming and error normalization while delegating invocation semantics to OpenCode. It must not copy provider or tool execution logic.
 
-- [ ] **Step 3: Add an injectable product context**
+- [x] **Step 3: Add an injectable product context**
 
 Create a Solid context that derives a directory-scoped adapter from the existing SDK context. Keep a default implementation for browser/test hosts and allow Desktop to add host capabilities without exposing privileged values.
 
-- [ ] **Step 4: Replace direct composer session calls**
+- [x] **Step 4: Replace direct composer session calls**
 
 Route create, follow-up prompt, slash command, shell, and interrupt calls in `submit.ts` through the task adapter. Worktree creation, optimistic state, navigation, and existing UI behavior remain unchanged.
 
-- [ ] **Step 5: Run focused and existing prompt tests**
+- [x] **Step 5: Run focused and existing prompt tests**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -209,7 +209,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/app typecheck
 ```
 
-- [ ] **Step 6: Commit the adapter wiring**
+- [x] **Step 6: Commit the adapter wiring**
 
 ```bash
 git add packages/app/src/product packages/app/src/components/prompt-input/submit.ts packages/app/src/index.ts packages/desktop/src/renderer/index.tsx
