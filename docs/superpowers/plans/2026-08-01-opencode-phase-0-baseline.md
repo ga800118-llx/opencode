@@ -561,7 +561,7 @@ for file in upstream source-map feature-parity change-map licenses third-party-l
 git diff --check
 ```
 
-Expected: all six documents are non-empty, contain no placeholder status, and have no whitespace errors.
+Expected: all seven documents are non-empty, contain no placeholder status, and have no whitespace errors.
 
 - [x] **Step 5: Commit Phase 0 evidence**
 
