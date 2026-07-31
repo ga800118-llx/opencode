@@ -2,7 +2,11 @@ import type { ProductError, ProductErrorDiagnostic, ProductErrorKind } from "./c
 
 export type { ProductError, ProductErrorDiagnostic, ProductErrorKind } from "./contracts"
 
-const NESTED_ERROR_KEYS = ["cause", "data", "status", "code"] as const
+const MAX_ERROR_DEPTH = 8
+const MAX_ERROR_RECORDS = 32
+const MAX_SIGNAL_LENGTH = 8_192
+const MAX_SIGNAL_SEGMENT_LENGTH = 256
+const NESTED_ERROR_KEYS = ["cause", "data", "body", "error", "response", "status", "code"] as const
 const SAFE_ERROR_NAMES = new Set([
   "APIError",
   "AbortError",
@@ -119,21 +123,29 @@ export function normalizeProductError(input: unknown): ProductError {
 
 type ErrorRecord = Record<string, unknown>
 
-function collectErrorRecords(input: unknown, seen = new Set<object>(), depth = 0): readonly ErrorRecord[] {
-  if (!isRecord(input) || seen.has(input) || depth > 6) return []
-  seen.add(input)
-  return [input, ...NESTED_ERROR_KEYS.flatMap((key) => collectErrorRecords(input[key], seen, depth + 1))]
+function collectErrorRecords(input: unknown) {
+  const records: ErrorRecord[] = []
+  const seen = new Set<object>()
+  const visit = (value: unknown, depth: number) => {
+    if (!isRecord(value) || seen.has(value) || depth > MAX_ERROR_DEPTH || records.length >= MAX_ERROR_RECORDS) return
+    seen.add(value)
+    records.push(value)
+    NESTED_ERROR_KEYS.forEach((key) => visit(value[key], depth + 1))
+  }
+
+  visit(input, 0)
+  return records
 }
 
 function classifyProductError(records: readonly ErrorRecord[]): ProductErrorKind {
   const signal = records
-    .flatMap((record) => [record.name, record.code, record.message])
+    .flatMap((record) => [record.name, record.code, record.message, record.body])
     .filter((value): value is string => typeof value === "string")
+    .map((value) => value.slice(0, MAX_SIGNAL_SEGMENT_LENGTH))
     .join(" ")
+    .slice(0, MAX_SIGNAL_LENGTH)
     .toLowerCase()
-  const statuses = records
-    .flatMap((record) => [record.status, record.statusCode])
-    .filter(isSafeStatus)
+  const statuses = records.flatMap((record) => [record.status, record.statusCode]).filter(isSafeStatus)
 
   if (/\babort(?:ed|error)?\b|\bcancel(?:led|ed)\b|abort_err/.test(signal)) return "aborted"
   if (
@@ -165,21 +177,20 @@ function classifyProductError(records: readonly ErrorRecord[]): ProductErrorKind
   )
     return "tool-calling"
   if (
-    statuses.some((status) => [404, 405, 406, 415, 426].includes(status)) ||
-    /incompatible[_ -]?api|unsupported[_ -]?(?:api|route|protocol)|api[_ -]?version[_ -]?(?:mismatch|unsupported)/.test(
+    statuses.some((status) => [405, 406, 415, 426].includes(status)) ||
+    /incompatible[_ -]?api|unsupported[_ -]?(?:api|route|protocol)|(?:api|route)(?:[_ -]?endpoint)?[_ -]?not[_ -]?found|api[_ -]?version[_ -]?(?:mismatch|unsupported)/.test(
       signal,
     )
   )
     return "incompatible-api"
   if (
-    statuses.some((status) => status >= 500) ||
-    /server[_ -]?(?:crash|process[_ -]?exited)|process[_ -]?exited|econnreset|socket hang up|connection closed unexpectedly/.test(
+    /server[_ -]?crash|server[_ -]?process[_ -]?(?:exit|exited)|sidecar[_ -]?(?:crash|exit|exited)|\bprocess[_ -]?exited\b/.test(
       signal,
     )
   )
     return "server-crash"
   if (
-    /econnrefused|enotfound|ehostunreach|enetunreach|eai_again|failed to fetch|fetch failed|network error|endpoint unreachable/.test(
+    /econnrefused|econnreset|enotfound|ehostunreach|enetunreach|eai_again|failed to fetch|fetch failed|network error|endpoint unreachable|socket hang up|connection closed unexpectedly/.test(
       signal,
     )
   )
@@ -192,7 +203,13 @@ function createDiagnostic(records: readonly ErrorRecord[]): ProductErrorDiagnost
   const code = records.flatMap((record) => [record.code, record.errno]).find(isSafeErrorCode)
   const status = records.flatMap((record) => [record.status, record.statusCode]).find(isSafeStatus)
   const requestID = records
-    .flatMap((record) => [record.requestID, record.requestId, record.request_id])
+    .flatMap((record) => [
+      record.requestID,
+      record.requestId,
+      record.request_id,
+      ...readHeaderRequestIDs(record.responseHeaders),
+      ...readHeaderRequestIDs(record.headers),
+    ])
     .find(isSafeRequestID)
   if (!name && !code && !status && !requestID) return
 
@@ -202,6 +219,13 @@ function createDiagnostic(records: readonly ErrorRecord[]): ProductErrorDiagnost
     ...(status ? { status } : {}),
     ...(requestID ? { requestID } : {}),
   })
+}
+
+function readHeaderRequestIDs(value: unknown) {
+  if (!isRecord(value)) return []
+  return Object.keys(value).flatMap((key) =>
+    key.toLowerCase() === "x-request-id" || key.toLowerCase() === "request-id" ? [value[key]] : [],
+  )
 }
 
 function isRecord(value: unknown): value is ErrorRecord {
@@ -221,6 +245,9 @@ function isSafeStatus(value: unknown): value is number {
 }
 
 function isSafeRequestID(value: unknown): value is string {
-  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value)) return false
-  return !/authorization|bearer|basic|api[_-]?key|token|prompt|source|^sk-/i.test(value)
+  if (typeof value !== "string" || value.length > 64) return false
+  const prefixed = /^(?:req|request|trace|rid)_[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  if (!prefixed && !uuid) return false
+  return !/authorization|bearer|basic|api[_-]?key|token|prompt|source|sk-|gh[pousr]_|xox[baprs]-|AIza/i.test(value)
 }

@@ -11,6 +11,9 @@ export type ProductFeatureFlags = {
   readonly fileBrowser: boolean
   readonly diffReview: boolean
   readonly terminal: boolean
+  readonly worktrees: boolean
+  readonly agentShell: boolean
+  readonly separateTerminalAndAgentShell: boolean
   readonly agents: boolean
   readonly mcp: boolean
   readonly skills: boolean
@@ -40,6 +43,9 @@ export const PRODUCT_FEATURES = Object.freeze({
   fileBrowser: true,
   diffReview: true,
   terminal: true,
+  worktrees: true,
+  agentShell: true,
+  separateTerminalAndAgentShell: true,
   agents: true,
   mcp: true,
   skills: true,

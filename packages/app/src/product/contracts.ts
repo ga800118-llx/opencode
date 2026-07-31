@@ -1,5 +1,7 @@
 export type ProductTaskID = string
 export type ProductMessageID = string
+export type ProductOperationID = string
+export type ProductPartID = string
 export type ProductDirectory = string
 
 export type ProductModelSelection = {
@@ -14,17 +16,72 @@ export type ProductMention = {
   readonly end: number
 }
 
-export type ProductFileInput = {
+export type ProductPartTime = {
+  readonly start: number
+  readonly end?: number
+}
+
+export type ProductFileSelection = {
+  readonly startLine: number
+  readonly startChar: number
+  readonly endLine: number
+  readonly endChar: number
+}
+
+export type ProductCommentMetadata = {
+  readonly path: string
+  readonly selection?: ProductFileSelection
+  readonly comment: string
+  readonly preview?: string
+  readonly origin?: "review" | "file"
+}
+
+export type ProductTextPart = {
+  readonly id: ProductPartID
+  readonly type: "text"
+  readonly text: string
+  readonly synthetic?: boolean
+  readonly ignored?: boolean
+  readonly time?: ProductPartTime
+  readonly metadata?: {
+    readonly comment?: ProductCommentMetadata
+  }
+}
+
+export type ProductSourcePosition = {
+  readonly line: number
+  readonly character: number
+}
+
+export type ProductSourceRange = {
+  readonly start: ProductSourcePosition
+  readonly end: ProductSourcePosition
+}
+
+export type ProductFileSource = {
+  readonly path: string
+  readonly range?: ProductSourceRange
+  readonly symbol?: string
+}
+
+export type ProductFilePart = {
+  readonly id: ProductPartID
+  readonly type: "file"
   readonly uri: string
   readonly name?: string
-  readonly mime?: string
+  readonly mime: string
+  readonly source?: ProductFileSource
   readonly mention?: ProductMention
 }
 
-export type ProductAgentInput = {
+export type ProductAgentPart = {
+  readonly id: ProductPartID
+  readonly type: "agent"
   readonly name: string
   readonly mention?: ProductMention
 }
+
+export type ProductPromptPart = ProductTextPart | ProductFilePart | ProductAgentPart
 
 export type ProductTask = {
   readonly id: ProductTaskID
@@ -39,17 +96,16 @@ export type ProductCreateTaskInput = {
   readonly model: ProductModelSelection
 }
 
-export type ProductCreateTaskOutput = {
+export type ProductCreateTaskOutput<SessionRecord = unknown> = {
   readonly task: ProductTask
+  readonly record: Readonly<SessionRecord>
 }
 
 export type ProductPromptInput = {
   readonly taskID: ProductTaskID
   readonly directory: ProductDirectory
   readonly messageID?: ProductMessageID
-  readonly text: string
-  readonly files?: readonly ProductFileInput[]
-  readonly agents?: readonly ProductAgentInput[]
+  readonly parts: readonly ProductPromptPart[]
   readonly agent: string
   readonly model: ProductModelSelection
 }
@@ -60,7 +116,7 @@ export type ProductCommandInput = {
   readonly messageID?: ProductMessageID
   readonly command: string
   readonly arguments: string
-  readonly files?: readonly ProductFileInput[]
+  readonly files?: readonly ProductFilePart[]
   readonly agent: string
   readonly model: ProductModelSelection
 }
@@ -68,15 +124,15 @@ export type ProductCommandInput = {
 export type ProductShellInput = {
   readonly taskID: ProductTaskID
   readonly directory: ProductDirectory
-  readonly messageID?: ProductMessageID
+  readonly operationID?: ProductOperationID
   readonly command: string
   readonly agent: string
   readonly model: ProductModelSelection
 }
 
-export type ProductMessageOutput = {
+export type ProductOperationOutput = {
   readonly taskID: ProductTaskID
-  readonly messageID: ProductMessageID
+  readonly operationID?: ProductOperationID
 }
 
 export type ProductInterruptInput = {
@@ -84,17 +140,12 @@ export type ProductInterruptInput = {
   readonly directory: ProductDirectory
 }
 
-export type ProductInterruptOutput = {
-  readonly taskID: ProductTaskID
-  readonly interrupted: boolean
-}
-
-export type ProductTaskAdapter = {
-  readonly create: (input: ProductCreateTaskInput) => Promise<ProductCreateTaskOutput>
-  readonly prompt: (input: ProductPromptInput) => Promise<ProductMessageOutput>
-  readonly command: (input: ProductCommandInput) => Promise<ProductMessageOutput>
-  readonly shell: (input: ProductShellInput) => Promise<ProductMessageOutput>
-  readonly interrupt: (input: ProductInterruptInput) => Promise<ProductInterruptOutput>
+export type ProductTaskAdapter<SessionRecord = unknown> = {
+  readonly create: (input: ProductCreateTaskInput) => Promise<ProductCreateTaskOutput<SessionRecord>>
+  readonly prompt: (input: ProductPromptInput) => Promise<ProductOperationOutput>
+  readonly command: (input: ProductCommandInput) => Promise<ProductOperationOutput>
+  readonly shell: (input: ProductShellInput) => Promise<ProductOperationOutput>
+  readonly interrupt: (input: ProductInterruptInput) => Promise<ProductOperationOutput | void>
 }
 
 export type ProductTaskEvent<Type extends string = string, Data = unknown> = {
