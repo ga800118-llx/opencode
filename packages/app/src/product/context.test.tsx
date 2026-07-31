@@ -9,7 +9,7 @@ import {
   type ProductRuntime,
   useProductRuntime,
 } from "./context"
-import { renderToString } from "solid-js/web"
+import { createComponent, createRoot } from "solid-js"
 
 function captureRuntime(runtime?: ProductRuntime) {
   let captured: ProductRuntime | undefined
@@ -17,13 +17,15 @@ function captureRuntime(runtime?: ProductRuntime) {
     captured = useProductRuntime()
     return null
   }
-  renderToString(
-    () => (
-      <ProductRuntimeProvider runtime={runtime}>
-        <Capture />
-      </ProductRuntimeProvider>
-    ),
-  )
+  createRoot((dispose) => {
+    createComponent(ProductRuntimeProvider, {
+      runtime,
+      get children() {
+        return createComponent(Capture, {})
+      },
+    })
+    dispose()
+  })
   return captured
 }
 
