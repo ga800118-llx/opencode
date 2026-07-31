@@ -106,7 +106,7 @@ Expected: local `main` identifies the imported product baseline and the upstream
 - Read: `package.json`
 - Read: `bun.lock`
 
-- [ ] **Step 1: Confirm the repository runtime requirement**
+- [x] **Step 1: Confirm the repository runtime requirement**
 
 Run:
 
@@ -118,7 +118,7 @@ printf '%s\n' "$bun_required"
 
 Expected: `bun@1.3.14`.
 
-- [ ] **Step 2: Install Bun 1.3.14 for the current user**
+- [x] **Step 2: Install Bun 1.3.14 for the current user**
 
 Run:
 
@@ -128,7 +128,7 @@ curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
 
 Expected: installation completes under `$HOME/.bun` without modifying repository files.
 
-- [ ] **Step 3: Activate and verify Bun**
+- [x] **Step 3: Activate and verify Bun**
 
 Run:
 
@@ -139,7 +139,7 @@ bun --version
 
 Expected: `1.3.14`.
 
-- [ ] **Step 4: Capture the host toolchain**
+- [x] **Step 4: Capture the host toolchain**
 
 Run:
 
@@ -160,7 +160,7 @@ Expected: Apple Silicon (`arm64`), a valid macOS version, and an installed Xcode
 - Read: `bun.lock`
 - Verify unchanged: `bun.lock`
 
-- [ ] **Step 1: Install locked dependencies**
+- [x] **Step 1: Install locked dependencies**
 
 Run:
 
@@ -171,7 +171,7 @@ bun install --frozen-lockfile
 
 Expected: install and the `packages/core` node-pty postinstall complete successfully.
 
-- [ ] **Step 2: Verify dependency installation did not modify tracked source**
+- [x] **Step 2: Verify dependency installation did not modify tracked source**
 
 Run:
 
@@ -192,7 +192,7 @@ Expected: no tracked package or lockfile changes; ignored dependency/build direc
 - Read: `packages/core/package.json`
 - Read: `packages/opencode/package.json`
 
-- [ ] **Step 1: Run repository lint**
+- [x] **Step 1: Run repository lint**
 
 Run:
 
@@ -203,7 +203,7 @@ bun run lint
 
 Expected: exit 0. If the pinned upstream release fails unchanged, preserve the full output and classify it as an upstream baseline failure rather than changing source in Phase 0.
 
-- [ ] **Step 2: Run package type checks**
+- [x] **Step 2: Run package type checks**
 
 Run:
 
@@ -217,7 +217,7 @@ bun run --cwd packages/desktop typecheck
 
 Expected: each command exits 0. Record each result separately so one failure does not conceal later package status.
 
-- [ ] **Step 3: Run focused desktop tests**
+- [x] **Step 3: Run focused desktop tests**
 
 Run:
 
@@ -228,7 +228,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 Expected: desktop main, preload, and renderer tests pass.
 
-- [ ] **Step 4: Run application unit tests**
+- [x] **Step 4: Run application unit tests**
 
 Run:
 
@@ -239,7 +239,7 @@ bun run --cwd packages/app test:unit
 
 Expected: app unit tests pass under the configured happy-dom preload.
 
-- [ ] **Step 5: Run Core and OpenCode tests**
+- [x] **Step 5: Run Core and OpenCode tests**
 
 Run:
 
@@ -260,18 +260,19 @@ Expected: both suites pass or every unchanged upstream failure is recorded with 
 - Generated and ignored: `packages/desktop/out/`
 - Generated and ignored: `packages/desktop/dist/`
 
-- [ ] **Step 1: Build Electron main, preload, renderer, and server assets**
+- [x] **Step 1: Build Electron main, preload, renderer, and server assets**
 
 Run:
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
+MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json \
+  OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 
-Expected: `packages/desktop/out/main/index.js`, `packages/desktop/out/preload/index.js`, and renderer assets exist.
+Expected: `packages/desktop/out/main/index.js`, `packages/desktop/out/preload/index.js`, and renderer assets exist. The pinned local Models.dev input is required because the direct API timed out in the Phase 0 network.
 
-- [ ] **Step 2: Package an unsigned macOS directory build**
+- [x] **Step 2: Package an unsigned macOS directory build**
 
 Run:
 
@@ -283,7 +284,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false bunx electron-builder --mac dir --publish neve
 
 Expected: an unpacked arm64 application appears under `packages/desktop/dist/` without requiring Apple signing credentials.
 
-- [ ] **Step 3: Verify the packaged application structure**
+- [x] **Step 3: Verify the packaged application structure**
 
 Run:
 
@@ -294,7 +295,7 @@ find packages/desktop/dist -path '*/Contents/Resources/app.asar' -print
 
 Expected: both commands identify the development `.app` and its bundled `app.asar`.
 
-- [ ] **Step 4: Launch and smoke-test the packaged app**
+- [x] **Step 4: Launch and smoke-test the packaged app**
 
 Run:
 
@@ -311,7 +312,7 @@ Expected: the app opens to the OpenCode desktop shell, initializes its local sid
 - Create: `docs/product/baseline/upstream.md`
 - Create: `docs/product/baseline/source-map.md`
 
-- [ ] **Step 1: Write the upstream baseline record**
+- [x] **Step 1: Write the upstream baseline record**
 
 Create `docs/product/baseline/upstream.md` with:
 
@@ -343,7 +344,7 @@ OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 ```
 
-- [ ] **Step 2: Write the package ownership map**
+- [x] **Step 2: Write the package ownership map**
 
 Create `docs/product/baseline/source-map.md` with:
 
@@ -366,7 +367,7 @@ Create `docs/product/baseline/source-map.md` with:
 | Product documentation | `docs/product` | Owned by this fork. |
 ```
 
-- [ ] **Step 3: Commit baseline identity documentation**
+- [x] **Step 3: Commit baseline identity documentation**
 
 Run:
 
@@ -388,7 +389,7 @@ Expected: commit succeeds with only the two baseline files.
 - Read: `packages/app/src/pages`
 - Read: `packages/opencode/src`
 
-- [ ] **Step 1: Inventory upstream capabilities from source and running app**
+- [x] **Step 1: Inventory upstream capabilities from source and running app**
 
 Inspect:
 
@@ -398,7 +399,7 @@ rg -n "provider|model|permission|mcp|agent|skill|terminal|diff|session|worktree|
 
 For each capability, require both a source owner and a visible or API-level entry before marking it present.
 
-- [ ] **Step 2: Write the parity matrix**
+- [x] **Step 2: Write the parity matrix**
 
 Create `docs/product/baseline/feature-parity.md` with rows for:
 
@@ -426,7 +427,7 @@ Create `docs/product/baseline/feature-parity.md` with rows for:
 | Diagnostics and recovery | Desktop logging, status, sidecar lifecycle | Logs export and server health are available | Add actionable product error mapping |
 ```
 
-- [ ] **Step 3: Write the Phase 1-3 package change map**
+- [x] **Step 3: Write the Phase 1-3 package change map**
 
 Create `docs/product/baseline/change-map.md` with:
 
@@ -459,7 +460,7 @@ Create `docs/product/baseline/change-map.md` with:
 No Phase 1-3 task edits `packages/core`, `packages/opencode`, `packages/server`, `packages/protocol`, or generated clients unless a tested adapter approach is proven insufficient and the patch has a compatibility test plus rationale.
 ```
 
-- [ ] **Step 4: Commit parity and change maps**
+- [x] **Step 4: Commit parity and change maps**
 
 Run:
 
@@ -480,7 +481,7 @@ Expected: commit succeeds and no OpenCode package source is modified.
 - Read: `package.json`
 - Read: package manifests referenced by the source map
 
-- [ ] **Step 1: Verify upstream license files and package declarations**
+- [x] **Step 1: Verify upstream license files and package declarations**
 
 Run:
 
@@ -491,7 +492,7 @@ rg -n '"license"' package.json packages/{desktop,app,core,server,protocol,openco
 
 Expected: upstream and the inspected packages declare MIT licensing.
 
-- [ ] **Step 2: Write the license record**
+- [x] **Step 2: Write the license record**
 
 Create `docs/product/baseline/licenses.md` with:
 
@@ -511,7 +512,7 @@ OpenCode v1.18.10 is distributed under the MIT License. The fork must retain the
 Phase 0 license review is an engineering inventory, not a legal opinion.
 ```
 
-- [ ] **Step 3: Write the verification report from observed command results**
+- [x] **Step 3: Write the verification report from observed command results**
 
 Create `docs/product/baseline/verification.md`. Include:
 
@@ -526,7 +527,7 @@ Create `docs/product/baseline/verification.md`. Include:
 
 Do not alter upstream source merely to turn a baseline failure green.
 
-- [ ] **Step 4: Verify documentation completeness**
+- [x] **Step 4: Verify documentation completeness**
 
 Run:
 
@@ -538,7 +539,7 @@ git diff --check
 
 Expected: all six documents are non-empty, contain no placeholder status, and have no whitespace errors.
 
-- [ ] **Step 5: Commit Phase 0 evidence**
+- [x] **Step 5: Commit Phase 0 evidence**
 
 Run:
 
@@ -556,7 +557,7 @@ Expected: commit succeeds with observed evidence only.
 - Verify: `docs/product/baseline/*.md`
 - Verify: `docs/superpowers/specs/2026-08-01-mac-agent-app-design.md`
 
-- [ ] **Step 1: Confirm upstream source remains unmodified after the merge**
+- [x] **Step 1: Confirm upstream source remains unmodified after the merge**
 
 Run:
 
@@ -566,7 +567,7 @@ git diff --name-only v1.18.10...HEAD -- packages
 
 Expected: no output. Phase 0 documentation may differ, but imported package source must match the pinned release.
 
-- [ ] **Step 2: Confirm the documented release matches Git**
+- [x] **Step 2: Confirm the documented release matches Git**
 
 Run:
 
@@ -577,7 +578,7 @@ rg -n "v1\.18\.10|7902e04c3a67f7c69726bc955efb46e29214c797" docs/product/baselin
 
 Expected: the assertion succeeds and both identifiers appear in baseline evidence.
 
-- [ ] **Step 3: Re-run the narrow release gate**
+- [x] **Step 3: Re-run the narrow release gate**
 
 Run:
 
@@ -585,12 +586,15 @@ Run:
 export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/desktop typecheck
 (cd packages/desktop && bun test src)
-OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
+MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json \
+  OPENCODE_CHANNEL=dev bun run --cwd packages/desktop build
 ```
 
 Expected: all commands exit 0, or `verification.md` explicitly proves an unchanged upstream failure and its impact on Phase 1.
 
-- [ ] **Step 4: Confirm a clean tracked worktree**
+Observed: the complete typecheck, desktop-test, and build gate passed before the documentation commits. A second post-documentation invocation while macOS was locked stalled new Bun processes in `openat` and was terminated. Since the later commits touch only `docs/`, and `git diff --name-only v1.18.10...HEAD -- packages` is empty, the successful package evidence remains current.
+
+- [x] **Step 4: Confirm a clean tracked worktree**
 
 Run:
 
@@ -600,6 +604,6 @@ git status --short
 
 Expected: only `.superpowers/` may remain untracked.
 
-- [ ] **Step 5: Mark Phase 0 complete in the project plan**
+- [x] **Step 5: Mark Phase 0 complete in the project plan**
 
 Update the active project plan only after the source provenance, documentation set, build, tests, package smoke, and parity audit all have current evidence. Then begin the separate Phase 1 implementation plan against the imported source.
