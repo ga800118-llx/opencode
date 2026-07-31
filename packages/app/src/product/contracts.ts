@@ -58,11 +58,35 @@ export type ProductSourceRange = {
   readonly end: ProductSourcePosition
 }
 
-export type ProductFileSource = {
-  readonly path: string
-  readonly range?: ProductSourceRange
-  readonly symbol?: string
+export type ProductSourceText = {
+  readonly value: string
+  readonly start: number
+  readonly end: number
 }
+
+export type ProductPathSource = {
+  readonly type: "file"
+  readonly path: string
+  readonly text: ProductSourceText
+}
+
+export type ProductSymbolSource = {
+  readonly type: "symbol"
+  readonly path: string
+  readonly range: ProductSourceRange
+  readonly name: string
+  readonly kind: number
+  readonly text: ProductSourceText
+}
+
+export type ProductResourceSource = {
+  readonly type: "resource"
+  readonly clientName: string
+  readonly uri: string
+  readonly text: ProductSourceText
+}
+
+export type ProductFileSource = ProductPathSource | ProductSymbolSource | ProductResourceSource
 
 export type ProductFilePart = {
   readonly id: ProductPartID
@@ -71,7 +95,6 @@ export type ProductFilePart = {
   readonly name?: string
   readonly mime: string
   readonly source?: ProductFileSource
-  readonly mention?: ProductMention
 }
 
 export type ProductAgentPart = {

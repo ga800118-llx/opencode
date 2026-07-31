@@ -224,6 +224,51 @@ describe("normalizeProductError", () => {
     expect(normalizeProductError(input).diagnostic).toEqual({ requestID })
   })
 
+  test("reads a request ID from standard Headers", () => {
+    const headers = new Headers({ "x-request-id": "req_headers-1" })
+    expect(normalizeProductError({ response: { headers } }).diagnostic).toEqual({ requestID: "req_headers-1" })
+  })
+
+  test("bounds plain header inspection", () => {
+    const target = Object.fromEntries(
+      Array.from({ length: 1_000 }, (_, index) => [
+        index === 96 ? "x-request-id" : `x-noise-${index}`,
+        index === 96 ? "req_too-late" : "private",
+      ]),
+    )
+    let reads = 0
+    const headers = new Proxy(target, {
+      get(object, property, receiver) {
+        reads++
+        return Reflect.get(object, property, receiver)
+      },
+    })
+
+    expect(normalizeProductError({ headers }).diagnostic).toBeUndefined()
+    expect(reads).toBe(1)
+  })
+
+  test.each([
+    {
+      name: "throwing get method",
+      headers: {
+        get() {
+          throw new Error("private")
+        },
+      },
+    },
+    {
+      name: "throwing get property",
+      headers: Object.defineProperty({}, "get", {
+        get() {
+          throw new Error("private")
+        },
+      }),
+    },
+  ])("ignores a $name", ({ headers }) => {
+    expect(normalizeProductError({ headers }).diagnostic).toBeUndefined()
+  })
+
   test("accepts a UUID request ID", () => {
     const requestID = "123e4567-e89b-12d3-a456-426614174000"
     expect(normalizeProductError({ requestID }).diagnostic).toEqual({ requestID })

@@ -4,6 +4,7 @@ export type { ProductError, ProductErrorDiagnostic, ProductErrorKind } from "./c
 
 const MAX_ERROR_DEPTH = 8
 const MAX_ERROR_RECORDS = 32
+const MAX_HEADER_KEYS = 64
 const MAX_SIGNAL_LENGTH = 8_192
 const MAX_SIGNAL_SEGMENT_LENGTH = 256
 const NESTED_ERROR_KEYS = ["cause", "data", "body", "error", "response", "status", "code"] as const
@@ -207,8 +208,8 @@ function createDiagnostic(records: readonly ErrorRecord[]): ProductErrorDiagnost
       record.requestID,
       record.requestId,
       record.request_id,
-      ...readHeaderRequestIDs(record.responseHeaders),
-      ...readHeaderRequestIDs(record.headers),
+      readHeaderRequestID(record.responseHeaders),
+      readHeaderRequestID(record.headers),
     ])
     .find(isSafeRequestID)
   if (!name && !code && !status && !requestID) return
@@ -221,11 +222,31 @@ function createDiagnostic(records: readonly ErrorRecord[]): ProductErrorDiagnost
   })
 }
 
-function readHeaderRequestIDs(value: unknown) {
-  if (!isRecord(value)) return []
-  return Object.keys(value).flatMap((key) =>
-    key.toLowerCase() === "x-request-id" || key.toLowerCase() === "request-id" ? [value[key]] : [],
-  )
+function readHeaderRequestID(value: unknown) {
+  if (!isRecord(value)) return
+
+  try {
+    const get = value.get
+    if (typeof get === "function") {
+      const requestID = get.call(value, "x-request-id")
+      if (isSafeRequestID(requestID)) return requestID
+      const fallback = get.call(value, "request-id")
+      if (isSafeRequestID(fallback)) return fallback
+    }
+
+    let inspected = 0
+    for (const key in value) {
+      inspected++
+      if (inspected > MAX_HEADER_KEYS) return
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+      const normalized = key.toLowerCase()
+      if (normalized !== "x-request-id" && normalized !== "request-id") continue
+      const requestID = value[key]
+      if (isSafeRequestID(requestID)) return requestID
+    }
+  } catch {
+    return
+  }
 }
 
 function isRecord(value: unknown): value is ErrorRecord {
