@@ -21,6 +21,8 @@ describe("desktop product deep links", () => {
         "opencode://open-project?directory=/release",
         "https://opencode.ai",
         "agent-desktop-dev:open-project",
+        "AGENT-DESKTOP-DEV://open-project?directory=/uppercase",
+        "agent-desktop-development://open-project?directory=/prefix",
         "agent-desktop-dev://%",
         "not a url",
       ]),

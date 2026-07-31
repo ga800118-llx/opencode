@@ -11,6 +11,11 @@ export function normalizeProductDeepLinks(identity: ProductIdentity, inputs: rea
 function normalizeProductDeepLink(identity: ProductIdentity, input: string) {
   const prefix = `${identity.protocolScheme}://`
   if (!input.startsWith(prefix)) return
-  if (!URL.canParse(input)) return
+  try {
+    decodeURI(input)
+    if (new URL(input).protocol !== `${identity.protocolScheme}:`) return
+  } catch {
+    return
+  }
   return `${internalProtocolScheme}://${input.slice(prefix.length)}`
 }
