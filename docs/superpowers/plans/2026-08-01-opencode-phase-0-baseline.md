@@ -26,7 +26,7 @@
 - Preserve: `docs/superpowers/specs/2026-08-01-mac-agent-app-design.md`
 - Import: OpenCode repository tree at tag `v1.18.10`
 
-- [ ] **Step 1: Verify the product branch and local design commits**
+- [x] **Step 1: Verify the product branch and local design commits**
 
 Run:
 
@@ -38,7 +38,7 @@ git status --short
 
 Expected: branch is `codex/phase-0-3`; commits `407232f` and `c24d5ba` are present; only `.superpowers/` may be untracked.
 
-- [ ] **Step 2: Register the authoritative upstream remote**
+- [x] **Step 2: Register the authoritative upstream remote**
 
 Run:
 
@@ -49,18 +49,20 @@ git remote get-url upstream
 
 Expected: `https://github.com/anomalyco/opencode.git`.
 
-- [ ] **Step 3: Fetch and verify the immutable release tag**
+- [x] **Step 3: Fetch and verify the immutable release tag and its history**
 
 Run:
 
 ```bash
-git fetch --depth=1 upstream tag v1.18.10
+git fetch upstream dev --tags
+test "$(git rev-parse --is-shallow-repository)" = "false"
 git rev-parse 'v1.18.10^{}'
+git cat-file -e 'v1.18.10^'
 ```
 
-Expected: `7902e04c3a67f7c69726bc955efb46e29214c797`.
+Expected: the repository is not shallow, the release parent is available, and the tag resolves to `7902e04c3a67f7c69726bc955efb46e29214c797`.
 
-- [ ] **Step 4: Merge upstream history without rewriting product commits**
+- [x] **Step 4: Merge upstream history without rewriting product commits**
 
 Run:
 
@@ -70,7 +72,7 @@ git merge --allow-unrelated-histories --no-edit v1.18.10
 
 Expected: a merge commit with both the approved design history and the OpenCode release commit as parents; no conflict under `docs/superpowers/`.
 
-- [ ] **Step 5: Verify source provenance**
+- [x] **Step 5: Verify source provenance**
 
 Run:
 
@@ -84,6 +86,19 @@ git status --short
 ```
 
 Expected: the first command shows two parents; every later command exits 0; `.superpowers/` remains the only permitted untracked path.
+
+- [x] **Step 6: Establish safe local branch and remote behavior**
+
+Run:
+
+```bash
+git remote set-url --push upstream DISABLED
+git branch -f main HEAD
+test "$(git rev-parse main)" = "$(git rev-parse HEAD)"
+test "$(git remote get-url --push upstream)" = "DISABLED"
+```
+
+Expected: local `main` identifies the imported product baseline and the upstream repository cannot be an accidental push target. A product `origin` is intentionally omitted until a product-hosting repository exists. The `codex/phase-0-3` branch name follows the host environment's required `codex/` prefix and is an explicit exception to the imported upstream branch-naming guidance.
 
 ### Task 2: Install and verify the pinned runtime
 
