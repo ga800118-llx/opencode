@@ -19,6 +19,7 @@ import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionOwnership } from "./session-ownership"
 import { useLocal } from "@/context/local"
+import { useProductTaskAdapter } from "@/product/context"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -43,6 +44,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const permission = usePermission()
   const prompt = usePrompt()
   const sdk = useSDK()
+  const taskAdapter = useProductTaskAdapter()
   const settings = useSettings()
   const sync = useSync()
   const terminal = useTerminal()
@@ -316,7 +318,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const parts = sync().data.part[message.id]
 
     if (sync().data.session_working(sessionID)) {
-      await session.interrupt({ sessionID }).catch(() => {})
+      await taskAdapter().interrupt({ taskID: sessionID, directory }).catch(() => {})
     }
 
     await runCommand({

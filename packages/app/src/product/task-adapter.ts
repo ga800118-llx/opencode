@@ -103,7 +103,6 @@ export function createProductTaskAdapter(
           command: input.command,
           agent: input.agent,
           model: { providerID: input.model.providerID, modelID: input.model.modelID },
-          variant: input.model.variant,
           location: { directory: input.directory },
         }),
       )

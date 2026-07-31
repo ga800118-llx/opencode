@@ -472,7 +472,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           operationID: eventID,
           command: text,
           agent,
-          model: { ...model, variant },
+          model,
         })
         .catch((err) => {
           showToast({

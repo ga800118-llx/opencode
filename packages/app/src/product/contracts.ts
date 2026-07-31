@@ -10,6 +10,8 @@ export type ProductModelSelection = {
   readonly variant?: string
 }
 
+export type ProductModelReference = Pick<ProductModelSelection, "providerID" | "modelID">
+
 export type ProductMention = {
   readonly text: string
   readonly start: number
@@ -149,7 +151,7 @@ export type ProductShellInput = {
   readonly operationID?: ProductOperationID
   readonly command: string
   readonly agent: string
-  readonly model: ProductModelSelection
+  readonly model: ProductModelReference
 }
 
 export type ProductOperationOutput = {

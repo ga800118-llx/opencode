@@ -11,6 +11,7 @@ function setup(
     async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init)
       requests.push(request)
+      const url = new URL(request.url)
       if (request.method === "PATCH") {
         return Response.json({
           id: "ses_1",
@@ -22,6 +23,18 @@ function setup(
           time: { created: 1, updated: 1 },
         })
       }
+      if (request.method === "POST" && url.pathname === "/session") {
+        return Response.json({
+          id: "ses_1",
+          slug: "ses_1",
+          projectID: "project",
+          directory: url.searchParams.get("directory") ?? "/repo",
+          title: "Session",
+          version: "1",
+          time: { created: 1, updated: 1 },
+        })
+      }
+      if (request.method === "POST" && url.pathname.endsWith("/shell")) return Response.json({})
       if (request.method === "POST" && request.url.endsWith("/prompt_async"))
         return new Response(undefined, { status: 204 })
       if (request.method === "POST" && request.url.endsWith("/prompt")) {
@@ -65,6 +78,45 @@ describe("createCompatibleApi", () => {
     expect(await requests[0]!.json()).toMatchObject({ time: { archived: expect.any(Number) } })
   })
   */
+
+  test("preserves model selection when creating a V1 session", async () => {
+    const { api, requests } = setup("v1")
+    await api.session.create({
+      agent: "build",
+      model: { id: "model", providerID: "provider", variant: "high" },
+      location: { directory: "/other" },
+    })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session")
+    expect(url.searchParams.get("directory")).toBe("/other")
+    expect(await requests[0]!.json()).toEqual({
+      agent: "build",
+      model: { id: "model", providerID: "provider", variant: "high" },
+    })
+  })
+
+  test("preserves the operation ID when running a V1 shell command", async () => {
+    const { api, requests } = setup("v1")
+    await api.session.shell({
+      sessionID: "ses_1",
+      id: "evt_1",
+      command: "pwd",
+      agent: "build",
+      model: { providerID: "provider", modelID: "model" },
+      location: { directory: "/other" },
+    })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session/ses_1/shell")
+    expect(url.searchParams.get("directory")).toBe("/other")
+    expect(await requests[0]!.json()).toEqual({
+      messageID: "evt_1",
+      agent: "build",
+      model: { providerID: "provider", modelID: "model" },
+      command: "pwd",
+    })
+  })
 
   test("converts current prompts to the V1 prompt contract", async () => {
     const { api, requests } = setup("v1")

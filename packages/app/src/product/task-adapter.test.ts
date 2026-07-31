@@ -246,7 +246,6 @@ describe("createProductTaskAdapter", () => {
         command: "pwd",
         agent: "build",
         model: { providerID: "provider-1", modelID: "model-1" },
-        variant: "high",
         location: { directory: "/repo" },
       },
     ])

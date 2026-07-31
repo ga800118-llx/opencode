@@ -44,6 +44,7 @@ export {
   type ProductInterruptInput,
   type ProductMention,
   type ProductMessageID,
+  type ProductModelReference,
   type ProductModelSelection,
   type ProductOperationID,
   type ProductOperationOutput,

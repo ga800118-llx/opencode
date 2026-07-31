@@ -167,6 +167,8 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       async create(value?: Parameters<ServerApi["session"]["create"]>[0]) {
         const result = await legacy(value?.location ?? undefined).session.create({
           directory: directory(value?.location ?? undefined),
+          agent: value?.agent ?? undefined,
+          model: value?.model ?? undefined,
         })
         if (!result.data) throw new Error("Failed to create session")
         return sessionInfo(result.data)
@@ -269,8 +271,10 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         }
       },
       async shell(value: SessionShellInput & LegacyPrompt & CompatibleLocation) {
+        // The shell endpoint records local command output and has no model-variant field.
         await legacy(value.location).session.shell({
           sessionID: value.sessionID,
+          messageID: value.id ?? undefined,
           command: value.command,
           agent: value.agent,
           model: value.model,
