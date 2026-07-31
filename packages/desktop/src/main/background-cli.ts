@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
 import type { ProductIdentity } from "../product/identity"
+import { createBackgroundCliStatePlan } from "./background-cli-state"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
@@ -24,20 +25,16 @@ export async function startBackgroundCli(logger: Logger, identity: ProductIdenti
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
-  const developmentStateHome = identity.channel === "dev" ? app.getPath("userData") : undefined
-  const candidates = [
-    ...new Set(
-      developmentStateHome
-        ? [developmentStateHome]
-        : [
-            stateHome,
-            shellStateHome,
-            ...identity.compatibleDataNamespaces.map((name) => join(app.getPath("appData"), name)),
-          ],
-    ),
-  ].filter((candidate) => candidate === undefined || existsSync(candidate))
+  const statePlan = createBackgroundCliStatePlan({
+    identity,
+    environmentStateHome: stateHome,
+    shellStateHome,
+    appDataPath: app.getPath("appData"),
+    userDataPath: app.getPath("userData"),
+    exists: existsSync,
+  })
   const discovered = await Promise.all(
-    candidates.map(async (candidate) => ({
+    statePlan.discoveryCandidates.map(async (candidate) => ({
       stateHome: candidate,
       url: serviceUrl(await run(binary, ["service", "status"], logger, { stateHome: candidate })),
     })),
@@ -48,7 +45,7 @@ export async function startBackgroundCli(logger: Logger, identity: ProductIdenti
     ...endpoint(found?.url),
   })
 
-  const daemonStateHome = found?.stateHome ?? developmentStateHome ?? stateHome
+  const daemonStateHome = found?.stateHome ?? statePlan.fallbackDaemonStateHome
   const url = await run(binary, ["service", "start"], logger, { stateHome: daemonStateHome })
   const password = await run(binary, ["service", "get", "password"], logger, {
     redact: true,

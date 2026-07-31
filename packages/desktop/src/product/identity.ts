@@ -1,30 +1,34 @@
 export type ProductChannel = "dev" | "beta" | "prod"
 
-type ProductPublish = {
-  provider: "github"
-  owner: string
-  repo: string
-  channel: "latest"
+export type ProductPublish = {
+  readonly provider: "github"
+  readonly owner: string
+  readonly repo: string
+  readonly channel: "latest"
 }
 
 export type ProductIdentity = {
-  channel: ProductChannel
-  name: string
-  appId: string
-  protocolScheme: string
-  dataNamespace: string
-  credentialNamespace: string
-  artifactPrefix: string
-  linuxPackageName: string
-  compatibleDataNamespaces: readonly string[]
-  publish?: ProductPublish
+  readonly channel: ProductChannel
+  readonly name: string
+  readonly appId: string
+  readonly protocolScheme: string
+  readonly dataNamespace: string
+  readonly credentialNamespace: string
+  readonly artifactPrefix: string
+  readonly linuxPackageName: string
+  readonly compatibleDataNamespaces: readonly string[]
+  readonly publish?: ProductPublish
 }
 
 type ProductIdentityInput = Omit<ProductIdentity, "dataNamespace" | "credentialNamespace">
 
-const openCodeDataNamespaces = ["ai.opencode.desktop.dev", "ai.opencode.desktop.beta", "ai.opencode.desktop"]
+const openCodeDataNamespaces = Object.freeze([
+  "ai.opencode.desktop.dev",
+  "ai.opencode.desktop.beta",
+  "ai.opencode.desktop",
+])
 
-const identities: Record<ProductChannel, ProductIdentity> = {
+const identities = Object.freeze({
   dev: defineProductIdentity({
     channel: "dev",
     name: "Agent Desktop Dev",
@@ -54,7 +58,7 @@ const identities: Record<ProductChannel, ProductIdentity> = {
     compatibleDataNamespaces: openCodeDataNamespaces,
     publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
   }),
-}
+}) satisfies Readonly<Record<ProductChannel, ProductIdentity>>
 
 export function getProductIdentity(channel: ProductChannel) {
   return identities[channel]
@@ -65,9 +69,11 @@ export function getRuntimeProductIdentity(channel: ProductChannel, packaged: boo
 }
 
 function defineProductIdentity(input: ProductIdentityInput): ProductIdentity {
-  return {
+  return Object.freeze({
     ...input,
     dataNamespace: input.appId,
     credentialNamespace: `${input.appId}.credentials`,
-  }
+    compatibleDataNamespaces: Object.freeze([...input.compatibleDataNamespaces]),
+    publish: input.publish ? Object.freeze({ ...input.publish }) : undefined,
+  })
 }

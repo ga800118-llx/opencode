@@ -12,6 +12,7 @@ import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
+import { normalizeProductDeepLinks } from "../product/deep-link"
 import { getRuntimeProductIdentity } from "../product/identity"
 import { checkAppExists, resolveAppPath } from "./apps"
 import { CHANNEL } from "./constants"
@@ -194,7 +195,7 @@ const main = Effect.gen(function* () {
   const shellEnv = preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith(`${identity.protocolScheme}://`))
+    const urls = normalizeProductDeepLinks(identity, argv)
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
@@ -208,8 +209,11 @@ const main = Effect.gen(function* () {
 
   app.on("open-url", (event: Event, url: string) => {
     event.preventDefault()
-    logger.log("deep link received via open-url", { url })
-    emitDeepLinks([url])
+    const urls = normalizeProductDeepLinks(identity, [url])
+    if (urls.length) {
+      logger.log("deep link received via open-url", { urls })
+      emitDeepLinks(urls)
+    }
   })
 
   app.on("before-quit", () => {

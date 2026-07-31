@@ -69,4 +69,32 @@ describe("desktop product identity", () => {
     expect(getRuntimeProductIdentity("beta", false)).toBe(getProductIdentity("dev"))
     expect(getRuntimeProductIdentity("beta", true)).toBe(getProductIdentity("beta"))
   })
+
+  test("deeply freezes identities without sharing release namespace arrays", () => {
+    const development = getProductIdentity("dev")
+    const beta = getProductIdentity("beta")
+    const prod = getProductIdentity("prod")
+    const mutableDevelopment = development as unknown as { name: string }
+    const mutableBeta = beta as unknown as {
+      publish: { repo: string }
+      compatibleDataNamespaces: string[]
+    }
+
+    for (const identity of [development, beta, prod]) {
+      expect(Object.isFrozen(identity)).toBe(true)
+      expect(Object.isFrozen(identity.compatibleDataNamespaces)).toBe(true)
+      if (identity.publish) expect(Object.isFrozen(identity.publish)).toBe(true)
+    }
+    expect(beta.compatibleDataNamespaces).not.toBe(prod.compatibleDataNamespaces)
+    expect(() => {
+      mutableDevelopment.name = "polluted"
+    }).toThrow()
+    expect(() => {
+      mutableBeta.publish.repo = "polluted"
+    }).toThrow()
+    expect(() => mutableBeta.compatibleDataNamespaces.push("polluted")).toThrow()
+    expect(getProductIdentity("dev").name).toBe("Agent Desktop Dev")
+    expect(getProductIdentity("beta").publish?.repo).toBe("opencode-beta")
+    expect(getProductIdentity("prod").compatibleDataNamespaces).not.toContain("polluted")
+  })
 })

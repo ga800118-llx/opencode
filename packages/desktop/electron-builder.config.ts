@@ -123,7 +123,7 @@ function getConfig() {
     case "dev": {
       return {
         ...base,
-        deb: { fpm: [metainfoFpm(identity.appId)] },
+        deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
         rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
     }
@@ -131,7 +131,7 @@ function getConfig() {
       return {
         ...base,
         publish: identity.publish,
-        deb: { fpm: [metainfoFpm(identity.appId)] },
+        deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
         rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
     }
@@ -139,7 +139,7 @@ function getConfig() {
       return {
         ...base,
         publish: identity.publish,
-        deb: { fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
+        deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
         rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
       }
     }

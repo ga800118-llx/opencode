@@ -49,6 +49,7 @@ for (const channel of channels) {
     expect(config.protocols).toEqual({ name: channel.productName, schemes: [channel.protocolScheme] })
     expect(config.artifactName).toBe(channel.artifactPrefix + "-${os}-${arch}.${ext}")
     expect(config.publish).toEqual(channel.publish)
+    expect(config.deb?.packageName).toBe(channel.linuxPackageName)
     expect(config.rpm?.packageName).toBe(channel.linuxPackageName)
     expect(config.extraMetadata?.desktopName).toBe(`${channel.appId}.desktop`)
     expect(config.linux?.executableName).toBe(channel.appId)
