@@ -95,24 +95,29 @@ git commit -m "fix: clear inherited quality baseline failures"
 
 - Create: `packages/desktop/src/product/identity.ts`
 - Create: `packages/desktop/src/product/identity.test.ts`
+- Create: `packages/desktop/src/product/deep-link.ts`
+- Create: `packages/desktop/src/product/deep-link.test.ts`
 - Modify: `packages/desktop/src/main/index.ts`
 - Modify: `packages/desktop/src/main/migrate.ts`
+- Create: `packages/desktop/src/main/background-cli-state.ts`
+- Create: `packages/desktop/src/main/background-cli-state.test.ts`
+- Modify: `packages/desktop/src/main/background-cli.ts`
 - Modify: `packages/desktop/electron-builder.config.ts`
 - Modify where required: deep-link and generated metadata inputs under `packages/desktop`
 
-- [ ] **Step 1: Write identity tests first**
+- [x] **Step 1: Write identity tests first**
 
 Cover development app name, app ID, protocol scheme, data namespace, and credential namespace. Assert that development identifiers do not equal any OpenCode release identifier.
 
-- [ ] **Step 2: Define one product identity boundary**
+- [x] **Step 2: Define one product identity boundary**
 
 Expose typed channel identity values from one pure module. Use a neutral working development identity; do not choose final product branding in Phase 1. Keep beta/prod publishing disabled or upstream-owned until Phase 4 explicitly replaces release metadata.
 
-- [ ] **Step 3: Wire main process, packaging, migration, and protocol registration**
+- [x] **Step 3: Wire main process, packaging, migration, and protocol registration**
 
 Remove duplicated development constants. Development `userData`, protocol handling, and the future credential service namespace must derive from the centralized identity.
 
-- [ ] **Step 4: Verify isolation**
+- [x] **Step 4: Verify isolation**
 
 Run:
 
@@ -124,7 +129,7 @@ bun run --cwd packages/desktop typecheck
 
 Expected: tests and type check pass, and the development app cannot target `ai.opencode.desktop*` data directories.
 
-- [ ] **Step 5: Commit identity isolation**
+- [x] **Step 5: Commit identity isolation**
 
 ```bash
 git add packages/desktop/src/product packages/desktop/src/main/index.ts packages/desktop/src/main/migrate.ts packages/desktop/electron-builder.config.ts packages/desktop/resources
