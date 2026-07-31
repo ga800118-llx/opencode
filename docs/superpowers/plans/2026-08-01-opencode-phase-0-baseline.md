@@ -592,7 +592,7 @@ MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json \
 
 Expected: all commands exit 0, or `verification.md` explicitly proves an unchanged upstream failure and its impact on Phase 1.
 
-Observed: the complete typecheck, desktop-test, and build gate passed before the documentation commits. A second post-documentation invocation while macOS was locked stalled new Bun processes in `openat` and was terminated. Since the later commits touch only `docs/`, and `git diff --name-only v1.18.10...HEAD -- packages` is empty, the successful package evidence remains current.
+Observed: a post-documentation invocation under the locked `Documents` path stalled new Bun processes in `openat` and was terminated. The same commit was then checked out as a detached worktree at `/tmp/ai-agent-phase0-gate`; frozen dependency installation, Desktop typecheck, all 59 Desktop tests, and the complete Electron build exited 0 there.
 
 - [x] **Step 4: Confirm a clean tracked worktree**
 

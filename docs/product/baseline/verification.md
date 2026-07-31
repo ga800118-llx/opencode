@@ -31,6 +31,9 @@
 | Unsigned packaging | `electron-builder --mac dir ... identity=null notarize=false` | PASS | 8s |
 | Sidecar health | Authenticated `GET /global/health` | PASS | HTTP 200, `healthy: true` |
 | Git project | Authenticated `GET /project/current?directory=...` | PASS | HTTP 200, `vcs: git` |
+| Final Desktop typecheck gate | Detached `/tmp` worktree, `bun run --cwd packages/desktop typecheck` | PASS | Exit 0 |
+| Final Desktop test gate | Detached `/tmp` worktree, `(cd packages/desktop && bun test src)` | PASS | 1.72s; 59 pass, 0 fail |
+| Final Desktop build gate | Detached `/tmp` worktree with pinned Models.dev input | PASS | Exit 0; Electron main, preload, and renderer built |
 
 ## Unchanged Upstream Failures
 
@@ -89,10 +92,19 @@ passes. New-session audit: 1 moderate best-practice violation for no level-one
 heading, 1 incomplete contrast check, 31 passes. These are upstream baseline
 results, not product regressions.
 
-An unsigned test app stalled while resolving the repository under `Documents`
-when macOS was locked. OpenCode logs stopped at `Project.fromDirectory`, while the
-same build completed the full flow under `/tmp`. This is classified as an unsigned
-macOS Files and Folders permission/TCC limitation; signed distribution is Phase 4.
+The test app stalled while resolving the repository under `Documents` when macOS
+was locked. OpenCode logs stopped at `Project.fromDirectory`, while the same build
+completed the full flow under `/tmp`. The evidence establishes a locked-macOS
+filesystem limitation but does not establish whether TCC, file-provider state, or
+another host condition is the cause. Signing and permission behavior remain Phase
+4 concerns, but signing is not claimed as the fix for this observation.
+
+The post-documentation release gate initially encountered the same locked-path
+behavior when Bun was launched in `Documents`. A detached worktree at
+`/tmp/ai-agent-phase0-gate` was installed with the frozen lockfile and completed
+the Desktop typecheck, 59-test suite, and full Electron build successfully. This
+proves the gate against the repository commit without assigning an unproven root
+cause to the host limitation.
 
 Dev packaging also attempts a background install of `@opencode-ai/plugin@local`,
 which is unavailable from the public registry, and logs a warning. It does not
