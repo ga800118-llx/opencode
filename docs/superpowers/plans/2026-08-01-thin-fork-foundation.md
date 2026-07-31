@@ -146,19 +146,19 @@ git commit -m "feat: isolate desktop product identity"
 - Create: `packages/app/src/product/features.ts`
 - Modify: `packages/app/src/index.ts`
 
-- [ ] **Step 1: Define product-level contracts**
+- [x] **Step 1: Define product-level contracts**
 
 Define stable task identifiers, model selection, task creation/prompt/command/shell/interrupt inputs, normalized task events, capability flags, and redacted product errors. Contracts may import published SDK types but may not import Core internals.
 
-- [ ] **Step 2: Test actionable error categories**
+- [x] **Step 2: Test actionable error categories**
 
 Cover unreachable endpoint, authentication, incompatible API, missing model, streaming, tool calling, timeout, TLS, server crash, aborted request, and unknown failures. Assert that authorization values and obvious API-key formats are redacted.
 
-- [ ] **Step 3: Implement normalization and capability reporting**
+- [x] **Step 3: Implement normalization and capability reporting**
 
 Keep raw errors available only behind an explicitly redacted diagnostic field. Expose capability flags for retained OpenCode features so Phase 3 can map them into Advanced mode.
 
-- [ ] **Step 4: Export the public product surface and verify**
+- [x] **Step 4: Export the public product surface and verify**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -166,7 +166,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/app typecheck
 ```
 
-- [ ] **Step 5: Commit the contracts**
+- [x] **Step 5: Commit the contracts**
 
 ```bash
 git add packages/app/src/product packages/app/src/index.ts
