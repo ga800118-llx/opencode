@@ -250,31 +250,31 @@ Expected: existing usable models never trigger redundant onboarding.
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Write failing state-mapping tests**
+- [x] **Step 1: Write failing state-mapping tests**
 
 Assert ready/unmanaged/unavailable are hidden, short starting/restarting states
 receive a grace period, failed and unexpected stopped states persist, and
 sanitized error kind is the only error detail exposed.
 
-- [ ] **Step 2: Write failing recovery-controller tests**
+- [x] **Step 2: Write failing recovery-controller tests**
 
 Use a fake Product Host and Platform. Assert one subscription, cleanup,
 serialized restart calls, pending state, retry after failure, optional diagnostic
 export, and no calls on browser hosts.
 
-- [ ] **Step 3: Implement the controller and banner**
+- [x] **Step 3: Implement the controller and banner**
 
 The banner uses `product.sidecar.getStatus/subscribe/restart` and
 `platform.exportDebugLogs`. It contains Restart agent service and Export
 diagnostics actions, `aria-live="polite"` for progress, and `role="alert"` only
 for persistent failure.
 
-- [ ] **Step 4: Mount once in the global layout**
+- [x] **Step 4: Mount once in the global layout**
 
 Place the banner below desktop chrome and above route content so it never covers
 tabs or the composer. Do not mount a controller per session.
 
-- [ ] **Step 5: Verify App and Desktop Product Host contracts**
+- [x] **Step 5: Verify App and Desktop Product Host contracts**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -287,7 +287,7 @@ bun test src/product src/renderer/initialization.test.ts
 bun run typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/app/src/product/workflow packages/app/src/components/workflow \
