@@ -417,7 +417,8 @@ function questionRejected(properties: UnknownRecord, envelope: Envelope, sourceT
 
 function productQuestions(value: unknown): readonly ProductQuestion[] | undefined {
   if (!Array.isArray(value)) return
-  const questions = value.map((item) => {
+  const questions: ProductQuestion[] = []
+  for (const item of value) {
     const source = record(item)
     const header = text(source.header)
     const question = text(source.question)
@@ -430,16 +431,15 @@ function productQuestions(value: unknown): readonly ProductQuestion[] | undefine
       return { label, ...(description ? { description } : {}) }
     })
     if (options.some((option) => !option)) return
-    return {
+    questions.push({
       header,
       question,
       options: options.filter((option): option is { label: string; description?: string } => !!option),
       multiple: boolean(source.multiple) ?? false,
       custom: boolean(source.custom) ?? false,
-    }
-  })
-  if (questions.some((question) => !question)) return
-  return questions.filter((question): question is ProductQuestion => !!question)
+    })
+  }
+  return questions
 }
 
 function toolFields(properties: UnknownRecord) {
