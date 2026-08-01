@@ -8,7 +8,7 @@ import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import createPresence from "solid-presence"
 import { PromptInputV2Composer } from "@/components/prompt-input-v2"
-import { ModelSetupNotice, providerTipAllowed } from "@/components/workflow/model-setup-notice"
+import { ModelSetupNoticeSlot, providerTipAllowed } from "@/components/workflow/model-setup-notice"
 import { PromptGitStatus, PromptWorkspaceSelector } from "@/components/prompt-workspace-selector"
 import {
   PromptProjectAddButton,
@@ -45,7 +45,7 @@ export function NewSessionView(props: {
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
             <div class="mt-8 flex flex-col gap-8">
               <PromptInputV2Composer controller={props.input} />
-              <ModelSetupNotice readiness={props.modelReadiness} />
+              <ModelSetupNoticeSlot readiness={props.modelReadiness} />
               <Show when={props.project.empty()}>
                 <PromptProjectAddButton controller={props.project} />
               </Show>

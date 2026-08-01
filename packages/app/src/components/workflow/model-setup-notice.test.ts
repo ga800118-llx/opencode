@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { modelReadiness } from "@/product/workflow"
 import {
   createModelSetupNoticeController,
+  modelSetupNoticeSlotPolicy,
   modelSetupNoticeViewModel,
   providerTipAllowed,
 } from "./model-setup-notice"
@@ -34,18 +35,31 @@ describe("modelSetupNoticeViewModel", () => {
     expect(opened).toEqual(["models"])
   })
 
-  test("uses accurate provider settings copy when desktop setup is unavailable", () => {
+  test("keeps browser fallback guidance on the Models settings page", () => {
     expect(modelSetupNoticeViewModel("desktop-unavailable")).toEqual({
       description: "workflow.modelSetup.browserDescription",
       action: "workflow.modelSetup.providerAction",
-      settingsTab: "providers",
+      settingsTab: "models",
     })
   })
 
-  test("suppresses the provider tip whenever setup guidance is active", () => {
+  test("suppresses the provider tip exactly when setup guidance is present", () => {
     expect(providerTipAllowed("setup-required")).toBe(false)
     expect(providerTipAllowed("desktop-unavailable")).toBe(false)
-    expect(providerTipAllowed("loading")).toBe(false)
+    expect(providerTipAllowed("loading")).toBe(true)
     expect(providerTipAllowed("ready")).toBe(true)
+  })
+
+  test("reserves the notice slot in every readiness state without hidden content", () => {
+    expect(modelSetupNoticeSlotPolicy("loading")).toEqual({ reserved: true, notice: undefined })
+    expect(modelSetupNoticeSlotPolicy("ready")).toEqual({ reserved: true, notice: undefined })
+    expect(modelSetupNoticeSlotPolicy("setup-required")).toEqual({
+      reserved: true,
+      notice: modelSetupNoticeViewModel("setup-required"),
+    })
+    expect(modelSetupNoticeSlotPolicy("desktop-unavailable")).toEqual({
+      reserved: true,
+      notice: modelSetupNoticeViewModel("desktop-unavailable"),
+    })
   })
 })

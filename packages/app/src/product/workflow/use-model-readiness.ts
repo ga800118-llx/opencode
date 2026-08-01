@@ -34,14 +34,19 @@ export function createModelReadinessController(input: ModelReadinessControllerIn
     },
   )
   const availableModelCount = () => input.models().filter(input.visible).length
-  const readiness = () =>
-    modelReadiness({
+  const readiness = () => {
+    const hasUsableSelectedModel = !!input.selectedModel()
+    const count = availableModelCount()
+    return modelReadiness({
       providersLoading:
-        !input.providersReady() || !input.modelsReady() || desktopModelCenterAvailable() === undefined,
-      hasUsableSelectedModel: !!input.selectedModel(),
-      availableModelCount: availableModelCount(),
+        !input.providersReady() ||
+        !input.modelsReady() ||
+        (!hasUsableSelectedModel && count === 0 && desktopModelCenterAvailable() === undefined),
+      hasUsableSelectedModel,
+      availableModelCount: count,
       desktopModelCenterAvailable: desktopModelCenterAvailable() ?? false,
     })
+  }
 
   return {
     readiness,

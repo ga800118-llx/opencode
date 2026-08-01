@@ -46,26 +46,27 @@ describe("createModelReadinessController", () => {
     })
   })
 
-  test("treats an existing usable built-in or default model as ready", async () => {
+  test("treats a hydrated usable model as ready before host capabilities resolve", () => {
+    const capability = deferred<{ available: boolean }>()
     const [selectedModel] = createSignal(model())
+    let calls = 0
 
-    await new Promise<void>((done) => {
-      createRoot((dispose) => {
-        const controller = createModelReadinessController({
-          providersReady: () => true,
-          modelsReady: () => true,
-          selectedModel,
-          models: () => [],
-          visible: () => true,
-          loadModelCenterCapabilities: async () => ({ available: true }),
-        })
-
-        void settle().then(() => {
-          expect(controller.readiness()).toBe("ready")
-          dispose()
-          done()
-        })
+    createRoot((dispose) => {
+      const controller = createModelReadinessController({
+        providersReady: () => true,
+        modelsReady: () => true,
+        selectedModel,
+        models: () => [],
+        visible: () => true,
+        loadModelCenterCapabilities: () => {
+          calls++
+          return capability.promise
+        },
       })
+
+      expect(controller.readiness()).toBe("ready")
+      expect(calls).toBe(1)
+      dispose()
     })
   })
 

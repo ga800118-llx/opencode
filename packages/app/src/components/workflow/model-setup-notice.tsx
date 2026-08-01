@@ -15,7 +15,7 @@ const notices = {
   "desktop-unavailable": {
     description: "workflow.modelSetup.browserDescription",
     action: "workflow.modelSetup.providerAction",
-    settingsTab: "providers",
+    settingsTab: "models",
   },
 } as const satisfies Record<Exclude<ProductModelReadiness, "loading" | "ready">, ModelSetupNoticeViewModel>
 
@@ -33,7 +33,14 @@ export function modelSetupNoticeViewModel(readiness: ProductModelReadiness) {
 }
 
 export function providerTipAllowed(readiness: ProductModelReadiness) {
-  return readiness === "ready"
+  return !modelSetupNoticeViewModel(readiness)
+}
+
+export function modelSetupNoticeSlotPolicy(readiness: ProductModelReadiness) {
+  return {
+    reserved: true,
+    notice: modelSetupNoticeViewModel(readiness),
+  } as const
 }
 
 export function createModelSetupNoticeController(showSettings: (tab: SettingsTab) => void) {
@@ -86,5 +93,20 @@ export function ModelSetupNotice(props: {
         </div>
       )}
     </Show>
+  )
+}
+
+export function ModelSetupNoticeSlot(props: {
+  readiness: Accessor<ProductModelReadiness>
+  class?: string
+}) {
+  return (
+    <div
+      data-component="model-setup-notice-slot"
+      data-readiness={props.readiness()}
+      class={`${props.class ?? ""} relative h-[104px] min-w-0 shrink-0 sm:h-[68px] lg:h-[44px]`}
+    >
+      <ModelSetupNotice readiness={props.readiness} class="absolute inset-0 h-full" />
+    </div>
   )
 }
