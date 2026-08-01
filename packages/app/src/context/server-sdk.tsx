@@ -13,6 +13,7 @@ import { useGlobal } from "./global"
 import { ServerScope } from "@/utils/server-scope"
 import { detectServerProtocol, type ServerProtocol } from "@/utils/server-protocol"
 import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
+import { normalizeProductEvent, type ProductEvent } from "@/product/events"
 
 const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
@@ -54,6 +55,10 @@ export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
   if (event.type === "question.v2.rejected")
     return { id: event.id, type: "question.rejected", properties: event.data, current: event } as ServerEvent
   return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
+}
+
+export function adaptProductServerEvent(event: OpenCodeEvent, directory?: string): ProductEvent {
+  return normalizeProductEvent(adaptServerEvent(event), directory ?? event.location?.directory)
 }
 
 const coalescedKey = (event: QueuedServerEvent) => {

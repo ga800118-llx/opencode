@@ -66,6 +66,12 @@ export {
   type ProductTextPart,
 } from "./product/contracts"
 export { normalizeProductError } from "./product/errors"
+export {
+  normalizeProductEvent,
+  type AdaptedProductEventInput,
+  type ProductEvent,
+  type ProductQuestion,
+} from "./product/events"
 export { PRODUCT_FEATURES, type ProductFeatureFlags } from "./product/features"
 export {
   BROWSER_PRODUCT_RUNTIME,
