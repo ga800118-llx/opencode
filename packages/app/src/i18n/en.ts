@@ -631,7 +631,7 @@ export const dict = {
   "home.sessions.search.placeholder.scoped": "Search tasks in {{scope}}",
   "home.sessions.search.sessions": "Tasks",
   "home.sessions.search.noResults": "No tasks found for {{query}}",
-  "home.sessions.empty": "No tasks",
+  "home.sessions.empty": "No tasks yet",
   "home.sessions.empty.description": "Create a task to get started",
   "home.sessions.group.today": "Today",
   "home.sessions.group.yesterday": "Yesterday",

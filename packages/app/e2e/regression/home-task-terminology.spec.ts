@@ -14,8 +14,10 @@ const profiles = [
     newTask: "New task",
     recentTasks: "Recent tasks",
     searchTasks: "Search tasks",
-    noTasks: "No tasks",
+    noTasks: "No tasks yet",
     noResults: "No tasks found for missing",
+    projects: "Projects",
+    addProject: "Add project",
     openProject: "Open project",
     searchFolders: "Search folders",
   },
@@ -27,6 +29,8 @@ const profiles = [
     searchTasks: "搜索任务",
     noTasks: "暂无任务",
     noResults: "未找到与 missing 相关的任务",
+    projects: "项目",
+    addProject: "添加项目",
     openProject: "打开项目",
     searchFolders: "搜索文件夹",
   },
@@ -41,8 +45,13 @@ for (const profile of profiles) {
 
     const search = page.getByRole("textbox", { name: profile.searchTasks })
     await expectAppVisible(search)
-    await expect(page.getByRole("region", { name: profile.recentTasks })).toBeVisible()
-    await expect(page.getByRole("button", { name: profile.newTask }).first()).toBeVisible()
+    await expectSeededProjectActions(page, profile)
+    const tasks = page.getByRole("region", { name: profile.recentTasks })
+    await expect(tasks).toBeVisible()
+    const titleAction = tasks
+      .locator('[data-component="home-session-header"]')
+      .getByRole("button", { name: profile.newTask, exact: true })
+    await expect(titleAction).toBeVisible()
 
     await search.fill("missing")
     await expect(page.getByText(profile.noResults, { exact: true })).toBeVisible()
@@ -61,12 +70,15 @@ for (const profile of profiles) {
 
     const project = page.locator('[data-component="home-project-row"]').filter({ hasText: projectName }).first()
     await expectAppVisible(project)
+    await expectSeededProjectActions(page, profile)
     await project.click()
 
-    await expect(page.getByText(profile.noTasks, { exact: true })).toBeVisible()
-    const newTask = page.getByRole("button", { name: profile.newTask }).first()
-    await expect(newTask).toBeVisible()
-    await newTask.click()
+    const tasks = page.getByRole("region", { name: profile.recentTasks })
+    const empty = tasks.locator('[data-component="home-session-empty"]')
+    await expect(empty.getByText(profile.noTasks, { exact: true })).toBeVisible()
+    const emptyCta = empty.getByRole("button", { name: profile.newTask, exact: true })
+    await expect(emptyCta).toBeVisible()
+    await emptyCta.click()
 
     await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
   })
@@ -86,6 +98,12 @@ for (const profile of profiles) {
     await expect(dialog.getByPlaceholder(profile.searchFolders)).toBeVisible()
     await expect(dialog.locator("[data-directory-path]").first()).toBeVisible()
   })
+}
+
+async function expectSeededProjectActions(page: Page, profile: (typeof profiles)[number]) {
+  const projects = page.getByRole("complementary", { name: profile.projects })
+  await expect(projects).toBeVisible()
+  await expect(projects.getByRole("button", { name: profile.addProject, exact: true })).toBeVisible()
 }
 
 async function setup(

@@ -15,7 +15,7 @@ const primaryTaskCopy = {
   "home.sessions.search.placeholder.scoped": ["Search tasks in {{scope}}", "在 {{scope}} 中搜索任务"],
   "home.sessions.search.sessions": ["Tasks", "任务"],
   "home.sessions.search.noResults": ["No tasks found for {{query}}", "未找到与 {{query}} 相关的任务"],
-  "home.sessions.empty": ["No tasks", "暂无任务"],
+  "home.sessions.empty": ["No tasks yet", "暂无任务"],
   "home.sessions.empty.description": ["Create a task to get started", "创建一个任务以开始。"],
   "sidebar.nav.projectsAndSessions": ["Projects and tasks", "项目和任务"],
   "sidebar.project.recentSessions": ["Recent tasks", "最近任务"],
