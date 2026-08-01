@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import type { ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
+import { PRODUCT_HOST_CHANNELS, type ProductSidecarStatus } from "../product/host"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
 let updaterState: UpdaterState | undefined
@@ -10,7 +11,40 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
   updaterCallbacks.forEach((callback) => callback(state))
 }
 
+const sidecarCallbacks = new Set<(status: ProductSidecarStatus) => void>()
+let sidecarStatus: ProductSidecarStatus | undefined
+let sidecarSubscription: Promise<void> | undefined
+const sidecarHandler = (_: unknown, status: ProductSidecarStatus) => {
+  sidecarStatus = status
+  sidecarCallbacks.forEach((callback) => callback(status))
+}
+
 const api: ElectronAPI = {
+  productHost: {
+    sidecar: {
+      getStatus: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarGetStatus),
+      subscribe: async (callback) => {
+        sidecarCallbacks.add(callback)
+        if (sidecarStatus) callback(sidecarStatus)
+        if (!sidecarSubscription) {
+          ipcRenderer.on(PRODUCT_HOST_CHANNELS.sidecarState, sidecarHandler)
+          sidecarSubscription = ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarSubscribe)
+        }
+        await sidecarSubscription
+        return () => {
+          sidecarCallbacks.delete(callback)
+          if (sidecarCallbacks.size > 0) return
+          ipcRenderer.removeListener(PRODUCT_HOST_CHANNELS.sidecarState, sidecarHandler)
+          sidecarSubscription = undefined
+          void ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarUnsubscribe)
+        }
+      },
+      restart: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarRestart),
+    },
+    credentials: {
+      getCapabilities: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.credentialGetCapabilities),
+    },
+  },
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),

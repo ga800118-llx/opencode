@@ -13,6 +13,13 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { normalizeProductDeepLinks } from "../product/deep-link"
+import {
+  createProductCredentialCapabilities,
+  createUnavailableSidecarStatus,
+  createUnmanagedSidecarStatus,
+  sanitizeProductSidecarStatus,
+  type ProductSidecarStatus,
+} from "../product/host"
 import { getRuntimeProductIdentity } from "../product/identity"
 import { checkAppExists, resolveAppPath } from "./apps"
 import { CHANNEL } from "./constants"
@@ -58,6 +65,9 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarSupervisor | null = null
+let productSidecarStatus = createUnavailableSidecarStatus()
+let detachProductSidecarStatus: (() => void) | undefined
+const productSidecarSubscribers = new Set<(status: ProductSidecarStatus) => void>()
 
 const pendingDeepLinks: string[] = []
 
@@ -84,6 +94,34 @@ async function killSidecar() {
   await current.stop()
 }
 
+function publishProductSidecarStatus(status: ProductSidecarStatus) {
+  productSidecarStatus = sanitizeProductSidecarStatus(status)
+  for (const subscriber of productSidecarSubscribers) {
+    try {
+      subscriber(productSidecarStatus)
+    } catch {
+      logger?.warn("product sidecar status subscriber failed")
+    }
+  }
+}
+
+function subscribeProductSidecarStatus(subscriber: (status: ProductSidecarStatus) => void) {
+  productSidecarSubscribers.add(subscriber)
+  try {
+    subscriber(productSidecarStatus)
+  } catch {
+    logger?.warn("product sidecar status subscriber failed")
+  }
+  return () => productSidecarSubscribers.delete(subscriber)
+}
+
+async function restartProductSidecar() {
+  const current = server
+  if (!current) return productSidecarStatus
+  await current.restart()
+  return productSidecarStatus
+}
+
 function ensureLoopbackNoProxy() {
   const loopback = ["127.0.0.1", "localhost", "::1"]
   const upsert = (key: string) => {
@@ -106,6 +144,7 @@ function ensureLoopbackNoProxy() {
 
 const main = Effect.gen(function* () {
   const identity = getRuntimeProductIdentity(CHANNEL, app.isPackaged)
+  const credentialCapabilities = createProductCredentialCapabilities(identity.credentialNamespace, process.platform)
   contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
   // on macOS apps run in `/` which can cause issues with ripgrep
@@ -268,6 +307,10 @@ const main = Effect.gen(function* () {
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
   registerIpcHandlers({
+    getProductSidecarStatus: () => productSidecarStatus,
+    subscribeProductSidecarStatus,
+    restartProductSidecar,
+    getProductCredentialCapabilities: () => credentialCapabilities,
     killSidecar: () => killSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(
@@ -317,6 +360,7 @@ const main = Effect.gen(function* () {
 
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar without lifecycle supervision", { supervised: false })
+      publishProductSidecarStatus(createUnmanagedSidecarStatus())
       const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, identity, shellEnv?.XDG_STATE_HOME))
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
@@ -383,6 +427,10 @@ const main = Effect.gen(function* () {
       },
     })
     server = supervisor
+    detachProductSidecarStatus?.()
+    detachProductSidecarStatus = supervisor.subscribe((status) =>
+      publishProductSidecarStatus(sanitizeProductSidecarStatus(status)),
+    )
     yield* Effect.promise(() => supervisor.start())
     yield* Deferred.succeed(serverReady, {
       url,

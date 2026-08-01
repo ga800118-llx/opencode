@@ -13,6 +13,12 @@ import { getStore, removeStoreFileIfEmpty } from "./store"
 import { getPinchZoomEnabled, getWindowID, setPinchZoomEnabled, setTitlebar, updateTitlebar } from "./windows"
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
+import {
+  PRODUCT_HOST_CHANNELS,
+  sanitizeProductSidecarStatus,
+  type ProductCredentialCapabilities,
+  type ProductSidecarStatus,
+} from "../product/host"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -22,6 +28,10 @@ const pickerFilters = (ext?: string[]) => {
 const pickedFiles = createPickedFileAuthorizations()
 
 type Deps = {
+  getProductSidecarStatus: () => Promise<ProductSidecarStatus> | ProductSidecarStatus
+  subscribeProductSidecarStatus: (listener: (status: ProductSidecarStatus) => void) => () => void
+  restartProductSidecar: () => Promise<ProductSidecarStatus>
+  getProductCredentialCapabilities: () => Promise<ProductCredentialCapabilities> | ProductCredentialCapabilities
   killSidecar: () => Promise<void> | void
   relaunch: () => void
   awaitInitialization: () => Promise<ServerReadyData>
@@ -45,7 +55,31 @@ type Deps = {
 
 export function registerIpcHandlers(deps: Deps) {
   const updaterSubscriptions = createUpdaterSubscriptions()
-  app.once("will-quit", updaterSubscriptions.clear)
+  const sidecarSubscriptions = createUpdaterSubscriptions()
+  app.once("will-quit", () => {
+    updaterSubscriptions.clear()
+    sidecarSubscriptions.clear()
+  })
+
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.sidecarGetStatus, async () =>
+    sanitizeProductSidecarStatus(await deps.getProductSidecarStatus()),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.sidecarSubscribe, (event) => {
+    const id = event.sender.id
+    sidecarSubscriptions.set(
+      id,
+      deps.subscribeProductSidecarStatus((status) => {
+        if (event.sender.isDestroyed()) return sidecarSubscriptions.delete(id)
+        event.sender.send(PRODUCT_HOST_CHANNELS.sidecarState, sanitizeProductSidecarStatus(status))
+      }),
+    )
+    event.sender.once("destroyed", () => sidecarSubscriptions.delete(id))
+  })
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.sidecarUnsubscribe, (event) => sidecarSubscriptions.delete(event.sender.id))
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.sidecarRestart, async () =>
+    sanitizeProductSidecarStatus(await deps.restartProductSidecar()),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.credentialGetCapabilities, () => deps.getProductCredentialCapabilities())
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())

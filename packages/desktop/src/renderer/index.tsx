@@ -32,6 +32,7 @@ import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
 import { Splash } from "@opencode-ai/ui/logo"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { createDesktopProductHost } from "../product/host"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -39,7 +40,7 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 }
 
 const DESKTOP_PRODUCT_RUNTIME = Object.freeze({
-  host: Object.freeze({ kind: "desktop" as const }),
+  host: createDesktopProductHost(window.api.productHost),
   createTaskAdapter: createProductTaskAdapter,
 }) satisfies ProductRuntime
 
@@ -355,7 +356,7 @@ function DesktopRoot(props: { windowState: DesktopWindowState }) {
 
   const [windowCount] = createResource(() => window.api.getWindowCount())
 
-  // Fetch sidecar credentials (available immediately, before health check)
+  // Fetch connection data after supervised local-server initialization.
   const [sidecar] = createResource(() => window.api.awaitInitialization())
 
   const [defaultServer] = createResource(() => platform.getDefaultServer?.())

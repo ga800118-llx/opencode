@@ -1,6 +1,8 @@
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import type { WslServersPlatform } from "@opencode-ai/app/wsl/types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
+import type { DesktopProductHostAPI } from "../product/host"
+export type { ProductCredentialCapabilities, ProductSidecarStatus } from "../product/host"
 export type {
   WslDistroProbe,
   WslInstalledDistro,
@@ -42,6 +44,7 @@ export type FatalRendererError = {
 }
 
 export type ElectronAPI = {
+  productHost: DesktopProductHostAPI
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
