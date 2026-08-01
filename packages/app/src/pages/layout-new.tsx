@@ -4,6 +4,7 @@ import { useNavigate } from "@solidjs/router"
 import { DebugBar } from "@/components/debug-bar"
 import { TabsInfoPopup } from "@/components/help-button"
 import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
+import { SidecarRecoveryMount } from "@/components/workflow/sidecar-recovery-notice"
 import { usePlatform } from "@/context/platform"
 import { setNavigate } from "@/utils/notification-click"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
@@ -42,6 +43,7 @@ export default function NewLayout(props: ParentProps) {
             : undefined
         }
       />
+      <SidecarRecoveryMount />
       <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
         <Suspense>{props.children}</Suspense>
       </main>

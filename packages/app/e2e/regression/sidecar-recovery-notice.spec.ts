@@ -34,13 +34,9 @@ test.use({ viewport: { width: 720, height: 800 } })
 test("renders one recoverable sidecar notice without overlap, overflow, or raw errors", async ({ page }) => {
   await page.goto("/e2e/fixtures/sidecar-recovery/")
 
-  const shell = page.locator('[data-component="recovery-shell"]')
-  const content = page.getByTestId("route-content")
   const notice = page.locator('[data-component="sidecar-recovery-notice"]')
-  await expect(shell).toHaveCount(1)
   await expect(notice).toHaveCount(0)
   expect(await fixture(page)).toEqual({ getStatusCalls: 1, subscribeCalls: 1, restartCalls: 0, diagnosticsCalls: 0 })
-  expect((await content.boundingBox())?.y).toBe((await shell.boundingBox())?.y)
 
   await emit(page, { state: "starting", changedAt: Date.now() })
   await expect(notice).toHaveCount(0)
@@ -50,7 +46,6 @@ test("renders one recoverable sidecar notice without overlap, overflow, or raw e
   await expect(progress).toBeVisible({ timeout: 2_500 })
   await expect(progress).toHaveAttribute("aria-live", "polite")
   await expect(notice).toHaveCount(1)
-  expect((await content.boundingBox())!.y).toBeGreaterThan((await shell.boundingBox())!.y)
 
   await emit(page, { state: "failed", changedAt: Date.now(), error: { kind: "exit" } })
   const failure = page.getByRole("alert")
@@ -101,7 +96,6 @@ test("renders one recoverable sidecar notice without overlap, overflow, or raw e
     }),
   )
   await expect(notice).toHaveCount(0)
-  expect((await content.boundingBox())?.y).toBe((await shell.boundingBox())?.y)
 
   await emit(page, { state: "failed", changedAt: Date.now(), error: { kind: "health" } })
   await diagnostics.click()

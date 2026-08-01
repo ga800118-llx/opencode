@@ -8,7 +8,7 @@ import {
 } from "@/product/context"
 import type { ProductSidecarHost, ProductSidecarStatus } from "@/product/workflow/sidecar-status"
 import { ProductRuntimeProvider } from "@/product/context"
-import { RecoveryShell } from "@/components/workflow/recovery-shell"
+import { SidecarRecoveryMount } from "@/components/workflow/sidecar-recovery-notice"
 
 type Deferred<T> = {
   readonly promise: Promise<T>
@@ -124,14 +124,15 @@ render(
     <PlatformProvider value={platform}>
       <ProductRuntimeProvider runtime={runtime}>
         <LanguageProvider locale="en">
-          <RecoveryShell layout={() => "new"}>
+          <div class="flex size-full min-h-0 min-w-0 flex-col">
+            <SidecarRecoveryMount />
             <main
               data-testid="route-content"
               class="min-h-0 min-w-0 flex-1 bg-v2-background-bg-base p-4 text-v2-text-text-base"
             >
               Fixture route content
             </main>
-          </RecoveryShell>
+          </div>
         </LanguageProvider>
       </ProductRuntimeProvider>
     </PlatformProvider>

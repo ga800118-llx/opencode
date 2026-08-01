@@ -132,3 +132,11 @@ export function SidecarRecoveryNotice() {
     </Show>
   )
 }
+
+export function SidecarRecoveryMount() {
+  return (
+    <div data-component="sidecar-recovery-mount" class="contents">
+      <SidecarRecoveryNotice />
+    </div>
+  )
+}
