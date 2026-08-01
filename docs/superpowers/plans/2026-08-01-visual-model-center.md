@@ -67,7 +67,7 @@ Phase 2 is complete only when:
 - Modify: `packages/app/src/index.ts`
 - Modify: `packages/app/package.json`
 
-- [ ] **Step 1: Write contract and validation tests**
+- [x] **Step 1: Write contract and validation tests**
 
 Cover the exact provider kinds and classifications:
 
@@ -78,7 +78,7 @@ type ProductModelClassification = "agent-capable" | "partially-compatible" | "ch
 
 Assert trimmed names, normalized HTTP(S) URLs, unique model IDs, positive timeout/context/output limits, safe header names, `allowInsecureTls === false`, and rejection of loopback-only kinds pointed at non-loopback hosts. Assert serialized values and thrown validation errors never contain `apiKey` or sensitive-header values.
 
-- [ ] **Step 2: Run the contract tests and confirm the red state**
+- [x] **Step 2: Run the contract tests and confirm the red state**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -88,7 +88,7 @@ bun test --conditions=solid --preload ./happydom.ts ./src/product/model-center
 
 Expected: FAIL because the model-center modules do not exist.
 
-- [ ] **Step 3: Implement the public contract**
+- [x] **Step 3: Implement the public contract**
 
 Define immutable renderer-safe outputs and write-only secret inputs:
 
@@ -125,15 +125,15 @@ export type ProductModelCenterAPI = {
 
 `ProductProviderProfileInput` may contain a write-only `credentials` envelope. No output type contains the corresponding values.
 
-- [ ] **Step 4: Serialize profiles into public OpenCode config patches**
+- [x] **Step 4: Serialize profiles into public OpenCode config patches**
 
 Implement `profileProviderID`, `profileCredentialEnvironment`, `profileSensitiveHeaderEnvironment`, `serializeProviderProfile`, `enableProviderPatch`, `disableProviderPatch`, and `defaultModelPatch`. Use `@ai-sdk/openai-compatible`, normalize Ollama to `/v1`, preserve manually entered models, emit `tool_call` only after a successful tool test, and emit `{env:...}` tokens for every secret.
 
-- [ ] **Step 5: Extend the product runtime with an unavailable browser model center**
+- [x] **Step 5: Extend the product runtime with an unavailable browser model center**
 
 Every `ProductHost` exposes `modelCenter`; the browser implementation reports `available: false` and rejects mutating operations with a normalized unavailable-host error. Export the subpath `@opencode-ai/app/product/model-center` so Desktop main code imports only the focused module.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -503,7 +503,7 @@ Rows show source type, endpoint host, default model, secret-present state, last-
 
 - [ ] **Step 4: Build the create/edit dialog**
 
-Use a provider-kind segmented control, labeled text/password inputs, model list with explicit selection controls, and a collapsed Advanced section for non-sensitive headers, sensitive-header names/values, timeout, context limit, output limit, proxy URL, and TLS policy. `allowInsecureTls` remains visibly off and saving it on is rejected because the unmodified OpenCode runtime cannot safely scope TLS relaxation per profile. The form explains the actionable limitation instead of silently accepting a setting that agent requests would ignore.
+Use a provider-kind segmented control, labeled text/password inputs, model list with explicit selection controls, and a collapsed Advanced section for non-sensitive headers, sensitive-header names/values, timeout, context limit, output limit, proxy URL, and TLS policy. Per-profile proxy and `allowInsecureTls` settings remain visibly off and saving either is rejected because the unmodified OpenCode runtime cannot safely scope either transport behavior per profile. The form explains the actionable limitation instead of silently accepting settings that agent requests would ignore.
 
 - [ ] **Step 5: Add discovery, manual fallback, test, and diagnostics states**
 

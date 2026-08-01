@@ -86,3 +86,4 @@ export {
   useProductTaskAdapter,
 } from "./product/context"
 export { createProductTaskAdapter, type ProductTaskAdapterIDs } from "./product/task-adapter"
+export * from "./product/model-center"
