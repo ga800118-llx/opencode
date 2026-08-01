@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import createPresence from "solid-presence"
 import { PromptInputV2Composer } from "@/components/prompt-input-v2"
+import { ModelSetupNotice, providerTipAllowed } from "@/components/workflow/model-setup-notice"
 import { PromptGitStatus, PromptWorkspaceSelector } from "@/components/prompt-workspace-selector"
 import {
   PromptProjectAddButton,
@@ -20,6 +21,7 @@ import { useSDK } from "@/context/sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useProviders } from "@/hooks/use-providers"
 import { NEW_SESSION_CONTENT_WIDTH } from "@/pages/session/new-session-layout"
+import type { ProductModelReadiness } from "@/product/workflow"
 import { Persist, persisted } from "@/utils/persist"
 import type { NewSessionDraftController } from "./new-session-draft-controller"
 import type { NewSessionWorkspaceController } from "./new-session-workspace-controller"
@@ -30,6 +32,7 @@ export function NewSessionView(props: {
   input: NewSessionDraftController["input"]
   project: PromptProjectController
   workspace: NewSessionWorkspaceController
+  modelReadiness: Accessor<ProductModelReadiness>
 }) {
   return (
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
@@ -42,6 +45,7 @@ export function NewSessionView(props: {
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
             <div class="mt-8 flex flex-col gap-8">
               <PromptInputV2Composer controller={props.input} />
+              <ModelSetupNotice readiness={props.modelReadiness} />
               <Show when={props.project.empty()}>
                 <PromptProjectAddButton controller={props.project} />
               </Show>
@@ -68,7 +72,7 @@ export function NewSessionView(props: {
             </div>
           </div>
         </div>
-        <ProviderTip />
+        <ProviderTip allowed={() => providerTipAllowed(props.modelReadiness())} />
       </div>
     </div>
   )
@@ -92,7 +96,7 @@ export function NewSessionStatus(props: { mount: Accessor<HTMLElement | null>; v
   )
 }
 
-function ProviderTip() {
+function ProviderTip(props: { allowed: Accessor<boolean> }) {
   const language = useLanguage()
   const dialog = useDialog()
   const sdk = useSDK()
@@ -104,6 +108,7 @@ function ProviderTip() {
   )
   const visible = createMemo(
     () =>
+      props.allowed() &&
       serverSync().child(sdk().directory)[0].provider_ready &&
       persistedReady() &&
       providers.paid().length === 0 &&

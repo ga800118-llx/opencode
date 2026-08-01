@@ -1,6 +1,9 @@
 import { createPromptProjectController } from "@/components/prompt-project-selector"
 import { useTitlebarRightMount } from "@/components/titlebar"
 import { useSettings } from "@/context/settings"
+import { useLocal } from "@/context/local"
+import { useSDK } from "@/context/sdk"
+import { useModelReadiness } from "@/product/workflow/use-model-readiness"
 import { createEffect, createResource } from "solid-js"
 import { createNewSessionDraftController } from "./new-session/new-session-draft-controller"
 import { NewSessionStatus, NewSessionView } from "./new-session/new-session-view"
@@ -10,6 +13,8 @@ import { useNewSessionCommands } from "./new-session/use-new-session-commands"
 /** The draft-only V2 session page. Submitting promotes the draft into a real session. */
 export default function NewSessionPage() {
   const settings = useSettings()
+  const local = useLocal()
+  const sdk = useSDK()
   const rightMount = useTitlebarRightMount()
   const workspace = createNewSessionWorkspaceController()
   const draft = createNewSessionDraftController({
@@ -20,6 +25,7 @@ export default function NewSessionPage() {
     controls: draft.project.controls,
     onDone: draft.input.restoreFocus,
   })
+  const modelReadiness = useModelReadiness({ directory: () => sdk().directory, model: local.model })
   useNewSessionCommands({
     restoreFocus: draft.input.restoreFocus,
     project: {
@@ -42,7 +48,12 @@ export default function NewSessionPage() {
       {suspendUntilPromptReady()}
       <NewSessionStatus mount={rightMount} visible={settings.visibility.status} />
       <div class="flex-1 min-h-0 flex flex-col gap-2 p-2">
-        <NewSessionView input={draft.input} project={project} workspace={workspace} />
+        <NewSessionView
+          input={draft.input}
+          project={project}
+          workspace={workspace}
+          modelReadiness={modelReadiness.readiness}
+        />
       </div>
     </div>
   )

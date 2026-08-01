@@ -3,8 +3,9 @@ import { onCleanup } from "solid-js"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import type { SettingsTab } from "@/components/settings-v2/dialog-settings-v2"
 
-export function useSettingsDialog(defaultValue?: string) {
+export function useSettingsDialog(defaultValue?: SettingsTab) {
   const dialog = useDialog()
   const params = useParams<{ id?: string }>()
   let run = 0

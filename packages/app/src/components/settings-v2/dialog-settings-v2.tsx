@@ -15,9 +15,11 @@ import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 
+export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers"
+
 export const DialogSettings: Component<{
   sessionID?: string
-  defaultValue?: string
+  defaultValue?: SettingsTab
 }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
@@ -50,7 +52,7 @@ export const DialogSettings: Component<{
         orientation="vertical"
         variant="settings"
         value={tab()}
-        onChange={(value) => void startTransition(() => setTab(value))}
+        onChange={(value) => void startTransition(() => setTab(value as SettingsTab))}
         class="settings-v2"
       >
         <TabsV2.List>

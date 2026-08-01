@@ -1,4 +1,6 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { ModelSetupNotice } from "@/components/workflow/model-setup-notice"
+import { useModelReadiness } from "@/product/workflow/use-model-readiness"
 import { createHomeController } from "./home/home-controller"
 import { createHomeProjectsController } from "./home/home-projects-controller"
 import { HomeUtilityNav } from "./home/home-projects-view"
@@ -14,6 +16,7 @@ export function NewHome() {
   const sessions = createHomeSessionsController(home)
   const search = createHomeSessionSearchController(home, sessions)
   const scroll = createHomeScrollController(sessions.data.groups)
+  const modelReadiness = useModelReadiness()
   return (
     <div
       class={`
@@ -36,7 +39,10 @@ export function NewHome() {
           `}
         >
           <HomeProjects projects={projects} scroll={scroll} />
-          <HomeSessions sessions={sessions} search={search} scroll={scroll} />
+          <div class="flex min-h-0 min-w-0 flex-col">
+            <ModelSetupNotice readiness={modelReadiness.readiness} class="mt-6 lg:mt-12" />
+            <HomeSessions sessions={sessions} search={search} scroll={scroll} />
+          </div>
           <HomeUtilityNav
             class="flex lg:hidden"
             onOpenSettings={projects.utility.settings}
