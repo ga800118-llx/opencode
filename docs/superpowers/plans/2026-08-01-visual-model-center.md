@@ -4,7 +4,7 @@
 
 **Goal:** Let a desktop user configure preserved cloud providers, private OpenAI-compatible endpoints, Ollama, LM Studio, and custom local endpoints visually, keep secrets out of renderer persistence, test model capabilities, and select a working default model without editing JSON.
 
-**Architecture:** Keep OpenCode Core and its provider runtime unchanged. Product-owned profile contracts and OpenCode configuration serialization live in the App package; privileged profile persistence, encrypted credentials, endpoint probing, local detection, and credential-to-sidecar environment injection live in the Electron main process behind typed IPC. The default Models settings page composes the new desktop model center with the existing OpenCode cloud-provider and model-visibility surfaces.
+**Architecture:** Keep OpenCode Core and its provider runtime unchanged. Product-owned profile contracts and OpenCode configuration serialization live in the App package; privileged profile persistence, encrypted credentials, endpoint probing, local detection, and the authenticated credential-forwarding proxy live in the Electron main process behind typed IPC. A supervised sidecar receives only a random per-launch proxy token. The default Models settings page composes the new desktop model center with the existing OpenCode cloud-provider and model-visibility surfaces.
 
 **Tech Stack:** Bun 1.3.14, TypeScript, SolidJS, Electron 42 `safeStorage` backed by macOS Keychain, `electron-store`, Node `fetch`, OpenCode public global-config/provider APIs, Bun test, Agent Browser, axe-core.
 
@@ -36,8 +36,8 @@ Forbidden without a written exception and a focused compatibility test:
 1. A renderer may send a newly typed secret to an allow-listed save or probe operation, but no read, list, test, diagnostic, event, or error response may return a raw secret.
 2. Profile storage contains only non-secret fields, stable credential references, secret-presence flags, and sensitive-header names.
 3. Credential storage contains only `safeStorage` ciphertext. On macOS, operations are enabled only after `safeStorage.isEncryptionAvailable()` confirms Keychain availability.
-4. OpenCode global config contains `{env:VARIABLE_NAME}` references, never raw API keys or sensitive header values.
-5. The main process decrypts credentials only while probing or constructing the environment for a supervised sidecar spawn. Secret values are never assigned to the parent process environment and never logged.
+4. OpenCode global config contains only credential-proxy URL and token environment names for credentialed profiles, never a stale proxy port, raw API keys, sensitive header names, or sensitive header values.
+5. The main process decrypts credentials only while probing or forwarding an authenticated proxy request. The supervised sidecar receives a random per-launch proxy token, while real secret values are never assigned to the parent process environment and never logged.
 6. Deleting a profile deletes its encrypted credential envelope, disables its OpenCode provider ID, and removes it from the product model list.
 
 ## Phase Gate
@@ -127,7 +127,7 @@ export type ProductModelCenterAPI = {
 
 - [x] **Step 4: Serialize profiles into public OpenCode config patches**
 
-Implement `profileProviderID`, `profileCredentialEnvironment`, `profileSensitiveHeaderEnvironment`, `serializeProviderProfile`, `enableProviderPatch`, `disableProviderPatch`, and `defaultModelPatch`. Use `@ai-sdk/openai-compatible`, normalize Ollama to `/v1`, preserve manually entered models, emit `tool_call` only after a successful tool test, and emit `{env:...}` tokens for every secret.
+Implement `profileProviderID`, `profileCredentialEnvironment`, `profileSensitiveHeaderEnvironment`, `serializeProviderProfile`, `enableProviderPatch`, `disableProviderPatch`, and `defaultModelPatch`. Use `@ai-sdk/openai-compatible`, normalize Ollama to `/v1`, preserve manually entered models, and emit `tool_call` only after a successful tool test. The final credentialed-profile serializer targets the main-process loopback proxy, emits only its token environment name, and omits sensitive header references entirely.
 
 - [x] **Step 5: Extend the product runtime with an unavailable browser model center**
 
@@ -333,7 +333,7 @@ git add src/main/model-center/local-detection.ts src/main/model-center/local-det
 git commit -m "feat: detect local model services"
 ```
 
-### Task 6: Inject Keychain Credentials Into Supervised Sidecars
+### Task 6: Bridge Keychain Credentials Into Supervised Sidecar Requests
 
 **Files:**
 
@@ -342,23 +342,25 @@ git commit -m "feat: detect local model services"
 - Create: `packages/desktop/src/main/sidecar-environment.ts`
 - Create: `packages/desktop/src/main/model-center/environment.ts`
 - Create: `packages/desktop/src/main/model-center/environment.test.ts`
+- Create: `packages/desktop/src/main/model-center/credential-proxy.ts`
+- Create: `packages/desktop/src/main/model-center/credential-proxy.test.ts`
 - Modify: `packages/desktop/src/main/index.ts`
 
 - [x] **Step 1: Write environment and spawn tests**
 
-Assert API keys and sensitive headers map only to deterministic environment names, absent credentials are skipped, and `spawnLocalServer` merges injected values into the utility-process environment without assigning them to `process.env`. Assert logger metadata and sidecar status contain no secret values.
+Assert credentialed profiles map to deterministic environment names, absent credentials are skipped, and `spawnLocalServer` merges injected values into the utility-process environment without assigning them to `process.env`. Assert logger metadata and sidecar status contain no secret values. The final proxy tests additionally require a random launch token, reject unauthorized requests, inject real credentials only into the upstream request, and stream responses without logging secrets.
 
 - [x] **Step 2: Extend `spawnLocalServer` with per-spawn environment input**
 
-Add `environment?: Readonly<Record<string, string>>` to `SpawnLocalServerOptions`. `createSidecarEnv` copies the parent environment, applies the explicit map to the child copy, strips `DEBUG`, and never mutates the parent.
+Add `environment?: Readonly<Record<string, string>>` to `SpawnLocalServerOptions`. `createSidecarEnv` copies the parent environment, applies the explicit map to the child copy, strips `DEBUG`, and never mutates the parent. Credentialed profiles now contribute only their random credential-proxy token.
 
-- [x] **Step 3: Build the environment from encrypted profile envelopes**
+- [x] **Step 3: Forward encrypted profile credentials through the main process**
 
-For each valid profile, read its credential reference just before spawn and emit API-key and sensitive-header variables matching Task 1 serialization. Decryption or missing-secret failures omit only that profile's variables and emit a redacted warning with profile ID.
+Start one loopback proxy before the sidecar. For each authenticated profile request, read its credential reference, inject the API key and sensitive headers into the upstream request, and stream the response. Decryption or missing-secret failures affect only that profile and return a fixed redacted error. OpenCode config sees only proxy URL and token environment names; the current values are injected into the child environment on every launch.
 
 - [x] **Step 4: Reload credentials through a supervised restart**
 
-Wire `reloadCredentials()` to `restartProductSidecar()`. The supervisor's injected spawn closure rebuilds the environment on every initial start, manual restart, and automatic crash recovery.
+Wire `reloadCredentials()` to `restartProductSidecar()`. The supervisor's injected spawn closure rebuilds random proxy-token and current proxy-URL environment values on every initial start, manual restart, and automatic crash recovery. If a persisted proxy port is occupied, a fresh URL is published without rewriting persisted provider config.
 
 - [x] **Step 5: Verify and commit**
 
@@ -531,6 +533,10 @@ git commit -m "feat: add visual model setup flow"
 **Files:**
 
 - Create: `packages/desktop/src/main/model-center/e2e-secrets.test.ts`
+- Create: `packages/desktop/src/main/model-center/credential-proxy.ts`
+- Create: `packages/desktop/src/main/model-center/credential-proxy.test.ts`
+- Create: `packages/desktop/src/main/user-data.ts`
+- Create: `packages/desktop/src/main/user-data.test.ts`
 - Modify: `.github/workflows/product.yml`
 - Create: `docs/product/phase-2/verification.md`
 - Create: `docs/product/phase-2/artifacts/model-center-private.png`
@@ -538,13 +544,13 @@ git commit -m "feat: add visual model setup flow"
 - Modify: `docs/product/baseline/feature-parity.md`
 - Modify: `docs/superpowers/plans/2026-08-01-visual-model-center.md`
 
-- [ ] **Step 1: Add the secret-leak regression test and complete CI gate**
+- [x] **Step 1: Add the secret-leak regression test and complete CI gate**
 
 The test stores a known canary through the real service with fake `safeStorage`, executes list/discover/test error paths, and scans profile-store JSON, serialized IPC responses, captured logs, and serialized OpenCode patches. Only ciphertext may contain a transformed representation; plaintext canaries must have zero matches.
 
 Extend Product CI to run all App unit tests affected by the model center, all Desktop tests, App/Desktop type checks, lint, protected-runtime diff, and deterministic Desktop build.
 
-- [ ] **Step 2: Run the complete automated gate from the detached worktree**
+- [x] **Step 2: Run the complete automated gate from the detached worktree**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -559,7 +565,7 @@ MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json OPE
 
 Expected: every command exits 0 and the protected-runtime diff is empty.
 
-- [ ] **Step 3: Package and run macOS acceptance**
+- [x] **Step 3: Package and run macOS acceptance**
 
 Package the arm64 development app with isolated `CFFIXED_USER_HOME` and XDG roots. Use Agent Browser against the packaged app to:
 
@@ -569,19 +575,19 @@ Package the arm64 development app with isolated `CFFIXED_USER_HOME` and XDG root
 4. restart the app and prove profiles/default selection persist while API-key fields remain masked and unreadable;
 5. delete a profile and prove its provider is disabled and its credential entry removed.
 
-- [ ] **Step 4: Run visual and accessibility review**
+- [x] **Step 4: Run visual and accessibility review**
 
 Capture desktop screenshots at 1440x900 and 1024x768 plus a mobile-width renderer check. Verify no overlap, clipping, layout shifts, nested cards, inaccessible icon buttons, or untranslated product copy. Run axe-core and require zero violations; document any incomplete automated contrast checks separately.
 
-- [ ] **Step 5: Record performance and security evidence**
+- [x] **Step 5: Record performance and security evidence**
 
 Measure three packaged starts using the Phase 0 procedure and compare medians against 1.192 s sidecar, 1.585 s renderer, and 1.676 s initialized boundaries. Record profile/test latency, package identity, artifact hashes, encrypted-store inspection, OpenCode-config inspection, and log canary scan.
 
-- [ ] **Step 6: Update parity, verification, and checklist state**
+- [x] **Step 6: Update parity, verification, and checklist state**
 
 Mark visual provider profiles, Keychain credentials, and automatic local-model discovery as implemented only after evidence exists. Record preserved cloud providers and any unavailable real local service honestly. Change every completed Phase 2 checkbox to `[x]`.
 
-- [ ] **Step 7: Commit Phase 2 evidence**
+- [x] **Step 7: Commit Phase 2 evidence**
 
 ```bash
 git add .github/workflows/product.yml packages/desktop/src/main/model-center/e2e-secrets.test.ts docs/product/phase-2 docs/product/baseline/feature-parity.md docs/superpowers/plans/2026-08-01-visual-model-center.md
@@ -590,11 +596,11 @@ git commit -m "docs: complete phase 2 visual model center"
 
 ## Self-Review Checklist
 
-- [ ] Every Phase 2 deliverable in the approved design maps to a task above.
-- [ ] No task requires a protected runtime package change.
-- [ ] All secret-bearing inputs terminate in main-process credential/probe operations; all outputs are renderer-safe.
-- [ ] Cloud, private, and local setup each have a visual path and gate evidence.
-- [ ] Discovery failure has a manual-model path.
-- [ ] Compatibility is based on streaming and tool behavior, not only a successful TCP connection.
-- [ ] macOS is implemented now while credential and model-center interfaces remain replaceable for Windows.
-- [ ] Commands, paths, signatures, expected results, and commit points contain no implementation placeholders.
+- [x] Every Phase 2 deliverable in the approved design maps to a task above.
+- [x] No task requires a protected runtime package change.
+- [x] All secret-bearing inputs terminate in main-process credential/probe operations; all outputs are renderer-safe.
+- [x] Cloud, private, and local setup each have a visual path and gate evidence.
+- [x] Discovery failure has a manual-model path.
+- [x] Compatibility is based on streaming and tool behavior, not only a successful TCP connection.
+- [x] macOS is implemented now while credential and model-center interfaces remain replaceable for Windows.
+- [x] Commands, paths, signatures, expected results, and commit points contain no implementation placeholders.

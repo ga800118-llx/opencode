@@ -18,6 +18,19 @@ Phase 1 changes ownership boundaries and recovery behavior, not feature
 availability. The existing settings, provider, agent, MCP, permission, terminal,
 review, and file workflows remain available for Phase 2-3 presentation work.
 
+## Phase 2 Model Center Status
+
+| Boundary | Status | Evidence |
+| --- | --- | --- |
+| Cloud providers | Preserved | Existing OpenCode provider management remains available and a packaged Big Pickle task completed |
+| Visual provider profiles | Implemented | Private OpenAI-compatible, Ollama, LM Studio, and custom-local setup paths are available under Models settings |
+| Credential storage | Implemented on macOS | `safeStorage` ciphertext is backed by the login Keychain; renderer reads never return secret values |
+| Private runtime credentials | Improved | A main-process loopback proxy injects credentials upstream, so sidecar config and Chromium persistence receive only a random proxy token |
+| Local discovery | Implemented | Bounded Ollama and LM Studio detection reports availability and discovered models; manual model entry remains available |
+| Capability testing | Implemented | Basic chat, streaming, and tool behavior classify agent-capable, partial, chat-only, and incompatible models |
+| Default selection | Implemented | Tested profiles can become the default and survive packaged-app restart |
+| Windows credentials | Deferred | Interfaces are platform-neutral, but the Windows credential backend is not claimed in Phase 2 |
+
 | Capability | Upstream owner | Phase 0 evidence | Phase 3 requirement |
 | --- | --- | --- | --- |
 | Built-in cloud providers | Provider catalog, runtime, and App settings | Catalog exposes 75+ providers in the running App | Preserve under Models settings |
@@ -41,12 +54,12 @@ review, and file workflows remain available for Phase 2-3 presentation work.
 
 ## Provider Baseline
 
-The custom provider path uses `@ai-sdk/openai-compatible`. It already supports
-private OpenAI-compatible services and local endpoints such as
-`http://localhost:11434/v1`. It does not currently provide provider-specific
-Ollama/LM Studio onboarding, automatic discovery, or a connection-test workflow.
-The visual custom-provider flow is available on the V1 sidecar protocol, which is
-the desktop default in this release.
+The custom provider path continues to use `@ai-sdk/openai-compatible`. Phase 2
+adds provider-specific Ollama/LM Studio onboarding, automatic local discovery,
+manual model fallback, behavioral capability tests, encrypted macOS credentials,
+and visual default selection. Private credentials cross into model requests only
+through the product-owned main-process proxy. The visual flow is available on
+the V1 sidecar protocol, which remains the desktop default in this release.
 
 ## Advanced Feature Baseline
 
