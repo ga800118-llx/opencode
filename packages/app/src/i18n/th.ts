@@ -1,4 +1,7 @@
+import { modelCenterEn } from "./model-center-copy"
+
 export const dict = {
+  ...modelCenterEn,
   "command.category.suggested": "แนะนำ",
   "command.category.view": "มุมมอง",
   "command.category.project": "โปรเจกต์",

@@ -1,4 +1,7 @@
+import { modelCenterEn } from "./model-center-copy"
+
 export const dict = {
+  ...modelCenterEn,
   "command.category.suggested": "Sugerowane",
   "command.category.view": "Widok",
   "command.category.project": "Projekt",

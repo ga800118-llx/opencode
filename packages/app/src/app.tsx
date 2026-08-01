@@ -267,11 +267,15 @@ declare global {
     __OPENCODE__?: {
       deepLinks?: string[]
     }
-    api?: {
-      setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
-      exportDebugLogs?: () => Promise<string>
-    }
   }
+}
+
+async function applyDesktopTitlebar(theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) {
+  const api = Reflect.get(window, "api")
+  if (typeof api !== "object" || api === null) return
+  const setTitlebar = Reflect.get(api, "setTitlebar")
+  if (typeof setTitlebar !== "function") return
+  await Promise.resolve(setTitlebar.call(api, theme))
 }
 
 function QueryProvider(props: ParentProps) {
@@ -392,7 +396,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale; runtime?:
       <Font />
       <ThemeProvider
         onThemeApplied={(_, mode, scheme) => {
-          void window.api?.setTitlebar?.({ mode, scheme })
+          void applyDesktopTitlebar({ mode, scheme })
         }}
       >
         <ProductRuntimeProvider runtime={props.runtime}>

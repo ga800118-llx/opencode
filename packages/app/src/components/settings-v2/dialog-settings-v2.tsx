@@ -1,5 +1,5 @@
 import { Component, createMemo, createSignal, startTransition } from "solid-js"
-import { Dialog } from "@opencode-ai/ui/v2/dialog-v2"
+import { Dialog, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
@@ -43,6 +43,9 @@ export const DialogSettings: Component<{
 
   return (
     <Dialog size="x-large" variant="settings" class="settings-v2-dialog">
+      <DialogTitle>
+        <span class="sr-only">{language.t("sidebar.settings")}</span>
+      </DialogTitle>
       <TabsV2
         orientation="vertical"
         variant="settings"
@@ -71,17 +74,17 @@ export const DialogSettings: Component<{
                 <div class="flex flex-col gap-1.5">
                   <TabsV2.SectionTitle>{language.t("settings.section.server")}</TabsV2.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
-                    <TabsV2.Trigger value="servers">
-                      <Icon name="server" />
-                      {language.t("status.popover.tab.servers")}
+                    <TabsV2.Trigger value="models">
+                      <Icon name="models" />
+                      {language.t("settings.models.title")}
                     </TabsV2.Trigger>
                     <TabsV2.Trigger value="providers">
                       <Icon name="providers" />
                       {language.t("settings.providers.title")}
                     </TabsV2.Trigger>
-                    <TabsV2.Trigger value="models">
-                      <Icon name="models" />
-                      {language.t("settings.models.title")}
+                    <TabsV2.Trigger value="servers">
+                      <Icon name="server" />
+                      {language.t("status.popover.tab.servers")}
                     </TabsV2.Trigger>
                   </div>
                 </div>
@@ -106,7 +109,7 @@ export const DialogSettings: Component<{
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
-          <SettingsModelsV2 />
+          <SettingsModelsV2 onOpenProviders={() => setTab("providers")} />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>

@@ -1,8 +1,11 @@
 import { dict as en } from "./en"
+import { modelCenterEn, modelCenterZh } from "./model-center-copy"
 
 type Keys = keyof typeof en
 
 export const dict = {
+  ...modelCenterEn,
+  ...modelCenterZh,
   "command.category.suggested": "建议",
   "command.category.view": "视图",
   "command.category.project": "项目",

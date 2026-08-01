@@ -484,15 +484,15 @@ git commit -m "feat: apply model profiles through public config"
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Write controller tests for the complete form state machine**
+- [x] **Step 1: Write controller tests for the complete form state machine**
 
 Cover create/edit, provider-kind defaults, local detection selection, API-key replacement without readback, sensitive headers, discovery, manual model add/remove, default selection, capability-test state, cancellation, double-submit prevention, save, delete confirmation, and redacted errors.
 
-- [ ] **Step 2: Make Models the first server settings entry**
+- [x] **Step 2: Make Models the first server settings entry**
 
 Order the server section as Models, Providers, Servers. The Models page is the primary model center; Providers remains the complete inherited cloud-provider catalog and Models retains inherited per-model visibility controls below product-managed profiles.
 
-- [ ] **Step 3: Build the model-center page**
+- [x] **Step 3: Build the model-center page**
 
 Use full-width settings sections, not nested cards:
 
@@ -503,19 +503,19 @@ Use full-width settings sections, not nested cards:
 
 Rows show source type, endpoint host, default model, secret-present state, last-test time, and capability badge. Use icon buttons with accessible labels for edit and delete.
 
-- [ ] **Step 4: Build the create/edit dialog**
+- [x] **Step 4: Build the create/edit dialog**
 
 Use a provider-kind segmented control, labeled text/password inputs, model list with explicit selection controls, and a collapsed Advanced section for non-sensitive headers, sensitive-header names/values, timeout, context limit, output limit, proxy URL, and TLS policy. Per-profile proxy and `allowInsecureTls` settings remain visibly off and saving either is rejected because the unmodified OpenCode runtime cannot safely scope either transport behavior per profile. The form explains the actionable limitation instead of silently accepting settings that agent requests would ignore.
 
-- [ ] **Step 5: Add discovery, manual fallback, test, and diagnostics states**
+- [x] **Step 5: Add discovery, manual fallback, test, and diagnostics states**
 
 Discovery and testing have stable progress dimensions, abort stale responses by generation, and retain manually entered IDs. Show category-specific remediation without raw responses. Disable Save only for invalid form data; permit saving a partial/chat-only profile but mark it unavailable for default agent selection.
 
-- [ ] **Step 6: Add English fallback and Simplified Chinese product copy**
+- [x] **Step 6: Add English fallback and Simplified Chinese product copy**
 
 Add every new key to `en.ts` and translated values to `zh.ts`. Other locales inherit English through the existing dictionary merge. Run parity tests without weakening their expectations.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
