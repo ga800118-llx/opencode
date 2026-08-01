@@ -222,7 +222,7 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
     })
   }
 
-  const start = () => {
+  const start = (): Promise<void> => {
     if (stopPromise) return stopPromise.then(start)
     if (restartPromise) return restartPromise
     if (desired && state.status === "ready") return Promise.resolve()
@@ -238,7 +238,7 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
     return promise
   }
 
-  const restart = () => {
+  const restart = (): Promise<void> => {
     if (stopPromise) return stopPromise.then(restart)
     if (restartPromise) return restartPromise
 
