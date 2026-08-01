@@ -209,7 +209,7 @@ git commit -m "feat: encrypt model credentials with mac keychain"
 - Create: `packages/desktop/src/main/model-center/profiles.test.ts`
 - Modify: `packages/desktop/src/main/store-keys.ts`
 
-- [ ] **Step 1: Write repository tests**
+- [x] **Step 1: Write repository tests**
 
 Cover an empty store, create/update ordering, stable IDs and provider IDs, default selection, delete, malformed entries, and migration from schema version 0:
 
@@ -228,7 +228,7 @@ type StoredProfileStateV1 = {
 
 Assert raw profile-store JSON contains no credential values and no sensitive-header values.
 
-- [ ] **Step 2: Confirm the failing test**
+- [x] **Step 2: Confirm the failing test**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -236,11 +236,11 @@ cd packages/desktop
 bun test src/main/model-center/profiles.test.ts
 ```
 
-- [ ] **Step 3: Implement repository validation and migration**
+- [x] **Step 3: Implement repository validation and migration**
 
 Use one `agent.model-profiles` store key named `state`. Drop invalid profiles individually, retain valid profiles, repair dangling defaults, sort by `updatedAt` descending, and write the migrated V1 state once. Generate IDs with injected `randomUUID` and times with injected `now` for deterministic tests.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"

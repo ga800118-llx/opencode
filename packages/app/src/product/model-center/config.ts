@@ -27,6 +27,10 @@ export function profileCredentialEnvironment(profileID: string) {
   return `AGENT_PROFILE_${environmentSegment(profileID)}_API_KEY`
 }
 
+export function profileProviderID(profileID: string) {
+  return `agent-profile-${profileID.toLowerCase()}`
+}
+
 export function profileSensitiveHeaderEnvironment(profileID: string, headerName: string) {
   return `AGENT_PROFILE_${environmentSegment(profileID)}_HEADER_${environmentSegment(headerName)}_${hash(headerName.toLowerCase())}`
 }
