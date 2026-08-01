@@ -2,6 +2,22 @@
 
 Phase 1-3 may simplify presentation but must not remove these capabilities.
 
+## Phase 1 Foundation Status
+
+| Boundary | Status | Evidence |
+| --- | --- | --- |
+| Composer execution | Preserved | Create, prompt, command, shell, and interrupt route through the product task adapter |
+| OpenCode API compatibility | Locked | Typed `CompatibleApi` fixtures and native/SDK event fixtures pass |
+| Timeline inputs | Preserved | Lifecycle, text, reasoning, tool, shell, command, permission, question, file, error, and server events normalize safely |
+| Desktop lifecycle | Improved | Sanitized state, bounded restart, manual restart, graceful stop, and renderer-scoped subscriptions pass |
+| Product isolation | Improved | Development app data, protocol, package identity, and future credential namespace no longer target OpenCode release identities |
+| Advanced capabilities | Preserved | `PRODUCT_FEATURES` asserts the complete Phase 0 capability set without claiming unfinished product features |
+| Upstream runtime | Unchanged | Core, OpenCode, Server, and Protocol have no diff from `v1.18.10` |
+
+Phase 1 changes ownership boundaries and recovery behavior, not feature
+availability. The existing settings, provider, agent, MCP, permission, terminal,
+review, and file workflows remain available for Phase 2-3 presentation work.
+
 | Capability | Upstream owner | Phase 0 evidence | Phase 3 requirement |
 | --- | --- | --- | --- |
 | Built-in cloud providers | Provider catalog, runtime, and App settings | Catalog exposes 75+ providers in the running App | Preserve under Models settings |

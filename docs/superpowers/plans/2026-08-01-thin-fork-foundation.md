@@ -339,11 +339,11 @@ git commit -m "feat: expose typed desktop product host"
 - Update: `docs/product/baseline/feature-parity.md`
 - Update: this plan's checkboxes
 
-- [ ] **Step 1: Add focused pull-request CI**
+- [x] **Step 1: Add focused pull-request CI**
 
 The workflow installs Bun 1.3.14 with the frozen lockfile and runs lint, App/Desktop type checks, product contract tests, all Desktop tests, and the Desktop build. Use a reproducible models.dev snapshot or checked script input; do not rely on an unpinned live API response.
 
-- [ ] **Step 2: Run the local Phase 1 gate**
+- [x] **Step 2: Run the local Phase 1 gate**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -357,11 +357,11 @@ MODELS_DEV_API_JSON=/tmp/models-dev-audit.2X2ZYe/packages/web/dist/_api.json OPE
 
 Expected: every command exits 0.
 
-- [ ] **Step 3: Package and smoke test the isolated development app**
+- [x] **Step 3: Package and smoke test the isolated development app**
 
 Build an unsigned macOS directory package, launch it against a temporary Git repository, execute a deterministic unchanged OpenCode task through the product adapter, kill the sidecar process, confirm automatic recovery, and confirm the same task remains available. Record screenshots, health output, status transitions, and accessibility findings.
 
-- [ ] **Step 4: Re-run the capability and boundary checks**
+- [x] **Step 4: Re-run the capability and boundary checks**
 
 ```bash
 git diff --exit-code v1.18.10...HEAD -- packages/core packages/opencode packages/server packages/protocol
@@ -371,15 +371,21 @@ git status --short
 
 Expected: protected runtime packages are unchanged; only the pre-existing `.superpowers/` directory may remain untracked.
 
-- [ ] **Step 5: Document evidence and remaining Phase 2 dependencies**
+- [x] **Step 5: Document evidence and remaining Phase 2 dependencies**
 
 Record exact commands, counts, artifacts, known warnings, sidecar recovery timings, identity paths, and the credential interface that Phase 2 must implement.
 
-- [ ] **Step 6: Obtain independent specification and quality reviews**
+- [x] **Step 6: Obtain independent specification and quality reviews**
 
 Both reviews must return `APPROVED`; otherwise fix findings and repeat the affected gate.
 
-- [ ] **Step 7: Commit Phase 1 completion evidence**
+External reviewer workers were unavailable because the environment quota was
+exhausted. Two isolated local review passes returned `APPROVED` after fixing the
+runtime icon, session-tab accessibility, and preload subscription findings; the
+Phase 1 verification records this limitation without claiming an external-model
+approval.
+
+- [x] **Step 7: Commit Phase 1 completion evidence**
 
 ```bash
 git add .github/workflows/product.yml docs/product/phase-1 docs/product/baseline/feature-parity.md docs/superpowers/plans/2026-08-01-thin-fork-foundation.md
