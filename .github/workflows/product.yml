@@ -1,0 +1,60 @@
+name: product
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  foundation:
+    name: thin-fork foundation
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck App
+        run: bun run --cwd packages/app typecheck
+
+      - name: Typecheck Desktop
+        run: bun run --cwd packages/desktop typecheck
+
+      - name: Test product contracts and composer routing
+        working-directory: packages/app
+        run: bun test --conditions=solid --preload ./happydom.ts ./src/product ./src/components/prompt-input
+
+      - name: Test Desktop
+        working-directory: packages/desktop
+        run: bun test src
+
+      - name: Check protected OpenCode runtime packages
+        run: git diff --exit-code v1.18.10...HEAD -- packages/core packages/opencode packages/server packages/protocol
+
+      - name: Build Desktop
+        working-directory: packages/desktop
+        env:
+          MODELS_DEV_API_JSON: ${{ github.workspace }}/packages/core/test/plugin/fixtures/models-dev.json
+          OPENCODE_CHANNEL: dev
+        run: bun run build
