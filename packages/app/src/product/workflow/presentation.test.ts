@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createPresentationState, normalizePresentationMode } from "./presentation"
+import { createPresentationState, normalizePresentationMode, type ProductPresentationState } from "./presentation"
 
 describe("normalizePresentationMode", () => {
   test("accepts only simple and advanced", () => {
@@ -31,5 +31,19 @@ describe("createPresentationState", () => {
     expect(createPresentationState("advanced")).toBe(createPresentationState("advanced"))
     expect(createPresentationState(input)).toBe(createPresentationState("simple"))
     expect(input).toEqual({ mode: "advanced" })
+  })
+
+  test("narrows flags from the presentation mode", () => {
+    const flags = (state: ProductPresentationState) => {
+      if (state.mode === "simple") {
+        const value: readonly [true, false] = [state.simple, state.advanced]
+        return value
+      }
+      const value: readonly [false, true] = [state.simple, state.advanced]
+      return value
+    }
+
+    expect(flags(createPresentationState("simple"))).toEqual([true, false])
+    expect(flags(createPresentationState("advanced"))).toEqual([false, true])
   })
 })

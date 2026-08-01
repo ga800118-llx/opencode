@@ -1,10 +1,8 @@
 export type ProductPresentationMode = "simple" | "advanced"
 
-export type ProductPresentationState = {
-  readonly mode: ProductPresentationMode
-  readonly simple: boolean
-  readonly advanced: boolean
-}
+export type ProductPresentationState =
+  | { readonly mode: "simple"; readonly simple: true; readonly advanced: false }
+  | { readonly mode: "advanced"; readonly simple: false; readonly advanced: true }
 
 const presentations = Object.freeze({
   simple: Object.freeze({ mode: "simple", simple: true, advanced: false }),
