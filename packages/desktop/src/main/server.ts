@@ -153,8 +153,9 @@ export async function spawnLocalServer(
     })
 
     const ready = async () => {
-      while (true) {
+      while (!exited) {
         await new Promise((resolve) => setTimeout(resolve, 100))
+        if (exited) return
         if (await checkHealth(url, password)) {
           healthy = true
           return

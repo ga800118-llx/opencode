@@ -269,7 +269,7 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
     interruptDelays()
     const previous = active
     active = undefined
-    transition("stopping", state.attempt, state.startedAt ? { startedAt: state.startedAt } : {})
+    transition("stopping", state.attempt, state.startedAt === undefined ? {} : { startedAt: state.startedAt })
 
     const promise = (async () => {
       if (previous) await stopListener(previous.listener)
