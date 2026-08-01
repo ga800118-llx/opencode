@@ -103,6 +103,17 @@ test("bundles the CLI outside the dev app archive", async () => {
   })
 })
 
+test("bundles runtime icons outside the app archive", async () => {
+  const module = await import("./electron-builder.config.ts?runtime-icons")
+  const config = module.default as Configuration
+
+  expect(config.extraResources).toContainEqual({
+    from: "resources/icons/",
+    to: "icons/",
+    filter: ["**/*"],
+  })
+})
+
 for (const channel of ["beta", "prod"] as const) {
   test(`does not bundle the CLI in ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL

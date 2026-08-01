@@ -54,6 +54,11 @@ const getBase = (identity: ProductIdentity): Configuration => ({
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   extraResources: [
+    {
+      from: "resources/icons/",
+      to: "icons/",
+      filter: ["**/*"],
+    },
     ...(channel === "dev"
       ? [
           {
