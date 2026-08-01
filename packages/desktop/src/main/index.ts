@@ -32,8 +32,8 @@ import {
   preferAppEnv,
   setDefaultServerUrl,
   spawnLocalServer,
-  type SidecarListener,
 } from "./server"
+import { createSidecarSupervisor, type SidecarSupervisor } from "./sidecar-supervisor"
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import { safeWebContentsURL } from "./window-state"
 import {
@@ -57,7 +57,7 @@ const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
-let server: SidecarListener | null = null
+let server: SidecarSupervisor | null = null
 
 const pendingDeepLinks: string[] = []
 
@@ -316,7 +316,7 @@ const main = Effect.gen(function* () {
     useEnvProxy()
 
     if (SIDECAR_VERSION === "v2") {
-      logger.log("spawning v2 sidecar")
+      logger.log("spawning v2 sidecar without lifecycle supervision", { supervised: false })
       const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, identity, shellEnv?.XDG_STATE_HOME))
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
@@ -357,36 +357,42 @@ const main = Effect.gen(function* () {
     })
     const hostname = "127.0.0.1"
     const url = `http://${hostname}:${port}`
+    const username = "opencode"
     const password = randomUUID()
 
-    logger.log("spawning sidecar", { url })
-    const { listener, health } = yield* Effect.promise(() =>
-      spawnLocalServer(hostname, port, password, {
-        userDataPath: app.getPath("userData"),
-        onStdout: (message) => writeLog("server", "stdout", { message }),
-        onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
-        onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
-      }),
-    )
-    server = listener
+    logger.log("creating supervised sidecar", { url })
+    const supervisor = createSidecarSupervisor({
+      spawn: async () => {
+        logger.log("spawning supervised sidecar", { url })
+        const instance = await spawnLocalServer(hostname, port, password, {
+          userDataPath: app.getPath("userData"),
+          onStdout: (message) => writeLog("server", "stdout", { message }),
+          onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
+          onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
+        })
+        return {
+          listener: instance.listener,
+          health: {
+            wait: withTimeout(instance.health.wait, 30_000, "Sidecar health check timed out."),
+          },
+        }
+      },
+      logger: {
+        log: (message, meta) => logger.log(message, meta),
+        warn: (message, meta) => logger.warn(message, meta),
+      },
+    })
+    server = supervisor
+    yield* Effect.promise(() => supervisor.start())
     yield* Deferred.succeed(serverReady, {
       url,
-      username: "opencode",
+      username,
       password,
     })
 
     if (process.platform === "win32") {
       void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
     }
-
-    yield* Effect.promise(() => health.wait).pipe(
-      Effect.timeout("30 seconds"),
-      Effect.catch((e) =>
-        Effect.sync(() => {
-          logger.error("sidecar health check failed", e.toString())
-        }),
-      ),
-    )
 
     logger.log("loading task finished")
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)
@@ -411,3 +417,19 @@ const main = Effect.gen(function* () {
 })
 
 Effect.runFork(main)
+
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), milliseconds)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}

@@ -141,6 +141,37 @@ describe("createSidecarSupervisor", () => {
     expect(supervisor.getState()).toMatchObject({ status: "ready", attempt: 0 })
   })
 
+  test("reuses caller-allocated connection values across automatic restart", async () => {
+    const first = sidecar({ healthy: true })
+    const second = sidecar({ healthy: true })
+    const connection = Object.freeze({
+      hostname: "127.0.0.1",
+      port: 41_337,
+      username: "opencode",
+      password: "stable-password",
+    })
+    const seen: typeof connection[] = []
+    let spawns = 0
+    const launch = async (input: typeof connection) => {
+      seen.push(input)
+      return ++spawns === 1 ? first.instance : second.instance
+    }
+    const supervisor = createSidecarSupervisor({
+      spawn: () => launch(connection),
+      delay: async () => undefined,
+      now: clock(),
+    })
+
+    await supervisor.start()
+    first.exit.resolve(1)
+    await eventually(() => supervisor.getState().status === "ready" && spawns === 2)
+
+    expect(seen).toEqual([connection, connection])
+    expect(seen[0]).toBe(connection)
+    expect(seen[1]).toBe(connection)
+    expect(JSON.stringify(supervisor.getState())).not.toContain("stable-password")
+  })
+
   test("deduplicates concurrent lifecycle calls", async () => {
     const first = sidecar({ healthy: true })
     const second = sidecar({ healthy: true })
