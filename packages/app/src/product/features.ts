@@ -56,8 +56,8 @@ export const PRODUCT_FEATURES = Object.freeze({
   diagnostics: true,
   revertRestore: true,
   multipleServers: true,
-  visualProviderProfiles: false,
-  keychainCredentials: false,
-  automaticLocalModelDiscovery: false,
+  visualProviderProfiles: true,
+  keychainCredentials: true,
+  automaticLocalModelDiscovery: true,
   taskCrashRecovery: false,
 }) satisfies ProductFeatureFlags

@@ -1,6 +1,5 @@
 import {
   normalizeProviderProfileInput,
-  type ProductCapabilityReport,
   type ProductCredentialEnvelopeInput,
   type ProductModelCenterAPI,
   type ProductProviderHeader,
@@ -19,9 +18,11 @@ type ModelCenterServiceOptions = {
   readonly probe: ModelProbe
   readonly detector: LocalModelDetector
   readonly reloadCredentials: () => Promise<void>
+  readonly presentProfile?: (profile: ProductProviderProfile) => ProductProviderProfile
 }
 
 export function createModelCenterService(options: ModelCenterServiceOptions): ProductModelCenterAPI {
+  const present = options.presentProfile ?? ((profile: ProductProviderProfile) => profile)
   return Object.freeze({
     async capabilities() {
       const credentials = options.credentials.capabilities()
@@ -33,7 +34,7 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       })
     },
     async list() {
-      return options.profiles.list()
+      return Object.freeze(options.profiles.list().map(present))
     },
     async save(input) {
       const normalized = normalizeProviderProfileInput(input)
@@ -61,13 +62,13 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       }
 
       try {
-        return options.profiles.save(
+        return present(options.profiles.save(
           { ...withoutCredentials(normalized), id: provisional.id },
           {
             hasApiKey: Boolean(next.apiKey),
             sensitiveHeaders: Object.keys(next.headers ?? {}),
           },
-        )
+        ))
       } catch {
         restoreCredentialEnvelope(options.credentials, reference, previous)
         if (created) options.profiles.remove(provisional.id)
@@ -94,7 +95,13 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
         target: resolveProbeTarget(input, options),
         modelID: input.modelID,
       })
-      if (input.profileID) options.profiles.recordTest(input.profileID, report)
+      if (input.profileID) {
+        options.profiles.recordTest(input.profileID, report)
+      } else if (input.draft?.id) {
+        const profile = options.profiles.get(input.draft.id)
+        const draft = normalizeProviderProfileInput(input.draft)
+        if (profile && probeDraftMatchesProfile(profile, draft)) options.profiles.recordTest(profile.id, report)
+      }
       return report
     },
     async detectLocal() {
@@ -106,7 +113,7 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       if (profile.test?.modelID !== input.modelID || profile.test.classification !== "agent-capable") {
         throw new Error("Only an agent-capable tested model can be the default.")
       }
-      return options.profiles.selectDefault(input)
+      return present(options.profiles.selectDefault(input))
     },
     async reloadCredentials() {
       await options.reloadCredentials()
@@ -124,7 +131,10 @@ function resolveProbeTarget(input: ProductProviderProbeInput, options: ModelCent
   }
   if (!input.draft) throw new Error("A model profile is required.")
   const draft = normalizeProviderProfileInput(input.draft)
-  const envelope = mergeCredentialEnvelope(undefined, draft.credentials, draft.headers)
+  const existing = draft.id ? options.profiles.get(draft.id) : undefined
+  if (draft.id && !existing) throw new Error("The model profile does not exist.")
+  const current = existing ? readProfileCredentials(existing, options.credentials) : undefined
+  const envelope = mergeCredentialEnvelope(current, draft.credentials, draft.headers)
   return targetFromDraft(draft, envelope)
 }
 
@@ -229,4 +239,15 @@ function withoutCredentials(input: ProductProviderProfileInput): ProductProvider
     ...(input.defaultModelID ? { defaultModelID: input.defaultModelID } : {}),
     settings: input.settings,
   })
+}
+
+function probeDraftMatchesProfile(profile: ProductProviderProfile, draft: ProductProviderProfileInput) {
+  return (
+    profile.name === draft.name &&
+    profile.kind === draft.kind &&
+    profile.baseURL === draft.baseURL &&
+    JSON.stringify(profile.headers) === JSON.stringify(draft.headers) &&
+    JSON.stringify(profile.models) === JSON.stringify(draft.models) &&
+    JSON.stringify(profile.settings) === JSON.stringify(draft.settings)
+  )
 }

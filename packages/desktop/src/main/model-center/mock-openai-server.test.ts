@@ -14,4 +14,14 @@ describe("mock model server", () => {
       server.stop()
     }
   })
+
+  test("supports an unauthenticated Ollama-compatible local fixture", async () => {
+    const server = startMockModelServer("agent", { requireAuthentication: false })
+    try {
+      const tags = await fetch(`${server.ollamaURL}/api/tags`).then((response) => response.json())
+      expect(tags).toEqual({ models: [{ name: "qwen2.5-coder:7b" }, { name: "deepseek-coder:latest" }] })
+    } finally {
+      server.stop()
+    }
+  })
 })

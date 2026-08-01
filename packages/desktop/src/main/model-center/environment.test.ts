@@ -42,6 +42,52 @@ function credentials(values: Record<string, ProductCredentialEnvelope | Error>):
 }
 
 describe("createModelCredentialEnvironment", () => {
+  test("maps credential proxy tokens and current base URLs without reading the saved envelope", () => {
+    let reads = 0
+    const environment = createModelCredentialEnvironment({
+      profiles: [profile],
+      credentials: {
+        ...credentials({}),
+        read: () => {
+          reads += 1
+          throw new Error("must not read")
+        },
+      },
+      credentialProxy: () => ({
+        credential: "sidecar-proxy-token",
+        baseURL: "http://127.0.0.1:32123/model-profile/profile-one/v1",
+      }),
+    })
+
+    expect(environment).toEqual({
+      AGENT_PROFILE_PROFILE_ONE_API_KEY: "sidecar-proxy-token",
+      AGENT_PROFILE_PROFILE_ONE_PROXY_BASE_URL: "http://127.0.0.1:32123/model-profile/profile-one/v1",
+    })
+    expect(reads).toBe(0)
+  })
+
+  test("fails closed when a required credential proxy is unavailable", () => {
+    let reads = 0
+    const warnings: unknown[] = []
+    const environment = createModelCredentialEnvironment({
+      profiles: [profile],
+      credentials: {
+        ...credentials({ "model-profile:profile-one": { apiKey: "must-not-leak" } }),
+        read: () => {
+          reads += 1
+          return { apiKey: "must-not-leak" }
+        },
+      },
+      credentialProxy: () => undefined,
+      warn: (warning) => warnings.push(warning),
+    })
+
+    expect(environment).toEqual({})
+    expect(reads).toBe(0)
+    expect(warnings).toEqual([{ profileID: "profile-one", kind: "credential-proxy" }])
+    expect(JSON.stringify({ environment, warnings })).not.toContain("must-not-leak")
+  })
+
   test("maps API keys and sensitive headers to deterministic child-only variables", () => {
     const warnings: unknown[] = []
     const environment = createModelCredentialEnvironment({

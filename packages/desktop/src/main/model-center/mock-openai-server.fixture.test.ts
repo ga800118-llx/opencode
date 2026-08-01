@@ -7,11 +7,21 @@ export type MockModelServerMode =
   | "delayed"
   | "ollama"
 
-export function startMockModelServer(mode: MockModelServerMode = "agent") {
+type MockModelServerOptions = {
+  readonly port?: number
+  readonly requireAuthentication?: boolean
+}
+
+function bodyField(input: unknown, key: string): unknown {
+  if (typeof input !== "object" || input === null) return undefined
+  return Reflect.get(input, key)
+}
+
+export function startMockModelServer(mode: MockModelServerMode = "agent", options: MockModelServerOptions = {}) {
   const requests: Array<{ path: string; authorization?: string; privateHeader?: string }> = []
   const server = Bun.serve({
     hostname: "127.0.0.1",
-    port: 0,
+    port: options.port ?? 0,
     async fetch(request) {
       const url = new URL(request.url)
       requests.push({
@@ -20,10 +30,11 @@ export function startMockModelServer(mode: MockModelServerMode = "agent") {
         privateHeader: request.headers.get("x-private-token") ?? undefined,
       })
 
-      if (request.headers.get("authorization") !== "Bearer fixture-secret") {
+      const requireAuthentication = options.requireAuthentication ?? true
+      if (requireAuthentication && request.headers.get("authorization") !== "Bearer fixture-secret") {
         return Response.json({ error: { message: "raw credential rejection" } }, { status: 401 })
       }
-      if (request.headers.get("x-private-token") !== "fixture-private-header") {
+      if (requireAuthentication && request.headers.get("x-private-token") !== "fixture-private-header") {
         return Response.json({ error: { message: "raw header rejection" } }, { status: 403 })
       }
       if (mode === "delayed") await Bun.sleep(50)
@@ -37,14 +48,12 @@ export function startMockModelServer(mode: MockModelServerMode = "agent") {
       }
       if (url.pathname !== "/v1/chat/completions") return new Response(null, { status: 404 })
 
-      const body = (await request.json()) as {
-        model?: string
-        stream?: boolean
-        tools?: unknown[]
+      const body: unknown = await request.json()
+      if (bodyField(body, "model") === "missing") {
+        return Response.json({ error: { message: "raw missing detail" } }, { status: 404 })
       }
-      if (body.model === "missing") return Response.json({ error: { message: "raw missing detail" } }, { status: 404 })
       if (mode === "incompatible") return Response.json({ result: "unexpected" })
-      if (body.stream) {
+      if (bodyField(body, "stream") === true) {
         if (mode === "chat-only") return Response.json({ choices: [{ message: { content: "OK" } }] })
         const stream = [
           `data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}\n\n`,
@@ -52,7 +61,8 @@ export function startMockModelServer(mode: MockModelServerMode = "agent") {
         ].join("")
         return new Response(stream, { headers: { "content-type": "text/event-stream" } })
       }
-      if (body.tools?.length) {
+      const tools = bodyField(body, "tools")
+      if (Array.isArray(tools) && tools.length) {
         if (mode === "agent") {
           return Response.json({
             choices: [

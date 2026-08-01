@@ -32,11 +32,16 @@ describe("PRODUCT_FEATURES", () => {
     })
   })
 
-  test("does not claim later product capabilities", () => {
+  test("claims the verified Phase 2 model-center capabilities", () => {
     expect(PRODUCT_FEATURES).toMatchObject({
-      visualProviderProfiles: false,
-      keychainCredentials: false,
-      automaticLocalModelDiscovery: false,
+      visualProviderProfiles: true,
+      keychainCredentials: true,
+      automaticLocalModelDiscovery: true,
+    })
+  })
+
+  test("does not claim later task recovery capabilities", () => {
+    expect(PRODUCT_FEATURES).toMatchObject({
       taskCrashRecovery: false,
     })
   })

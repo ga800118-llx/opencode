@@ -928,6 +928,10 @@
   grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.4fr) auto 28px;
 }
 
+.model-profile-header-row [data-slot="switch-label"] {
+  color: var(--v2-text-text-muted);
+}
+
 .model-profile-number-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

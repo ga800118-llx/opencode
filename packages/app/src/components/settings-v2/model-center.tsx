@@ -42,7 +42,7 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
     refreshProviders: () => serverSync().refreshProviders(),
   })
   const [capabilities] = createResource(() => controller.capabilities())
-  const [profiles, { refetch }] = createResource(() => controller.list())
+  const [profiles, { mutate }] = createResource(() => controller.list())
 
   const connectedCloud = createMemo(() =>
     serverSync().data.provider.connected.filter((id) => !id.startsWith("agent-profile-")),
@@ -61,7 +61,7 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
   })
 
   const changed = async () => {
-    await refetch()
+    mutate(await controller.list())
   }
 
   const open = (input: { profile?: ProductProviderProfile; kind?: ProductProviderKind; detect?: boolean } = {}) => {

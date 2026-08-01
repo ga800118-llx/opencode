@@ -44,6 +44,32 @@ const report = {
 } satisfies ProductCapabilityReport
 
 describe("createProfileRepository", () => {
+  test("preserves the Web Crypto receiver when generating default identifiers", () => {
+    const cryptoObject = globalThis.crypto
+    const original = Object.getOwnPropertyDescriptor(cryptoObject, "randomUUID")
+    Object.defineProperty(cryptoObject, "randomUUID", {
+      configurable: true,
+      value(this: Crypto) {
+        if (this !== cryptoObject) throw new TypeError("invalid Crypto receiver")
+        return "00000000-0000-4000-8000-000000000099"
+      },
+    })
+
+    try {
+      const values = new Map<string, unknown>()
+      const repository = createProfileRepository({
+        store: {
+          get: (key) => values.get(key),
+          set: (key, value) => values.set(key, value),
+        },
+      })
+      expect(repository.save(base).id).toBe("00000000-0000-4000-8000-000000000099")
+    } finally {
+      if (original) Object.defineProperty(cryptoObject, "randomUUID", original)
+      else Reflect.deleteProperty(cryptoObject, "randomUUID")
+    }
+  })
+
   test("starts empty and creates renderer-safe profiles with stable identifiers", () => {
     const fake = fixture()
     expect(fake.repository.list()).toEqual([])

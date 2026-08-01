@@ -44,20 +44,19 @@ const profile = {
 } satisfies ProductProviderProfile
 
 describe("model profile config serialization", () => {
-  test("emits only environment references for credentials", () => {
+  test("fails closed when a credentialed profile has no runtime proxy", () => {
     const config = serializeProviderProfile(profile)
     const raw = JSON.stringify(config)
 
     expect(config).toEqual({
       npm: "@ai-sdk/openai-compatible",
       name: "Local Coder",
-      env: ["AGENT_PROFILE_01AB_CD_API_KEY"],
+      env: [],
       options: {
         baseURL: "http://127.0.0.1:11434/v1",
         timeout: 45_000,
         headers: {
           "X-Tenant": "alpha",
-          "Authorization-Extra": "{env:AGENT_PROFILE_01AB_CD_HEADER_AUTHORIZATION_EXTRA_B6EBEFD5}",
         },
       },
       models: {
@@ -73,6 +72,7 @@ describe("model profile config serialization", () => {
       },
     })
     expect(raw).not.toContain("model-profile:01ab-cd")
+    expect(raw).not.toContain("Authorization-Extra")
     expect(raw).not.toContain("req-safe")
   })
 
@@ -91,6 +91,24 @@ describe("model profile config serialization", () => {
     expect(defaultModelPatch(profile, "qwen-coder")).toEqual({
       model: `${profile.providerID}/qwen-coder`,
     })
+  })
+
+  test("routes sensitive headers through a credential proxy without serializing header references", () => {
+    const config = serializeProviderProfile({
+      ...profile,
+      runtime: {
+        baseURL: "http://127.0.0.1:32123/model-profile/01ab-cd/",
+        credentialProxy: true,
+      },
+    })
+
+    expect(config.env).toEqual(["AGENT_PROFILE_01AB_CD_API_KEY"])
+    expect(config.options).toEqual({
+      baseURL: "{env:AGENT_PROFILE_01AB_CD_PROXY_BASE_URL}",
+      timeout: 45_000,
+      headers: { "X-Tenant": "alpha" },
+    })
+    expect(JSON.stringify(config)).not.toContain("Authorization-Extra")
   })
 
   test("refuses to make an untested model the agent default", () => {

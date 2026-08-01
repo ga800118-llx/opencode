@@ -101,6 +101,12 @@ describe("createModelCenterService", () => {
     const fake = fixture()
     const profile = await fake.service.save(draft)
 
+    const draftReport = await fake.service.test({
+      draft: { ...draft, id: profile.id, credentials: undefined },
+      modelID: "coder",
+    })
+    expect(fake.profiles.get(profile.id)?.test).toEqual(draftReport)
+
     expect(profile).toMatchObject({
       id: "profile-1",
       providerID: "agent-profile-profile-1",
@@ -118,6 +124,16 @@ describe("createModelCenterService", () => {
     expect(edited.name).toBe("Renamed")
     expect(fake.credentialValues.get("model-profile:profile-1")?.apiKey).toBe("sk-test-secret")
     expect(await fake.service.list()).toEqual([edited])
+
+    await fake.service.test({
+      draft: { ...draft, id: profile.id, name: "Unsaved name", credentials: undefined },
+      modelID: "coder",
+    })
+    expect(fake.targets.at(-1)).toMatchObject({
+      apiKey: "sk-test-secret",
+      headers: { "X-Secret": "Bearer secret-header" },
+    })
+    expect(fake.profiles.get(profile.id)?.name).toBe("Renamed")
   })
 
   test("uses decrypted credentials only inside discovery and test targets", async () => {

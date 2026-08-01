@@ -58,6 +58,7 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { createCredentialService } from "./model-center/credentials"
+import { createSensitiveHeaderCredentialProxy } from "./model-center/credential-proxy"
 import { createModelCredentialEnvironment } from "./model-center/environment"
 import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
@@ -65,6 +66,7 @@ import { createProfileRepository } from "./model-center/profiles"
 import { createModelCenterService } from "./model-center/service"
 import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
+import { resolveDesktopUserDataPath } from "./user-data"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -179,7 +181,12 @@ const main = Effect.gen(function* () {
   app.setAppUserModelId(identity.appId)
   app.setPath(
     "userData",
-    onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), identity.dataNamespace),
+    resolveDesktopUserDataPath({
+      appDataPath: app.getPath("appData"),
+      dataNamespace: identity.dataNamespace,
+      commandLineOverride: app.commandLine.getSwitchValue("user-data-dir"),
+      onboardingRoot: onboardingTestRoot,
+    }),
   )
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
@@ -201,8 +208,10 @@ const main = Effect.gen(function* () {
       },
     },
   )
+  let stopModelCredentialProxy: () => Promise<void> = async () => undefined
   const stopSidecars = async () => {
     await killSidecar()
+    await stopModelCredentialProxy()
     wslServers.stopAll()
   }
   const relaunch = () => {
@@ -313,6 +322,17 @@ const main = Effect.gen(function* () {
       set: (key, value) => profileStore.set(key, value),
     },
   })
+  const credentialProxy = createSensitiveHeaderCredentialProxy({
+    profiles: profileRepository,
+    credentials: credentialService,
+    store: {
+      get: (key) => profileStore.get(key),
+      set: (key, value) => profileStore.set(key, value),
+    },
+    warn: (message, meta) => logger.warn(message, meta),
+  })
+  yield* Effect.promise(() => credentialProxy.start())
+  stopModelCredentialProxy = credentialProxy.stop
   const modelProbe = createModelProbe()
   const modelDetector = createLocalModelDetector({ discover: modelProbe.discover })
   const modelCenter = createModelCenterService({
@@ -320,6 +340,7 @@ const main = Effect.gen(function* () {
     credentials: credentialService,
     probe: modelProbe,
     detector: modelDetector,
+    presentProfile: credentialProxy.presentProfile,
     reloadCredentials: async () => {
       await restartProductSidecar()
     },
@@ -449,6 +470,7 @@ const main = Effect.gen(function* () {
           environment: createModelCredentialEnvironment({
             profiles: profileRepository.list(),
             credentials: credentialService,
+            credentialProxy: credentialProxy.runtimeEnvironment,
             warn: (warning) => logger.warn("model credential unavailable", warning),
           }),
           onStdout: (message) => writeLog("server", "stdout", { message }),

@@ -27,6 +27,10 @@ export function profileCredentialEnvironment(profileID: string) {
   return `AGENT_PROFILE_${environmentSegment(profileID)}_API_KEY`
 }
 
+export function profileCredentialProxyBaseURLEnvironment(profileID: string) {
+  return `AGENT_PROFILE_${environmentSegment(profileID)}_PROXY_BASE_URL`
+}
+
 export function profileProviderID(profileID: string) {
   return `agent-profile-${profileID.toLowerCase()}`
 }
@@ -38,10 +42,7 @@ export function profileSensitiveHeaderEnvironment(profileID: string, headerName:
 export function serializeProviderProfile(profile: ProductProviderProfile): ProductOpenCodeProviderConfig {
   const headers = Object.fromEntries(
     profile.headers.flatMap((header) => {
-      if (header.sensitive) {
-        if (!header.hasValue) return []
-        return [[header.name, `{env:${profileSensitiveHeaderEnvironment(profile.id, header.name)}}`]]
-      }
+      if (header.sensitive) return []
       return header.value ? [[header.name, header.value]] : []
     }),
   )
@@ -49,7 +50,7 @@ export function serializeProviderProfile(profile: ProductProviderProfile): Produ
   return Object.freeze({
     npm: OPENAI_COMPATIBLE,
     name: profile.name,
-    env: Object.freeze(profile.hasApiKey ? [profileCredentialEnvironment(profile.id)] : []),
+    env: Object.freeze(profile.runtime?.credentialProxy ? [profileCredentialEnvironment(profile.id)] : []),
     options: Object.freeze({
       baseURL: providerBaseURL(profile),
       timeout: profile.settings.timeoutMs,
@@ -96,8 +97,10 @@ export function defaultModelPatch(profile: ProductProviderProfile, modelID: stri
 }
 
 function providerBaseURL(profile: ProductProviderProfile) {
-  if (profile.kind !== "ollama") return profile.baseURL.replace(/\/$/, "")
-  const base = profile.baseURL.replace(/\/$/, "")
+  if (profile.runtime?.credentialProxy) return `{env:${profileCredentialProxyBaseURLEnvironment(profile.id)}}`
+  const runtimeBaseURL = profile.runtime?.baseURL ?? profile.baseURL
+  if (profile.kind !== "ollama") return runtimeBaseURL.replace(/\/$/, "")
+  const base = runtimeBaseURL.replace(/\/$/, "")
   return base.endsWith("/v1") ? base : `${base}/v1`
 }
 

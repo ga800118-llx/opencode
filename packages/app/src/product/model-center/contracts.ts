@@ -32,6 +32,11 @@ export type ProductProviderSettings = {
   readonly allowInsecureTls: false
 }
 
+export type ProductProviderRuntime = {
+  readonly baseURL: string
+  readonly credentialProxy: true
+}
+
 export type ProductCapabilityChecks = {
   readonly basicChat: boolean
   readonly streaming: boolean
@@ -67,6 +72,7 @@ export type ProductProviderProfile = {
   readonly models: readonly ProductProviderModel[]
   readonly defaultModelID?: string
   readonly settings: ProductProviderSettings
+  readonly runtime?: ProductProviderRuntime
   readonly test?: ProductCapabilityReport
   readonly createdAt: number
   readonly updatedAt: number
@@ -190,6 +196,7 @@ export function sanitizeProviderProfile(input: unknown): ProductProviderProfile 
   const createdAt = timestamp(value.createdAt, "A valid profile creation time is required.")
   const updatedAt = timestamp(value.updatedAt, "A valid profile update time is required.")
   const test = normalizeCapabilityReport(value.test)
+  const runtime = normalizeRuntime(value.runtime)
 
   return Object.freeze({
     id,
@@ -203,10 +210,18 @@ export function sanitizeProviderProfile(input: unknown): ProductProviderProfile 
     models: Object.freeze(normalized.models.map((model) => Object.freeze({ ...model }))),
     ...(normalized.defaultModelID ? { defaultModelID: normalized.defaultModelID } : {}),
     settings: Object.freeze({ ...normalized.settings }),
+    ...(runtime ? { runtime } : {}),
     ...(test ? { test } : {}),
     createdAt,
     updatedAt,
   })
+}
+
+function normalizeRuntime(input: unknown): ProductProviderRuntime | undefined {
+  if (input === undefined) return undefined
+  const value = record(input)
+  if (value.credentialProxy !== true) return undefined
+  return Object.freeze({ baseURL: endpoint(value.baseURL), credentialProxy: true as const })
 }
 
 function normalizeSettings(input: unknown): ProductProviderSettings {

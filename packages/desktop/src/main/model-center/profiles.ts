@@ -44,7 +44,7 @@ const STORE_KEY = "state"
 
 export function createProfileRepository(options: ProfileRepositoryOptions): ProfileRepository {
   const now = options.now ?? Date.now
-  const randomUUID = options.randomUUID ?? crypto.randomUUID
+  const randomUUID = options.randomUUID ?? (() => crypto.randomUUID())
   let state = loadState(options.store.get(STORE_KEY))
   if (state.changed) options.store.set(STORE_KEY, state.value)
 

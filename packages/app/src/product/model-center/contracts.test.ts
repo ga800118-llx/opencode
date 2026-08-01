@@ -86,6 +86,7 @@ describe("sanitizeProviderProfile", () => {
       providerID: "agent-profile-profile-1",
       credentialRef: "model-profile:profile-1",
       hasApiKey: true,
+      runtime: { baseURL: "http://127.0.0.1:32123/model-profile/profile-1/v1", credentialProxy: true },
       createdAt: 1,
       updatedAt: 2,
     })
@@ -93,6 +94,10 @@ describe("sanitizeProviderProfile", () => {
     expect(JSON.stringify(profile)).not.toContain("sk-test-secret")
     expect(JSON.stringify(profile)).not.toContain("Bearer secret-header")
     expect(profile.headers[1]).toEqual({ name: "X-Private-Token", sensitive: true, hasValue: true })
+    expect(profile.runtime).toEqual({
+      baseURL: "http://127.0.0.1:32123/model-profile/profile-1/v1",
+      credentialProxy: true,
+    })
     expect(Object.isFrozen(profile)).toBe(true)
     expect(Object.isFrozen(profile.models)).toBe(true)
   })

@@ -1,5 +1,6 @@
 import {
   profileCredentialEnvironment,
+  profileCredentialProxyBaseURLEnvironment,
   profileSensitiveHeaderEnvironment,
   type ProductProviderProfile,
 } from "@opencode-ai/app/product/model-center"
@@ -7,21 +8,36 @@ import type { ProductCredentialService } from "./credentials"
 
 export type ModelCredentialEnvironmentWarning = {
   readonly profileID: string
-  readonly kind: "missing-credential" | "credential-read" | "missing-api-key" | "missing-header"
+  readonly kind: "credential-proxy" | "missing-credential" | "credential-read" | "missing-api-key" | "missing-header"
 }
 
 type ModelCredentialEnvironmentInput = {
   readonly profiles: readonly ProductProviderProfile[]
   readonly credentials: ProductCredentialService
   readonly warn?: (warning: ModelCredentialEnvironmentWarning) => void
+  readonly credentialProxy?: (
+    profile: ProductProviderProfile,
+  ) => { readonly credential: string; readonly baseURL: string } | undefined
 }
 
 export function createModelCredentialEnvironment(input: ModelCredentialEnvironmentInput) {
   const environment: Record<string, string> = {}
   for (const profile of input.profiles) {
+    const requiresCredentials =
+      profile.hasApiKey || profile.headers.some((header) => header.sensitive && header.hasValue)
+    const proxy = input.credentialProxy?.(profile)
+    if (proxy) {
+      environment[profileCredentialEnvironment(profile.id)] = proxy.credential
+      environment[profileCredentialProxyBaseURLEnvironment(profile.id)] = proxy.baseURL
+      continue
+    }
+    if (input.credentialProxy && requiresCredentials) {
+      input.warn?.(Object.freeze({ profileID: profile.id, kind: "credential-proxy" }))
+      continue
+    }
     const reference = profile.credentialRef
     if (!reference || !input.credentials.has(reference)) {
-      if (profile.hasApiKey || profile.headers.some((header) => header.sensitive && header.hasValue)) {
+      if (requiresCredentials) {
         input.warn?.(Object.freeze({ profileID: profile.id, kind: "missing-credential" }))
       }
       continue

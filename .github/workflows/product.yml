@@ -41,9 +41,9 @@ jobs:
       - name: Typecheck Desktop
         run: bun run --cwd packages/desktop typecheck
 
-      - name: Test product contracts and composer routing
+      - name: Test App
         working-directory: packages/app
-        run: bun test --conditions=solid --preload ./happydom.ts ./src/product ./src/components/prompt-input
+        run: bun run test:unit
 
       - name: Test Desktop
         working-directory: packages/desktop
