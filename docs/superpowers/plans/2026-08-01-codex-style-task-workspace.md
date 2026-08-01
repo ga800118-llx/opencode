@@ -196,31 +196,31 @@ Expected: mode changes immediately and no setting outside the mode key changes.
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Write failing readiness hook tests**
+- [x] **Step 1: Write failing readiness hook tests**
 
 Stub Models, Providers, Local, and Product Host state. Assert no probe runs on
 render, built-in/connected models count as ready, loading is stable, and an
 empty model set produces setup-required.
 
-- [ ] **Step 2: Write failing notice tests**
+- [x] **Step 2: Write failing notice tests**
 
 Assert the notice is absent for ready/loading, appears for setup-required,
 contains one primary Configure models action, opens V2 Settings on the Models
 tab, and wraps at narrow width without fixed text dimensions.
 
-- [ ] **Step 3: Implement a reusable notice**
+- [x] **Step 3: Implement a reusable notice**
 
 Use existing ButtonV2/IconV2 components, semantic status markup, and no modal
 wizard. Extend the settings dialog's typed default tab only as needed so callers
 can open `models` directly.
 
-- [ ] **Step 4: Compose the notice into Home and New Task**
+- [x] **Step 4: Compose the notice into Home and New Task**
 
 Keep the composer first and avoid layout shift while readiness is loading. The
 notice disappears reactively after a model becomes usable. Preserve the
 existing provider tip only when it adds information not covered by setup state.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
