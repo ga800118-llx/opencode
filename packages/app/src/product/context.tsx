@@ -6,10 +6,12 @@ import type { CompatibleApi } from "@/utils/server-compat"
 import type { ProductTaskAdapter } from "./contracts"
 import { createProductTaskAdapter } from "./task-adapter"
 import { createUnavailableProductModelCenter, type ProductModelCenterAPI } from "./model-center"
+import type { ProductSidecarHost } from "./workflow/sidecar-status"
 
 export type ProductHost = {
   readonly kind: "browser" | "desktop"
   readonly modelCenter: ProductModelCenterAPI
+  readonly sidecar?: ProductSidecarHost
 }
 
 export type ProductTaskAdapterFactory = (api: CompatibleApi) => ProductTaskAdapter<SessionInfo>
