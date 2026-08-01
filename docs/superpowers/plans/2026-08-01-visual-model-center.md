@@ -339,27 +339,28 @@ git commit -m "feat: detect local model services"
 
 - Modify: `packages/desktop/src/main/server.ts`
 - Modify: `packages/desktop/src/main/server.test.ts`
+- Create: `packages/desktop/src/main/sidecar-environment.ts`
 - Create: `packages/desktop/src/main/model-center/environment.ts`
 - Create: `packages/desktop/src/main/model-center/environment.test.ts`
 - Modify: `packages/desktop/src/main/index.ts`
 
-- [ ] **Step 1: Write environment and spawn tests**
+- [x] **Step 1: Write environment and spawn tests**
 
 Assert API keys and sensitive headers map only to deterministic environment names, absent credentials are skipped, and `spawnLocalServer` merges injected values into the utility-process environment without assigning them to `process.env`. Assert logger metadata and sidecar status contain no secret values.
 
-- [ ] **Step 2: Extend `spawnLocalServer` with per-spawn environment input**
+- [x] **Step 2: Extend `spawnLocalServer` with per-spawn environment input**
 
 Add `environment?: Readonly<Record<string, string>>` to `SpawnLocalServerOptions`. `createSidecarEnv` copies the parent environment, applies the explicit map to the child copy, strips `DEBUG`, and never mutates the parent.
 
-- [ ] **Step 3: Build the environment from encrypted profile envelopes**
+- [x] **Step 3: Build the environment from encrypted profile envelopes**
 
 For each valid profile, read its credential reference just before spawn and emit API-key and sensitive-header variables matching Task 1 serialization. Decryption or missing-secret failures omit only that profile's variables and emit a redacted warning with profile ID.
 
-- [ ] **Step 4: Reload credentials through a supervised restart**
+- [x] **Step 4: Reload credentials through a supervised restart**
 
 Wire `reloadCredentials()` to `restartProductSidecar()`. The supervisor's injected spawn closure rebuilds the environment on every initial start, manual restart, and automatic crash recovery.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"

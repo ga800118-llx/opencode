@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app } from "electron"
+import { app, safeStorage } from "electron"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -14,7 +14,6 @@ import contextMenu from "electron-context-menu"
 import type { ServerReadyData } from "../preload/types"
 import { normalizeProductDeepLinks } from "../product/deep-link"
 import {
-  createProductCredentialCapabilities,
   createUnavailableSidecarStatus,
   createUnmanagedSidecarStatus,
   sanitizeProductSidecarStatus,
@@ -58,6 +57,11 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
+import { createCredentialService } from "./model-center/credentials"
+import { createModelCredentialEnvironment } from "./model-center/environment"
+import { createProfileRepository } from "./model-center/profiles"
+import { getStore } from "./store"
+import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -144,7 +148,6 @@ function ensureLoopbackNoProxy() {
 
 const main = Effect.gen(function* () {
   const identity = getRuntimeProductIdentity(CHANNEL, app.isPackaged)
-  const credentialCapabilities = createProductCredentialCapabilities(identity.credentialNamespace, process.platform)
   contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
   // on macOS apps run in `/` which can cause issues with ripgrep
@@ -289,6 +292,24 @@ const main = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
 
   if (!TEST_ONBOARDING) migrate()
+  const credentialStore = getStore(MODEL_CREDENTIALS_STORE)
+  const credentialService = createCredentialService({
+    namespace: identity.credentialNamespace,
+    platform: process.platform,
+    safeStorage,
+    store: {
+      get: (key) => credentialStore.get(key),
+      set: (key, value) => credentialStore.set(key, value),
+      delete: (key) => credentialStore.delete(key),
+    },
+  })
+  const profileStore = getStore(MODEL_PROFILES_STORE)
+  const profileRepository = createProfileRepository({
+    store: {
+      get: (key) => profileStore.get(key),
+      set: (key, value) => profileStore.set(key, value),
+    },
+  })
   yield* Effect.promise(() => cleanupStoreFiles(app.getPath("userData"))).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
@@ -310,7 +331,7 @@ const main = Effect.gen(function* () {
     getProductSidecarStatus: () => productSidecarStatus,
     subscribeProductSidecarStatus,
     restartProductSidecar,
-    getProductCredentialCapabilities: () => credentialCapabilities,
+    getProductCredentialCapabilities: () => credentialService.capabilities(),
     killSidecar: () => killSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(
@@ -410,6 +431,11 @@ const main = Effect.gen(function* () {
         logger.log("spawning supervised sidecar", { url })
         const instance = await spawnLocalServer(hostname, port, password, {
           userDataPath: app.getPath("userData"),
+          environment: createModelCredentialEnvironment({
+            profiles: profileRepository.list(),
+            credentials: credentialService,
+            warn: (warning) => logger.warn("model credential unavailable", warning),
+          }),
           onStdout: (message) => writeLog("server", "stdout", { message }),
           onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
           onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
