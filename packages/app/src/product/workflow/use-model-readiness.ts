@@ -15,7 +15,6 @@ export type ModelReadinessControllerInput = {
   readonly modelsReady: Accessor<boolean>
   readonly selectedModel: Accessor<ModelReadinessModel | undefined>
   readonly models: Accessor<readonly ModelReadinessModel[]>
-  readonly visible: (model: ModelReadinessModel) => boolean
   readonly loadModelCenterCapabilities: () => Promise<{ readonly available: boolean }>
 }
 
@@ -33,7 +32,7 @@ export function createModelReadinessController(input: ModelReadinessControllerIn
       if (!disposed) setDesktopModelCenterAvailable(false)
     },
   )
-  const availableModelCount = () => input.models().filter(input.visible).length
+  const availableModelCount = () => input.models().length
   const readiness = () => {
     const hasUsableSelectedModel = !!input.selectedModel()
     const count = availableModelCount()
@@ -82,7 +81,6 @@ export function useModelReadiness(input: {
       providers.connected().flatMap((provider) =>
         Object.values(provider.models).map((model) => ({ providerID: provider.id, modelID: model.id })),
       ),
-    visible: models.visible,
     loadModelCenterCapabilities: runtime.host.modelCenter.capabilities,
   })
 }

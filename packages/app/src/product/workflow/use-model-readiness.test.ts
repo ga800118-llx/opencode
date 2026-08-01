@@ -27,7 +27,6 @@ describe("createModelReadinessController", () => {
           modelsReady,
           selectedModel: () => undefined,
           models: () => [],
-          visible: () => true,
           loadModelCenterCapabilities: () => capability.promise,
         })
 
@@ -57,7 +56,6 @@ describe("createModelReadinessController", () => {
         modelsReady: () => true,
         selectedModel,
         models: () => [],
-        visible: () => true,
         loadModelCenterCapabilities: () => {
           calls++
           return capability.promise
@@ -70,7 +68,7 @@ describe("createModelReadinessController", () => {
     })
   })
 
-  test("counts visible connected models from every provider source as ready", async () => {
+  test("keeps connected models ready when all are hidden from the selector", async () => {
     const connected = [model("builtin", "free"), model("private", "coder"), model("local", "qwen")]
 
     await new Promise<void>((done) => {
@@ -80,12 +78,11 @@ describe("createModelReadinessController", () => {
           modelsReady: () => true,
           selectedModel: () => undefined,
           models: () => connected,
-          visible: (item) => item.modelID !== "free",
           loadModelCenterCapabilities: async () => ({ available: true }),
         })
 
         void settle().then(() => {
-          expect(controller.availableModelCount()).toBe(2)
+          expect(controller.availableModelCount()).toBe(3)
           expect(controller.readiness()).toBe("ready")
           dispose()
           done()
@@ -105,7 +102,6 @@ describe("createModelReadinessController", () => {
           modelsReady: () => true,
           selectedModel: () => undefined,
           models,
-          visible: () => true,
           loadModelCenterCapabilities: async () => {
             calls++
             return { available: true }
@@ -134,7 +130,6 @@ describe("createModelReadinessController", () => {
           modelsReady: () => true,
           selectedModel: () => undefined,
           models: () => [],
-          visible: () => true,
           loadModelCenterCapabilities: async () => ({ available: false }),
         })
 

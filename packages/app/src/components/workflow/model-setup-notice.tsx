@@ -1,7 +1,7 @@
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { createMemo, Show, type Accessor } from "solid-js"
+import { useSettingsDialog } from "@/components/settings-dialog"
 import type { SettingsTab } from "@/components/settings-v2/dialog-settings-v2"
 import { useLanguage } from "@/context/language"
 import type { ProductModelReadiness } from "@/product/workflow"
@@ -58,13 +58,9 @@ export function ModelSetupNotice(props: {
   class?: string
 }) {
   const language = useLanguage()
-  const dialog = useDialog()
+  const showSettings = useSettingsDialog("models")
   const notice = createMemo(() => modelSetupNoticeViewModel(props.readiness()))
-  const controller = createModelSetupNoticeController((tab) => {
-    void import("@/components/settings-v2").then((module) => {
-      void dialog.show(() => <module.DialogSettings defaultValue={tab} />)
-    })
-  })
+  const controller = createModelSetupNoticeController(showSettings)
 
   return (
     <Show when={notice()}>
