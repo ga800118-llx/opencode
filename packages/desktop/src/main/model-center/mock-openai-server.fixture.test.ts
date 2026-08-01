@@ -1,0 +1,80 @@
+export type MockModelServerMode =
+  | "agent"
+  | "partial"
+  | "chat-only"
+  | "incompatible"
+  | "malformed-models"
+  | "delayed"
+  | "ollama"
+
+export function startMockModelServer(mode: MockModelServerMode = "agent") {
+  const requests: Array<{ path: string; authorization?: string; privateHeader?: string }> = []
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      requests.push({
+        path: url.pathname,
+        authorization: request.headers.get("authorization") ?? undefined,
+        privateHeader: request.headers.get("x-private-token") ?? undefined,
+      })
+
+      if (request.headers.get("authorization") !== "Bearer fixture-secret") {
+        return Response.json({ error: { message: "raw credential rejection" } }, { status: 401 })
+      }
+      if (request.headers.get("x-private-token") !== "fixture-private-header") {
+        return Response.json({ error: { message: "raw header rejection" } }, { status: 403 })
+      }
+      if (mode === "delayed") await Bun.sleep(50)
+
+      if (url.pathname === "/api/tags") {
+        return Response.json({ models: [{ name: "qwen2.5-coder:7b" }, { name: "deepseek-coder:latest" }] })
+      }
+      if (url.pathname === "/v1/models") {
+        if (mode === "malformed-models") return new Response("not-json", { status: 200 })
+        return Response.json({ data: [{ id: "coder" }, { id: "reasoner", name: "Reasoner" }] })
+      }
+      if (url.pathname !== "/v1/chat/completions") return new Response(null, { status: 404 })
+
+      const body = (await request.json()) as {
+        model?: string
+        stream?: boolean
+        tools?: unknown[]
+      }
+      if (body.model === "missing") return Response.json({ error: { message: "raw missing detail" } }, { status: 404 })
+      if (mode === "incompatible") return Response.json({ result: "unexpected" })
+      if (body.stream) {
+        if (mode === "chat-only") return Response.json({ choices: [{ message: { content: "OK" } }] })
+        const stream = [
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ].join("")
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } })
+      }
+      if (body.tools?.length) {
+        if (mode === "agent") {
+          return Response.json({
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    { id: "call-safe", type: "function", function: { name: "report_probe", arguments: "{}" } },
+                  ],
+                },
+              },
+            ],
+          })
+        }
+        return Response.json({ choices: [{ message: { content: "I cannot call tools." } }] })
+      }
+      return Response.json({ choices: [{ message: { content: "OK" } }] })
+    },
+  })
+  return {
+    baseURL: `http://${server.hostname}:${server.port}/v1`,
+    ollamaURL: `http://${server.hostname}:${server.port}`,
+    requests,
+    stop: () => server.stop(true),
+  }
+}

@@ -259,13 +259,14 @@ git commit -m "feat: persist model provider profiles"
 - Create: `packages/desktop/src/main/model-center/diagnostics.ts`
 - Create: `packages/desktop/src/main/model-center/probe.ts`
 - Create: `packages/desktop/src/main/model-center/probe.test.ts`
+- Create: `packages/desktop/src/main/model-center/mock-openai-server.fixture.test.ts`
 - Create: `packages/desktop/src/main/model-center/mock-openai-server.test.ts`
 
-- [ ] **Step 1: Build deterministic OpenAI-compatible and Ollama fixtures**
+- [x] **Step 1: Build deterministic OpenAI-compatible and Ollama fixtures**
 
 Use `Bun.serve` on `127.0.0.1` with routes for `/v1/models`, `/v1/chat/completions`, `/api/tags`, and configurable 401, 404, malformed JSON, delayed response, SSE, and tool-call responses. Fixture requests record headers but never print them.
 
-- [ ] **Step 2: Write failing discovery and classification tests**
+- [x] **Step 2: Write failing discovery and classification tests**
 
 Cover OpenAI model listing, Ollama tag listing, manual-model fallback, bearer auth, sensitive headers, timeout, unreachable endpoint, TLS-like transport failure, malformed API, missing model, non-streaming chat, streaming chat, tool-call success/failure, and these exact classifications:
 
@@ -279,15 +280,15 @@ const classification = basicChat
   : "incompatible"
 ```
 
-- [ ] **Step 3: Implement bounded HTTP and diagnostic mapping**
+- [x] **Step 3: Implement bounded HTTP and diagnostic mapping**
 
 Use `AbortSignal.timeout(settings.timeoutMs)`, an explicit redirect limit, JSON size limits, and header validation. Generate a request ID for each probe. Return only category, safe message, HTTP status, request ID, and redacted technical detail. Map unreachable, auth, incompatible API, missing model, streaming, tool calling, timeout, and TLS failures to the existing product error taxonomy.
 
-- [ ] **Step 4: Implement discovery and capability probes**
+- [x] **Step 4: Implement discovery and capability probes**
 
 Discovery uses `/api/tags` for Ollama and `/models` under normalized OpenAI-compatible base URLs for other kinds. Capability testing sends a minimal non-sensitive chat request, verifies at least one SSE data event for streaming, then requests a deterministic `report_probe` tool call. Do not mark a profile agent-capable when tool calling is absent or malformed.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
