@@ -306,7 +306,7 @@ git commit -m "feat: probe model endpoint capabilities"
 - Create: `packages/desktop/src/main/model-center/local-detection.ts`
 - Create: `packages/desktop/src/main/model-center/local-detection.test.ts`
 
-- [ ] **Step 1: Write deterministic detection tests**
+- [x] **Step 1: Write deterministic detection tests**
 
 Inject the discovery function and assert concurrent probes for exactly:
 
@@ -319,11 +319,11 @@ Inject the discovery function and assert concurrent probes for exactly:
 
 Cover available with models, available with no models, unavailable, timeout, and one failed candidate not hiding the other.
 
-- [ ] **Step 2: Implement bounded local detection**
+- [x] **Step 2: Implement bounded local detection**
 
 Use a 1,500 ms timeout per candidate, return stable candidate IDs, and preserve model IDs from successful discovery. Do not inspect processes, scan ports, or contact non-loopback hosts.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
