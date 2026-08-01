@@ -1,11 +1,14 @@
 import { dict as en } from "./en"
 import { modelCenterEn, modelCenterZh } from "./model-center-copy"
+import { workflowEn, workflowZh } from "./workflow-copy"
 
 type Keys = keyof typeof en
 
 export const dict = {
   ...modelCenterEn,
   ...modelCenterZh,
+  ...workflowEn,
+  ...workflowZh,
   "command.category.suggested": "建议",
   "command.category.view": "视图",
   "command.category.project": "项目",
@@ -762,10 +765,6 @@ export const dict = {
   "settings.general.section.sounds": "音效",
   "settings.general.section.feed": "动态",
   "settings.general.section.display": "显示",
-  "settings.general.row.presentationMode.title": "界面模式",
-  "settings.general.row.presentationMode.description": "选择界面显示的详细程度和控制选项",
-  "settings.general.row.presentationMode.option.simple": "简洁",
-  "settings.general.row.presentationMode.option.advanced": "高级",
   "settings.general.row.language.title": "语言",
   "settings.general.row.language.description": "更改 OpenCode 的显示语言",
   "settings.general.row.shell.title": "终端 Shell",

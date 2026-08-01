@@ -1,7 +1,9 @@
 import { modelCenterEn } from "./model-center-copy"
+import { workflowEn } from "./workflow-copy"
 
 export const dict = {
   ...modelCenterEn,
+  ...workflowEn,
   "command.category.suggested": "Foreslået",
   "command.category.view": "Vis",
   "command.category.project": "Projekt",

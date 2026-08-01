@@ -1,9 +1,9 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 
 const directory = "C:/OpenCode/PresentationMode"
 
-test("changes and persists the presentation mode without reloading", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
   await mockOpenCodeServer(page, {
     directory,
     project: {
@@ -19,19 +19,44 @@ test("changes and persists the presentation mode without reloading", async ({ pa
     pageMessages: () => ({ items: [] }),
   })
   await page.route("**/pty/shells", (route) => route.fulfill({ json: [] }))
-  await page.addInitScript(() => {
+})
+
+test("changes and persists the presentation mode without reloading", async ({ page }) => {
+  await seedSettings(page, "simple")
+  const state = await openSettings(page)
+  await expect(state.trigger).toHaveAccessibleName("Simple")
+
+  await selectMode(page, state.trigger, "Advanced")
+
+  await expectModeState(page, state, "Advanced", "advanced")
+})
+
+test("restores advanced mode and persists simple without reloading", async ({ page }) => {
+  await seedSettings(page, "advanced")
+  const state = await openSettings(page)
+  await expect(state.trigger).toHaveAccessibleName("Advanced")
+
+  await selectMode(page, state.trigger, "Simple")
+
+  await expectModeState(page, state, "Simple", "simple")
+})
+
+async function seedSettings(page: Page, presentationMode: "simple" | "advanced") {
+  await page.addInitScript((mode) => {
     localStorage.setItem(
       "settings.v3",
       JSON.stringify({
         general: {
           newLayoutDesigns: true,
-          presentationMode: "simple",
+          presentationMode: mode,
           autoSave: false,
         },
       }),
     )
-  })
+  }, presentationMode)
+}
 
+async function openSettings(page: Page) {
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible()
 
@@ -44,21 +69,28 @@ test("changes and persists the presentation mode without reloading", async ({ pa
   await page.keyboard.press("Control+,")
   const dialog = page.locator(".settings-v2-dialog")
   await expect(dialog).toBeVisible()
-
   const mode = dialog.locator('[data-action="settings-presentation-mode"]')
   await expect(mode).toHaveAccessibleName("Interface mode")
-  const trigger = mode.getByRole("button")
-  await expect(trigger).toHaveAccessibleName("Simple")
+  return { dialog, trigger: mode.getByRole("button"), navigations, url }
+}
 
+async function selectMode(page: Page, trigger: Locator, label: "Simple" | "Advanced") {
   await trigger.press("Enter")
-  const advanced = page.locator('[role="option"]').filter({ hasText: /^Advanced$/ })
-  await expect(advanced).toBeVisible()
-  await advanced.press("Enter")
+  const option = page.locator('[role="option"]').filter({ hasText: new RegExp(`^${label}$`) })
+  await expect(option).toBeVisible()
+  await option.press("Enter")
+}
 
-  await expect(trigger).toHaveAccessibleName("Advanced")
-  await expect(dialog).toBeVisible()
-  await expect(page).toHaveURL(url)
-  expect(navigations).toEqual([])
+async function expectModeState(
+  page: Page,
+  state: Awaited<ReturnType<typeof openSettings>>,
+  label: "Simple" | "Advanced",
+  presentationMode: "simple" | "advanced",
+) {
+  await expect(state.trigger).toHaveAccessibleName(label)
+  await expect(state.dialog).toBeVisible()
+  await expect(page).toHaveURL(state.url)
+  expect(state.navigations).toEqual([])
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -71,5 +103,5 @@ test("changes and persists the presentation mode without reloading", async ({ pa
         }
       }),
     )
-    .toEqual({ presentationMode: "advanced", autoSave: false })
-})
+    .toEqual({ presentationMode, autoSave: false })
+}
