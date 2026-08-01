@@ -81,19 +81,19 @@ Phase 3 is complete only when:
 - Create: `packages/app/src/product/workflow/index.ts`
 - Modify: `packages/app/src/index.ts`
 
-- [ ] **Step 1: Write failing presentation tests**
+- [x] **Step 1: Write failing presentation tests**
 
 Assert `normalizePresentationMode` accepts only `simple` and `advanced`, maps
 missing/corrupt persisted values to `simple`, and returns stable presentation
 flags without mutating input.
 
-- [ ] **Step 2: Write failing model-readiness tests**
+- [x] **Step 2: Write failing model-readiness tests**
 
 Cover loading providers, usable selected model, visible connected models,
 empty/unconnected providers, and unavailable desktop Model Center. The result
 must be one of `loading`, `ready`, `setup-required`, or `desktop-unavailable`.
 
-- [ ] **Step 3: Confirm the tests fail because modules are absent**
+- [x] **Step 3: Confirm the tests fail because modules are absent**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -101,13 +101,13 @@ cd packages/app
 bun test --conditions=solid --preload ./happydom.ts ./src/product/workflow
 ```
 
-- [ ] **Step 4: Implement pure contracts and focused exports**
+- [x] **Step 4: Implement pure contracts and focused exports**
 
 Keep helpers framework-light. Presentation normalization takes `unknown`.
 Model readiness takes plain booleans/counts so it can be tested without
 mounting providers and reused by Home/New Task.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
