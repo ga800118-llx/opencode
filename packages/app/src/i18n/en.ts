@@ -861,6 +861,10 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
 
+  "settings.general.row.presentationMode.title": "Interface mode",
+  "settings.general.row.presentationMode.description": "Choose how much detail and control the interface shows",
+  "settings.general.row.presentationMode.option.simple": "Simple",
+  "settings.general.row.presentationMode.option.advanced": "Advanced",
   "settings.general.row.language.title": "Language",
   "settings.general.row.language.description": "Change the display language for OpenCode",
   "settings.general.row.shell.title": "Terminal shell",

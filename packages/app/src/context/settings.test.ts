@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import type { ProductPresentationMode } from "@/product/workflow/presentation"
 import {
+  createPresentationSettings,
   hasExistingWebState,
   initialAgentVisibility,
   isAppUpgrade,
@@ -11,6 +13,49 @@ import {
   shouldDisplayTabsToast,
   shouldEnableNewLayout,
 } from "./settings"
+
+describe("presentation settings", () => {
+  test("defaults missing and corrupt modes to the simple presentation", () => {
+    const stored: { value: unknown } = { value: undefined }
+    const presentation = createPresentationSettings(
+      () => stored.value,
+      (_section, _key, value) => {
+        stored.value = value
+      },
+    )
+
+    expect(presentation.mode()).toBe("simple")
+    expect(presentation.simple()).toBe(true)
+    expect(presentation.advanced()).toBe(false)
+
+    stored.value = "expert"
+    expect(presentation.mode()).toBe("simple")
+  })
+
+  test("writes only general.presentationMode without reloading", () => {
+    const stored: { value: unknown } = { value: "simple" }
+    const writes: ["general", "presentationMode", ProductPresentationMode][] = []
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {})
+    const presentation = createPresentationSettings(
+      () => stored.value,
+      (section, key, value) => {
+        writes.push([section, key, value])
+        stored.value = value
+      },
+    )
+
+    try {
+      presentation.setMode("advanced")
+      expect(writes).toEqual([["general", "presentationMode", "advanced"]])
+      expect(presentation.mode()).toBe("advanced")
+      expect(presentation.simple()).toBe(false)
+      expect(presentation.advanced()).toBe(true)
+      expect(reload).not.toHaveBeenCalled()
+    } finally {
+      reload.mockRestore()
+    }
+  })
+})
 
 describe("agent visibility", () => {
   test("shows the picker for existing profiles and hides it for first-time installs", () => {

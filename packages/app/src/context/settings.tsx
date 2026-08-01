@@ -3,6 +3,7 @@ import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
 import { usePlatform } from "@/context/platform"
+import { normalizePresentationMode, type ProductPresentationMode } from "@/product/workflow/presentation"
 
 export interface NotificationSettings {
   agent: boolean
@@ -21,6 +22,7 @@ export interface SoundSettings {
 
 export interface Settings {
   general: {
+    presentationMode?: ProductPresentationMode
     autoSave: boolean
     releaseNotes: boolean
     followup: "queue" | "steer"
@@ -182,6 +184,7 @@ export function terminalFontFamily(font: string | undefined) {
 
 const defaultSettings: Settings = {
   general: {
+    presentationMode: "simple",
     autoSave: true,
     releaseNotes: true,
     followup: "steer",
@@ -225,6 +228,21 @@ function withFallback<T>(read: () => T | undefined, fallback: T) {
   return createMemo(() => read() ?? fallback)
 }
 
+export function createPresentationSettings(
+  read: () => unknown,
+  write: (section: "general", key: "presentationMode", mode: ProductPresentationMode) => void,
+) {
+  const mode = () => normalizePresentationMode(read())
+  return {
+    mode,
+    simple: () => mode() === "simple",
+    advanced: () => mode() === "advanced",
+    setMode(value: ProductPresentationMode) {
+      write("general", "presentationMode", value)
+    },
+  }
+}
+
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
   gate: false,
@@ -240,6 +258,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       migrationApplied: false,
       previous: undefined as string | undefined,
     })
+    const presentation = createPresentationSettings(
+      () => store.general?.presentationMode,
+      (section, key, mode) => setStore(section, key, mode),
+    )
     const showFileTree = withFallback(() => store.general?.showFileTree, defaultSettings.general.showFileTree)
     const showSearch = withFallback(() => store.general?.showSearch, defaultSettings.general.showSearch)
     const showStatus = withFallback(() => store.general?.showStatus, defaultSettings.general.showStatus)
@@ -361,6 +383,8 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         return store
       },
       general: {
+        presentationMode: presentation.mode,
+        setPresentationMode: presentation.setMode,
         autoSave: withFallback(() => store.general?.autoSave, defaultSettings.general.autoSave),
         setAutoSave(value: boolean) {
           setStore("general", "autoSave", value)
@@ -452,6 +476,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
           setStore("general", "shouldDisplayTabsToast", false)
         },
       },
+      presentation,
       visibility: {
         fileTree: visible(showFileTree),
         search: visible(showSearch),

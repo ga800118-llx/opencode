@@ -13,6 +13,7 @@ import { Link } from "../link"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import { LayoutRetirementNotice, LayoutTransitionToggle } from "./interface-transition"
+import { PresentationModeSetting } from "./presentation-mode"
 import {
   createAppearanceSettingsController,
   createPermissionScopeController,
@@ -327,6 +328,11 @@ export const SettingsGeneralV2: Component<{
   const GeneralSection = () => (
     <div class="settings-v2-section">
       <SettingsListV2>
+        <PresentationModeSetting
+          mode={settings.general.presentationMode()}
+          onChange={settings.general.setPresentationMode}
+        />
+
         <LanguageSetting />
 
         <PermissionScopeSetting controller={permissionScope} />
