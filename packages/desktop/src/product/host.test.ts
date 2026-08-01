@@ -17,6 +17,15 @@ describe("desktop product host", () => {
       sidecarState: "product-sidecar-state",
       sidecarRestart: "product-sidecar-restart",
       credentialGetCapabilities: "product-credential-get-capabilities",
+      modelCenterCapabilities: "product-model-center-capabilities",
+      modelCenterList: "product-model-center-list",
+      modelCenterSave: "product-model-center-save",
+      modelCenterRemove: "product-model-center-remove",
+      modelCenterDiscover: "product-model-center-discover",
+      modelCenterTest: "product-model-center-test",
+      modelCenterDetectLocal: "product-model-center-detect-local",
+      modelCenterSelectDefault: "product-model-center-select-default",
+      modelCenterReloadCredentials: "product-model-center-reload-credentials",
     })
     expect(Object.keys(PRODUCT_HOST_CHANNELS)).not.toContain("credentialRead")
     expect(Object.keys(PRODUCT_HOST_CHANNELS)).not.toContain("credentialWrite")
@@ -120,17 +129,63 @@ describe("desktop product host", () => {
           return createProductCredentialCapabilities("dev.agent.desktop.credentials", "darwin")
         },
       },
+      modelCenter: {
+        async capabilities() {
+          calls.push("model-center-capabilities")
+          return {
+            available: true,
+            credentialBackend: "macos-keychain",
+            credentialOperations: { read: true, write: true, delete: true },
+            localDetection: true,
+          }
+        },
+        async list() {
+          calls.push("model-center-list")
+          return []
+        },
+        async save() {
+          throw new Error("unused")
+        },
+        async remove() {},
+        async discover() {
+          return { models: [], requestID: "req-safe" }
+        },
+        async test() {
+          throw new Error("unused")
+        },
+        async detectLocal() {
+          return []
+        },
+        async selectDefault() {
+          throw new Error("unused")
+        },
+        async reloadCredentials() {
+          calls.push("model-center-reload")
+        },
+      },
     }
     const host = createDesktopProductHost(api)
 
     expect(host.kind).toBe("desktop")
-    expect((await host.modelCenter.capabilities()).available).toBe(false)
+    expect((await host.modelCenter.capabilities()).available).toBe(true)
+    expect(await host.modelCenter.list()).toEqual([])
+    await host.modelCenter.reloadCredentials()
     expect(await host.sidecar.getStatus()).toBe(ready)
     const unsubscribe = await host.sidecar.subscribe(() => calls.push("state"))
     expect(await host.sidecar.restart()).toBe(ready)
     expect((await host.credentials.getCapabilities()).namespace).toBe("dev.agent.desktop.credentials")
     unsubscribe()
-    expect(calls).toEqual(["get", "subscribe", "state", "restart", "credentials", "unsubscribe"])
+    expect(calls).toEqual([
+      "model-center-capabilities",
+      "model-center-list",
+      "model-center-reload",
+      "get",
+      "subscribe",
+      "state",
+      "restart",
+      "credentials",
+      "unsubscribe",
+    ])
     expect(Object.isFrozen(host)).toBe(true)
     expect(Object.isFrozen(host.sidecar)).toBe(true)
     expect(Object.isFrozen(host.modelCenter)).toBe(true)

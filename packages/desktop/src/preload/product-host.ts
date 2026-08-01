@@ -3,6 +3,7 @@ import type {
   ProductCredentialCapabilities,
   ProductSidecarStatus,
 } from "../product/host"
+import type { ProductModelCenterAPI } from "@opencode-ai/app/product/model-center"
 
 export type ProductHostPreloadTransport = {
   readonly getSidecarStatus: () => Promise<ProductSidecarStatus>
@@ -10,6 +11,15 @@ export type ProductHostPreloadTransport = {
   readonly unsubscribeSidecar: () => Promise<void>
   readonly restartSidecar: () => Promise<ProductSidecarStatus>
   readonly getCredentialCapabilities: () => Promise<ProductCredentialCapabilities>
+  readonly modelCenterCapabilities: ProductModelCenterAPI["capabilities"]
+  readonly modelCenterList: ProductModelCenterAPI["list"]
+  readonly modelCenterSave: ProductModelCenterAPI["save"]
+  readonly modelCenterRemove: ProductModelCenterAPI["remove"]
+  readonly modelCenterDiscover: ProductModelCenterAPI["discover"]
+  readonly modelCenterTest: ProductModelCenterAPI["test"]
+  readonly modelCenterDetectLocal: ProductModelCenterAPI["detectLocal"]
+  readonly modelCenterSelectDefault: ProductModelCenterAPI["selectDefault"]
+  readonly modelCenterReloadCredentials: ProductModelCenterAPI["reloadCredentials"]
   readonly listenSidecar: (listener: (status: ProductSidecarStatus) => void) => () => void
 }
 
@@ -75,6 +85,17 @@ export function createProductHostPreloadAPI(transport: ProductHostPreloadTranspo
     },
     credentials: {
       getCapabilities: transport.getCredentialCapabilities,
+    },
+    modelCenter: {
+      capabilities: transport.modelCenterCapabilities,
+      list: transport.modelCenterList,
+      save: transport.modelCenterSave,
+      remove: transport.modelCenterRemove,
+      discover: transport.modelCenterDiscover,
+      test: transport.modelCenterTest,
+      detectLocal: transport.modelCenterDetectLocal,
+      selectDefault: transport.modelCenterSelectDefault,
+      reloadCredentials: transport.modelCenterReloadCredentials,
     },
   }
 }

@@ -19,6 +19,15 @@ const api: ElectronAPI = {
     unsubscribeSidecar: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarUnsubscribe),
     restartSidecar: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.sidecarRestart),
     getCredentialCapabilities: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.credentialGetCapabilities),
+    modelCenterCapabilities: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterCapabilities),
+    modelCenterList: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterList),
+    modelCenterSave: (input) => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterSave, input),
+    modelCenterRemove: (profileID) => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterRemove, profileID),
+    modelCenterDiscover: (input) => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterDiscover, input),
+    modelCenterTest: (input) => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterTest, input),
+    modelCenterDetectLocal: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterDetectLocal),
+    modelCenterSelectDefault: (input) => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterSelectDefault, input),
+    modelCenterReloadCredentials: () => ipcRenderer.invoke(PRODUCT_HOST_CHANNELS.modelCenterReloadCredentials),
     listenSidecar(listener) {
       const handler = (_: unknown, status: Parameters<typeof listener>[0]) => listener(status)
       ipcRenderer.on(PRODUCT_HOST_CHANNELS.sidecarState, handler)

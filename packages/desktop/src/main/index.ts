@@ -59,7 +59,10 @@ import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { createCredentialService } from "./model-center/credentials"
 import { createModelCredentialEnvironment } from "./model-center/environment"
+import { createLocalModelDetector } from "./model-center/local-detection"
+import { createModelProbe } from "./model-center/probe"
 import { createProfileRepository } from "./model-center/profiles"
+import { createModelCenterService } from "./model-center/service"
 import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
 
@@ -310,6 +313,17 @@ const main = Effect.gen(function* () {
       set: (key, value) => profileStore.set(key, value),
     },
   })
+  const modelProbe = createModelProbe()
+  const modelDetector = createLocalModelDetector({ discover: modelProbe.discover })
+  const modelCenter = createModelCenterService({
+    profiles: profileRepository,
+    credentials: credentialService,
+    probe: modelProbe,
+    detector: modelDetector,
+    reloadCredentials: async () => {
+      await restartProductSidecar()
+    },
+  })
   yield* Effect.promise(() => cleanupStoreFiles(app.getPath("userData"))).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
@@ -332,6 +346,7 @@ const main = Effect.gen(function* () {
     subscribeProductSidecarStatus,
     restartProductSidecar,
     getProductCredentialCapabilities: () => credentialService.capabilities(),
+    modelCenter,
     killSidecar: () => killSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(

@@ -7,6 +7,15 @@ export const PRODUCT_HOST_CHANNELS = Object.freeze({
   sidecarState: "product-sidecar-state",
   sidecarRestart: "product-sidecar-restart",
   credentialGetCapabilities: "product-credential-get-capabilities",
+  modelCenterCapabilities: "product-model-center-capabilities",
+  modelCenterList: "product-model-center-list",
+  modelCenterSave: "product-model-center-save",
+  modelCenterRemove: "product-model-center-remove",
+  modelCenterDiscover: "product-model-center-discover",
+  modelCenterTest: "product-model-center-test",
+  modelCenterDetectLocal: "product-model-center-detect-local",
+  modelCenterSelectDefault: "product-model-center-select-default",
+  modelCenterReloadCredentials: "product-model-center-reload-credentials",
 } as const)
 
 export type ProductSidecarStateName =
@@ -58,29 +67,13 @@ export type DesktopProductHostAPI = {
   readonly credentials: {
     readonly getCapabilities: () => Promise<ProductCredentialCapabilities>
   }
+  readonly modelCenter: ProductModelCenterAPI
 }
 
 export type DesktopProductHost = DesktopProductHostAPI & {
   readonly kind: "desktop"
   readonly modelCenter: ProductModelCenterAPI
 }
-
-const unavailableModelCenter = Object.freeze({
-  capabilities: async () => ({
-    available: false,
-    credentialBackend: "unsupported" as const,
-    credentialOperations: Object.freeze({ read: false, write: false, delete: false }),
-    localDetection: false,
-  }),
-  list: async () => [],
-  save: async () => Promise.reject(new Error("The visual model center is not available.")),
-  remove: async () => Promise.reject(new Error("The visual model center is not available.")),
-  discover: async () => Promise.reject(new Error("The visual model center is not available.")),
-  test: async () => Promise.reject(new Error("The visual model center is not available.")),
-  detectLocal: async () => [],
-  selectDefault: async () => Promise.reject(new Error("The visual model center is not available.")),
-  reloadCredentials: async () => Promise.reject(new Error("The visual model center is not available.")),
-}) satisfies ProductModelCenterAPI
 
 const SIDE_CAR_STATES: readonly string[] = [
   "unavailable",
@@ -153,7 +146,18 @@ export function createProductCredentialCapabilities(
 export function createDesktopProductHost(api: DesktopProductHostAPI): DesktopProductHost {
   return Object.freeze({
     kind: "desktop" as const,
-    modelCenter: unavailableModelCenter,
+    modelCenter: Object.freeze({
+      capabilities: () => api.modelCenter.capabilities(),
+      list: () => api.modelCenter.list(),
+      save: (input: Parameters<ProductModelCenterAPI["save"]>[0]) => api.modelCenter.save(input),
+      remove: (profileID: Parameters<ProductModelCenterAPI["remove"]>[0]) => api.modelCenter.remove(profileID),
+      discover: (input: Parameters<ProductModelCenterAPI["discover"]>[0]) => api.modelCenter.discover(input),
+      test: (input: Parameters<ProductModelCenterAPI["test"]>[0]) => api.modelCenter.test(input),
+      detectLocal: () => api.modelCenter.detectLocal(),
+      selectDefault: (input: Parameters<ProductModelCenterAPI["selectDefault"]>[0]) =>
+        api.modelCenter.selectDefault(input),
+      reloadCredentials: () => api.modelCenter.reloadCredentials(),
+    }),
     sidecar: Object.freeze({
       getStatus: () => api.sidecar.getStatus(),
       subscribe: (listener: (status: ProductSidecarStatus) => void) => api.sidecar.subscribe(listener),

@@ -386,15 +386,15 @@ git commit -m "feat: inject model credentials into sidecar"
 - Modify: `packages/desktop/src/preload/types.ts`
 - Modify: `packages/desktop/src/main/index.ts`
 
-- [ ] **Step 1: Write service and IPC allow-list tests**
+- [x] **Step 1: Write service and IPC allow-list tests**
 
 Cover capabilities, list, save, edit, remove, discover, test, detect-local, select-default, and reload-credentials channels. Feed extra fields and malformed IDs through IPC and assert they are rejected. Serialize every successful response and assert it excludes fixture secrets.
 
-- [ ] **Step 2: Implement the model-center service**
+- [x] **Step 2: Implement the model-center service**
 
 Compose the repository, credential service, probe service, and local detector. Save credentials before publishing a profile; if profile persistence fails, restore the previous envelope. Delete credentials idempotently. Persist capability reports only after validating that the tested model still belongs to the current profile.
 
-- [ ] **Step 3: Add exact typed channels**
+- [x] **Step 3: Add exact typed channels**
 
 Add these channel names to `PRODUCT_HOST_CHANNELS`:
 
@@ -412,11 +412,11 @@ modelCenterReloadCredentials
 
 Register one handler per channel. Sanitize inputs before service calls and outputs before crossing the preload boundary.
 
-- [ ] **Step 4: Extend preload and Desktop host wrappers**
+- [x] **Step 4: Extend preload and Desktop host wrappers**
 
 Expose only `ProductModelCenterAPI`; do not add generic IPC invocation, raw store access, credential read, environment read, or arbitrary HTTP methods. Keep sidecar subscription recovery behavior unchanged.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"

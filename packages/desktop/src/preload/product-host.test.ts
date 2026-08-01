@@ -35,6 +35,39 @@ function createTransport() {
         operations: { read: false, write: false, delete: false },
       }
     },
+    async modelCenterCapabilities() {
+      calls.push("model-center-capabilities")
+      return {
+        available: true,
+        credentialBackend: "macos-keychain",
+        credentialOperations: { read: true, write: true, delete: true },
+        localDetection: true,
+      }
+    },
+    async modelCenterList() {
+      calls.push("model-center-list")
+      return []
+    },
+    async modelCenterSave() {
+      throw new Error("unused")
+    },
+    async modelCenterRemove() {},
+    async modelCenterDiscover() {
+      return { models: [], requestID: "req-safe" }
+    },
+    async modelCenterTest() {
+      throw new Error("unused")
+    },
+    async modelCenterDetectLocal() {
+      calls.push("model-center-detect")
+      return []
+    },
+    async modelCenterSelectDefault() {
+      throw new Error("unused")
+    },
+    async modelCenterReloadCredentials() {
+      calls.push("model-center-reload")
+    },
     listenSidecar(next) {
       calls.push("listen")
       listener = next
@@ -95,6 +128,23 @@ describe("product host preload API", () => {
       "subscribe",
       "stop-listening",
       "unsubscribe",
+    ])
+  })
+
+  test("delegates the exact model-center preload surface", async () => {
+    const fake = createTransport()
+    const api = createProductHostPreloadAPI(fake.transport)
+
+    expect((await api.modelCenter.capabilities()).available).toBe(true)
+    expect(await api.modelCenter.list()).toEqual([])
+    expect(await api.modelCenter.detectLocal()).toEqual([])
+    await api.modelCenter.reloadCredentials()
+
+    expect(fake.calls).toEqual([
+      "model-center-capabilities",
+      "model-center-list",
+      "model-center-detect",
+      "model-center-reload",
     ])
   })
 })

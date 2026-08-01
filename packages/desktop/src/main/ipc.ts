@@ -4,6 +4,7 @@ import { basename } from "node:path"
 import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
+import type { ProductModelCenterAPI } from "@opencode-ai/app/product/model-center"
 
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
 import { runDesktopMenuAction } from "./desktop-menu-actions"
@@ -32,6 +33,7 @@ type Deps = {
   subscribeProductSidecarStatus: (listener: (status: ProductSidecarStatus) => void) => () => void
   restartProductSidecar: () => Promise<ProductSidecarStatus>
   getProductCredentialCapabilities: () => Promise<ProductCredentialCapabilities> | ProductCredentialCapabilities
+  modelCenter: ProductModelCenterAPI
   killSidecar: () => Promise<void> | void
   relaunch: () => void
   awaitInitialization: () => Promise<ServerReadyData>
@@ -80,6 +82,25 @@ export function registerIpcHandlers(deps: Deps) {
     sanitizeProductSidecarStatus(await deps.restartProductSidecar()),
   )
   ipcMain.handle(PRODUCT_HOST_CHANNELS.credentialGetCapabilities, () => deps.getProductCredentialCapabilities())
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterCapabilities, () => deps.modelCenter.capabilities())
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterList, () => deps.modelCenter.list())
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterSave, (_event: IpcMainInvokeEvent, input) =>
+    deps.modelCenter.save(input),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterRemove, (_event: IpcMainInvokeEvent, profileID) =>
+    deps.modelCenter.remove(profileID),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterDiscover, (_event: IpcMainInvokeEvent, input) =>
+    deps.modelCenter.discover(input),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterTest, (_event: IpcMainInvokeEvent, input) =>
+    deps.modelCenter.test(input),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterDetectLocal, () => deps.modelCenter.detectLocal())
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterSelectDefault, (_event: IpcMainInvokeEvent, input) =>
+    deps.modelCenter.selectDefault(input),
+  )
+  ipcMain.handle(PRODUCT_HOST_CHANNELS.modelCenterReloadCredentials, () => deps.modelCenter.reloadCredentials())
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
