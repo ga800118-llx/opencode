@@ -85,7 +85,7 @@ export function SidecarRecoveryNotice() {
           aria-live={current().kind === "progress" ? current().live : undefined}
           class="flex w-full min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-v2-border-border-base bg-v2-background-bg-layer-02 px-3 py-2 sm:px-4"
         >
-          <div class="flex min-w-0 flex-1 basis-full items-start gap-2 sm:basis-auto">
+          <div class="flex min-w-0 flex-1 basis-full items-start gap-2 md:basis-auto">
             <IconV2
               name={current().kind === "failure" ? "warning" : "outline-reset"}
               size="small"

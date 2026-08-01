@@ -70,6 +70,7 @@ import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } fro
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { ProductRuntimeProvider, type ProductRuntime } from "@/product/context"
+import { RecoveryShell, recoveryShellSelection } from "@/components/workflow/recovery-shell"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -587,19 +588,25 @@ export function AppInterface(props: {
             <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
               <Dynamic
                 component={props.router ?? Router}
-                root={(routerProps) => (
-                  <TabsProvider>
-                    <PermissionProvider>
-                      <NotificationProvider>
-                        <ServerShell>
-                          <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                            <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
-                          </Show>
-                        </ServerShell>
-                      </NotificationProvider>
-                    </PermissionProvider>
-                  </TabsProvider>
-                )}
+                root={(routerProps) => {
+                  const settings = useSettings()
+                  const selection = createMemo(() => recoveryShellSelection(settings.general.newLayoutDesigns()))
+                  return (
+                    <TabsProvider>
+                      <PermissionProvider>
+                        <NotificationProvider>
+                          <ServerShell>
+                            <RecoveryShell layout={() => selection().layout}>
+                              <Show when={selection().layout === "new"} fallback={routerProps.children}>
+                                <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                              </Show>
+                            </RecoveryShell>
+                          </ServerShell>
+                        </NotificationProvider>
+                      </PermissionProvider>
+                    </TabsProvider>
+                  )
+                }}
               >
                 <Routes serverScoped={props.serverScoped} />
               </Dynamic>
