@@ -128,7 +128,12 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
   if (type === "session.created" || type === "session.updated") {
     if (!taskID) return advancedEvent(type, properties, envelope)
     const title = text(record(properties.info).title)
-    return { ...envelope, type: type === "session.created" ? "task.created" : "task.updated", taskID, data: { ...(title ? { title } : {}) } }
+    return {
+      ...envelope,
+      type: type === "session.created" ? "task.created" : "task.updated",
+      taskID,
+      data: title ? { title } : {},
+    }
   }
   if (type === "session.deleted") {
     if (!taskID) return advancedEvent(type, properties, envelope)
@@ -151,7 +156,12 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
   if (type === "session.execution.interrupted") {
     if (!taskID) return advancedEvent(type, properties, envelope)
     const reason = interruptionReason(properties.reason)
-    return { ...envelope, type: "task.execution.interrupted", taskID, data: { ...(reason ? { reason } : {}) } }
+    return {
+      ...envelope,
+      type: "task.execution.interrupted",
+      taskID,
+      data: reason ? { reason } : {},
+    }
   }
   if (type === "session.status") {
     if (!taskID) return advancedEvent(type, properties, envelope)
@@ -188,11 +198,12 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
     const messageID = identifier(properties.assistantMessageID)
     const delta = text(properties.delta)
     if (!taskID || !messageID || delta === undefined) return advancedEvent(type, properties, envelope)
+    const ordinal = number(properties.ordinal)
     return {
       ...envelope,
       type: type === "session.text.delta" ? "assistant.text.delta" : "assistant.reasoning.delta",
       taskID,
-      data: { messageID, ...optionalNumber("ordinal", properties.ordinal), delta },
+      data: { messageID, ...(ordinal === undefined ? {} : { ordinal }), delta },
     }
   }
   if (type === "message.part.delta") return legacyAssistantDelta(properties, envelope, type)
@@ -416,25 +427,25 @@ function questionRejected(properties: UnknownRecord, envelope: Envelope, sourceT
 }
 
 function productQuestions(value: unknown): readonly ProductQuestion[] | undefined {
-  if (!Array.isArray(value)) return
+  if (!Array.isArray(value)) return undefined
   const questions: ProductQuestion[] = []
   for (const item of value) {
     const source = record(item)
     const header = text(source.header)
     const question = text(source.question)
-    if (!header || !question || !Array.isArray(source.options)) return
-    const options = source.options.map((option) => {
+    if (!header || !question || !Array.isArray(source.options)) return undefined
+    const options: Array<{ label: string; description?: string }> = []
+    for (const option of source.options) {
       const entry = record(option)
       const label = text(entry.label)
-      if (!label) return
+      if (!label) return undefined
       const description = text(entry.description)
-      return { label, ...(description ? { description } : {}) }
-    })
-    if (options.some((option) => !option)) return
+      options.push({ label, ...(description ? { description } : {}) })
+    }
     questions.push({
       header,
       question,
-      options: options.filter((option): option is { label: string; description?: string } => !!option),
+      options,
       multiple: boolean(source.multiple) ?? false,
       custom: boolean(source.custom) ?? false,
     })
@@ -445,7 +456,7 @@ function productQuestions(value: unknown): readonly ProductQuestion[] | undefine
 function toolFields(properties: UnknownRecord) {
   const messageID = identifier(properties.assistantMessageID) ?? identifier(properties.messageID)
   const callID = identifier(properties.callID)
-  if (!messageID || !callID) return
+  if (!messageID || !callID) return undefined
   return { messageID, callID }
 }
 
@@ -460,7 +471,11 @@ function advancedEvent(sourceType: string, properties: UnknownRecord, envelope: 
 }
 
 function record(value: unknown): UnknownRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as UnknownRecord) : {}
+  return isRecord(value) ? value : {}
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function text(value: unknown) {
@@ -479,11 +494,6 @@ function number(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-function optionalNumber<Key extends string>(key: Key, value: unknown): { readonly [K in Key]?: number } {
-  const selected = number(value)
-  return selected === undefined ? {} : ({ [key]: selected } as { readonly [K in Key]: number })
-}
-
 function boolean(value: unknown) {
   return typeof value === "boolean" ? value : undefined
 }
@@ -492,8 +502,15 @@ function stringArray(value: unknown) {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined
 }
 
-function stringMatrix(value: unknown) {
-  return Array.isArray(value) && value.every((item) => stringArray(item)) ? (value as string[][]) : undefined
+function stringMatrix(value: unknown): string[][] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const result: string[][] = []
+  for (const item of value) {
+    const row = stringArray(item)
+    if (!row) return undefined
+    result.push([...row])
+  }
+  return result
 }
 
 function interruptionReason(value: unknown) {

@@ -265,7 +265,7 @@ describe("normalizeProductEvent", () => {
       envelope("filesystem.changed", { file: "src/index.ts", event: "change" }),
       envelope("session.error", { sessionID: "ses_1", error: { code: "ECONNRESET" } }),
     ]
-    const batch = Array.from({ length: 4_000 }, (_, index) => fixtures[index % fixtures.length]!)
+    const batch = Array.from({ length: 4_000 }, (_, index) => fixtures[index % fixtures.length])
     const started = performance.now()
     const output = batch.map((event) => normalizeProductEvent(event))
     const elapsed = performance.now() - started
