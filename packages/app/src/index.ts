@@ -87,3 +87,4 @@ export {
 } from "./product/context"
 export { createProductTaskAdapter, type ProductTaskAdapterIDs } from "./product/task-adapter"
 export * from "./product/model-center"
+export * from "./product/workflow"
