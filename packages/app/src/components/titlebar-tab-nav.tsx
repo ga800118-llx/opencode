@@ -287,6 +287,7 @@ export function TabNavItem(props: {
           }}
           onClick={closeTab}
           icon={<IconV2 name="xmark-small" />}
+          aria-label="Close tab"
         />
       </div>
     </div>
