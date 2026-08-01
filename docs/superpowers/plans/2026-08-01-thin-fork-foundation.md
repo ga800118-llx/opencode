@@ -299,23 +299,23 @@ git commit -m "feat: supervise the local agent server"
 - Modify: `packages/desktop/src/preload/index.ts`
 - Modify: `packages/desktop/src/renderer/index.tsx`
 
-- [ ] **Step 1: Define the cross-platform host interface**
+- [x] **Step 1: Define the cross-platform host interface**
 
 Expose sidecar status get/subscribe/restart and credential capability metadata. Phase 1 defines credential operations and namespace ownership but does not store secrets; macOS Keychain implementation is Phase 2.
 
-- [ ] **Step 2: Test the IPC allow list and redaction**
+- [x] **Step 2: Test the IPC allow list and redaction**
 
 Assert status payloads contain state, attempt, timestamps, and redacted errors but never URL credentials, passwords, authorization headers, or raw environment values.
 
-- [ ] **Step 3: Register lifecycle IPC and subscriptions**
+- [x] **Step 3: Register lifecycle IPC and subscriptions**
 
 Use renderer-scoped subscription cleanup matching the updater pattern. Make manual restart idempotent and return sanitized state.
 
-- [ ] **Step 4: Inject the Desktop product host**
+- [x] **Step 4: Inject the Desktop product host**
 
 Wrap `AppInterface` with the product host provider. Browser/test defaults remain functional and future Windows implementations can satisfy the same interface.
 
-- [ ] **Step 5: Verify preload and renderer boundaries**
+- [x] **Step 5: Verify preload and renderer boundaries**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -323,7 +323,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/desktop typecheck
 ```
 
-- [ ] **Step 6: Commit typed host IPC**
+- [x] **Step 6: Commit typed host IPC**
 
 ```bash
 git add packages/desktop/src/product packages/desktop/src/main/ipc.ts packages/desktop/src/preload packages/desktop/src/renderer/index.tsx packages/desktop/src/main/index.ts
