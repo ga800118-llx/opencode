@@ -24,6 +24,7 @@ import { NEW_SESSION_CONTENT_WIDTH } from "@/pages/session/new-session-layout"
 import type { ProductModelReadiness } from "@/product/workflow"
 import { Persist, persisted } from "@/utils/persist"
 import type { NewSessionDraftController } from "./new-session-draft-controller"
+import type { NewSessionPresentation, NewSessionControlPriority } from "./new-session-presentation"
 import type { NewSessionWorkspaceController } from "./new-session-workspace-controller"
 
 const providerTipDismissalDuration = 30 * 24 * 60 * 60 * 1000
@@ -33,46 +34,80 @@ export function NewSessionView(props: {
   project: PromptProjectController
   workspace: NewSessionWorkspaceController
   modelReadiness: Accessor<ProductModelReadiness>
+  presentation: Accessor<NewSessionPresentation>
 }) {
+  const workspacePresentation = createMemo(() =>
+    props.workspace.bar.visible() ? props.presentation().controls.worktree : props.presentation().controls.git,
+  )
+
   return (
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
       <div
         data-component="session-new-design"
+        data-presentation-mode={props.presentation().mode}
         class="relative flex-1 min-h-0 overflow-hidden rounded-[10px] bg-v2-background-bg-deep"
       >
-        <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
+        <div class="absolute inset-x-0 top-[clamp(2rem,18%,10rem)] flex justify-center px-4 sm:px-6">
           <div class={NEW_SESSION_CONTENT_WIDTH}>
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
-            <div class="mt-8 flex flex-col gap-8">
-              <PromptInputV2Composer controller={props.input} />
-              <ModelSetupNoticeSlot readiness={props.modelReadiness} />
-              <Show when={props.project.empty()}>
-                <PromptProjectAddButton controller={props.project} />
-              </Show>
-              <Show when={props.project.selected()}>
-                <div class="flex min-h-7 min-w-0 flex-col items-center justify-center gap-0 text-v2-text-text-faint sm:flex-row">
+            <div class="mt-4 flex flex-col gap-4">
+              <div
+                data-component="new-session-composer"
+                data-presentation-priority={props.presentation().controls.composer.priority}
+              >
+                <PromptInputV2Composer controller={props.input} />
+              </div>
+              <div
+                data-component="new-session-model-readiness"
+                data-presentation-priority={props.presentation().controls.modelReadiness.priority}
+              >
+                <ModelSetupNoticeSlot readiness={props.modelReadiness} />
+              </div>
+              <div
+                data-component="new-session-project-controls"
+                data-presentation-priority={props.presentation().controls.project.priority}
+                class="flex min-h-7 min-w-0 flex-col items-center justify-center gap-0 text-v2-text-text-faint sm:flex-row"
+              >
+                <Show when={props.project.empty()}>
+                  <PromptProjectAddButton controller={props.project} />
+                </Show>
+                <Show when={props.project.selected()}>
                   <PromptProjectSelector controller={props.project} placement="bottom" />
-                  <Show
-                    when={props.workspace.bar.visible()}
-                    fallback={
-                      <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
-                    }
+                  <span
+                    data-component="new-session-workspace-details"
+                    data-presentation-priority={workspacePresentation().priority}
+                    class="flex min-w-0 flex-col items-center transition-opacity sm:flex-row"
+                    classList={{
+                      "opacity-70": workspacePresentation().priority === "secondary",
+                      "hover:opacity-100": workspacePresentation().priority === "secondary",
+                      "focus-within:opacity-100": workspacePresentation().priority === "secondary",
+                    }}
                   >
-                    <PromptWorkspaceSelector
-                      value={props.workspace.selection.value()}
-                      projectRoot={props.workspace.project.root()}
-                      workspaces={props.workspace.project.workspaces()}
-                      branch={props.workspace.bar.branch()}
-                      onChange={props.workspace.selection.set}
-                      onDone={props.input.restoreFocus}
-                    />
-                  </Show>
-                </div>
-              </Show>
+                    <Show
+                      when={props.workspace.bar.visible()}
+                      fallback={
+                        <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
+                      }
+                    >
+                      <PromptWorkspaceSelector
+                        value={props.workspace.selection.value()}
+                        projectRoot={props.workspace.project.root()}
+                        workspaces={props.workspace.project.workspaces()}
+                        branch={props.workspace.bar.branch()}
+                        onChange={props.workspace.selection.set}
+                        onDone={props.input.restoreFocus}
+                      />
+                    </Show>
+                  </span>
+                </Show>
+              </div>
             </div>
           </div>
         </div>
-        <ProviderTip allowed={() => providerTipAllowed(props.modelReadiness())} />
+        <ProviderTip
+          allowed={() => providerTipAllowed(props.modelReadiness())}
+          priority={() => props.presentation().controls.providerPromotion.priority}
+        />
       </div>
     </div>
   )
@@ -96,7 +131,7 @@ export function NewSessionStatus(props: { mount: Accessor<HTMLElement | null>; v
   )
 }
 
-function ProviderTip(props: { allowed: Accessor<boolean> }) {
+function ProviderTip(props: { allowed: Accessor<boolean>; priority: Accessor<NewSessionControlPriority> }) {
   const language = useLanguage()
   const dialog = useDialog()
   const sdk = useSDK()
@@ -132,8 +167,14 @@ function ProviderTip(props: { allowed: Accessor<boolean> }) {
           ref={setRef}
           data-component="provider-tip"
           data-visible={visible()}
+          data-presentation-priority={props.priority()}
           class="group/provider-tip pointer-events-auto relative flex h-6 max-w-full items-center transition-[opacity,transform] duration-[250ms] ease-[cubic-bezier(0.215,0.61,0.355,1)] motion-reduce:transition-none"
-          classList={{ "data-[visible=false]:animate-out fade-out slide-out-to-bottom-4": true }}
+          classList={{
+            "data-[visible=false]:animate-out fade-out slide-out-to-bottom-4": true,
+            "opacity-70": props.priority() === "secondary",
+            "hover:opacity-100": props.priority() === "secondary",
+            "focus-within:opacity-100": props.priority() === "secondary",
+          }}
         >
           <button
             type="button"

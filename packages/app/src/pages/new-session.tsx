@@ -4,8 +4,9 @@ import { useSettings } from "@/context/settings"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
 import { useModelReadiness } from "@/product/workflow/use-model-readiness"
-import { createEffect, createResource } from "solid-js"
+import { createEffect, createMemo, createResource } from "solid-js"
 import { createNewSessionDraftController } from "./new-session/new-session-draft-controller"
+import { createNewSessionPresentation } from "./new-session/new-session-presentation"
 import { NewSessionStatus, NewSessionView } from "./new-session/new-session-view"
 import { createNewSessionWorkspaceController } from "./new-session/new-session-workspace-controller"
 import { useNewSessionCommands } from "./new-session/use-new-session-commands"
@@ -25,6 +26,7 @@ export default function NewSessionPage() {
     controls: draft.project.controls,
     onDone: draft.input.restoreFocus,
   })
+  const presentation = createMemo(() => createNewSessionPresentation(settings.general.presentationMode()))
   const modelReadiness = useModelReadiness({ directory: () => sdk().directory, model: local.model })
   useNewSessionCommands({
     restoreFocus: draft.input.restoreFocus,
@@ -53,6 +55,7 @@ export default function NewSessionPage() {
           project={project}
           workspace={workspace}
           modelReadiness={modelReadiness.readiness}
+          presentation={presentation}
         />
       </div>
     </div>
