@@ -225,23 +225,23 @@ git commit -m "feat: route task execution through product adapter"
 - Create: `packages/app/src/product/opencode-contract.test.ts`
 - Modify: `packages/app/src/context/server-sdk.tsx`
 
-- [ ] **Step 1: Record required event variants**
+- [x] **Step 1: Record required event variants**
 
 Cover session lifecycle, assistant text/reasoning deltas, tool activity, command output, permission requests/replies, questions, file changes, errors, and server status events consumed by the product workflow.
 
-- [ ] **Step 2: Implement normalized timeline mapping**
+- [x] **Step 2: Implement normalized timeline mapping**
 
 Add a pure mapping function that preserves the original event identifier and timestamp where available. Unknown events map to a non-fatal advanced event instead of crashing the timeline.
 
-- [ ] **Step 3: Add compile-time and runtime compatibility checks**
+- [x] **Step 3: Add compile-time and runtime compatibility checks**
 
 Tests must fail when a required `CompatibleApi` method disappears or when a recorded event fixture can no longer be adapted. Reuse `adaptServerEvent` rather than creating a second protocol conversion path.
 
-- [ ] **Step 4: Verify event latency overhead**
+- [x] **Step 4: Verify event latency overhead**
 
 Run a deterministic unit benchmark over a representative event batch and assert adapter mapping stays well below the 200 ms product budget.
 
-- [ ] **Step 5: Commit event compatibility**
+- [x] **Step 5: Commit event compatibility**
 
 ```bash
 git add packages/app/src/product packages/app/src/context/server-sdk.tsx
