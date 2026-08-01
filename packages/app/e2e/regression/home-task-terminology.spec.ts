@@ -16,6 +16,8 @@ const profiles = [
     searchTasks: "Search tasks",
     noTasks: "No tasks",
     noResults: "No tasks found for missing",
+    openProject: "Open project",
+    searchFolders: "Search folders",
   },
   {
     locale: "zh",
@@ -25,6 +27,8 @@ const profiles = [
     searchTasks: "搜索任务",
     noTasks: "暂无任务",
     noResults: "未找到与 missing 相关的任务",
+    openProject: "打开项目",
+    searchFolders: "搜索文件夹",
   },
 ] as const
 
@@ -66,9 +70,30 @@ for (const profile of profiles) {
 
     await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
   })
+
+  test(`opens the project picker from an empty Home in ${profile.locale}`, async ({ page }) => {
+    await setup(page, profile.locale, [], false)
+    await page.goto("/")
+
+    const openProject = page.locator('[data-action="home-add-project-row"]')
+    await expectAppVisible(openProject)
+    await expect(openProject).toHaveAccessibleName(profile.openProject)
+    await openProject.click()
+
+    const dialog = page.locator('[data-component="dialog"]')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator('[data-slot="dialog-title"]')).toHaveText(profile.openProject)
+    await expect(dialog.getByPlaceholder(profile.searchFolders)).toBeVisible()
+    await expect(dialog.locator("[data-directory-path]").first()).toBeVisible()
+  })
 }
 
-async function setup(page: Page, locale: (typeof profiles)[number]["locale"], sessions: ReturnType<typeof session>[]) {
+async function setup(
+  page: Page,
+  locale: (typeof profiles)[number]["locale"],
+  sessions: ReturnType<typeof session>[],
+  seedProject = true,
+) {
   await mockOpenCodeServer(page, {
     directory,
     project: {
@@ -99,17 +124,21 @@ async function setup(page: Page, locale: (typeof profiles)[number]["locale"], se
     },
     sessions,
     pageMessages: () => ({ items: [] }),
+    fileList: (path) =>
+      path ? [] : [{ name: projectName, path: projectName, absolute: directory, type: "directory", ignored: false }],
+    findFiles: () => [projectName],
   })
   await page.addInitScript(
-    ({ directory, locale }) => {
+    ({ directory, locale, seedProject }) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
       localStorage.setItem("opencode.global.dat:language", JSON.stringify({ locale }))
+      if (!seedProject) return
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({ projects: { local: [{ worktree: directory, expanded: true }] } }),
       )
     },
-    { directory, locale },
+    { directory, locale, seedProject },
   )
 }
 
