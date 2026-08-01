@@ -301,11 +301,15 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
   if (type === "session.shell.ended" || type === "session.next.shell.ended")
     return shellOutput(properties, envelope, type)
   if (type === "command.executed") return commandOutput(properties, envelope, type)
-  if (type === "permission.asked") return permissionAsked(properties, envelope, type)
-  if (type === "permission.replied") return permissionReplied(properties, envelope, type)
-  if (type === "question.asked") return questionAsked(properties, envelope, type)
-  if (type === "question.replied") return questionReplied(properties, envelope, type)
-  if (type === "question.rejected") return questionRejected(properties, envelope, type)
+  if (type === "permission.asked" || type === "permission.v2.asked")
+    return permissionAsked(properties, envelope, type)
+  if (type === "permission.replied" || type === "permission.v2.replied")
+    return permissionReplied(properties, envelope, type)
+  if (type === "question.asked" || type === "question.v2.asked") return questionAsked(properties, envelope, type)
+  if (type === "question.replied" || type === "question.v2.replied")
+    return questionReplied(properties, envelope, type)
+  if (type === "question.rejected" || type === "question.v2.rejected")
+    return questionRejected(properties, envelope, type)
   if (type === "filesystem.changed" || type === "file.watcher.updated" || type === "file.edited") {
     const path = text(properties.file)
     if (!path) return advancedEvent(type, properties, envelope)
@@ -489,12 +493,21 @@ function commandOutput(properties: UnknownRecord, envelope: Envelope, sourceType
 function permissionAsked(properties: UnknownRecord, envelope: Envelope, sourceType: string): ProductEvent {
   const taskID = identifier(properties.sessionID)
   const requestID = identifier(properties.id)
-  const capability = text(properties.permission)
-  const resources = stringArray(properties.patterns, MAX_PERMISSION_PATTERNS, MAX_FORM_TEXT_LENGTH)
-  const remember = stringArray(properties.always, MAX_PERMISSION_PATTERNS, MAX_FORM_TEXT_LENGTH)
+  const capability = text(properties.permission) ?? text(properties.action)
+  const resources = stringArray(
+    properties.patterns ?? properties.resources,
+    MAX_PERMISSION_PATTERNS,
+    MAX_FORM_TEXT_LENGTH,
+  )
+  const remember = stringArray(
+    properties.always ?? properties.save ?? [],
+    MAX_PERMISSION_PATTERNS,
+    MAX_FORM_TEXT_LENGTH,
+  )
   if (!taskID || !requestID || !capability || !resources || !remember)
     return advancedEvent(sourceType, properties, envelope)
-  const tool = record(properties.tool)
+  const source = record(properties.source)
+  const tool = record(properties.tool ?? (source.type === "tool" ? source : undefined))
   const messageID = identifier(tool.messageID)
   const callID = identifier(tool.callID)
   return {

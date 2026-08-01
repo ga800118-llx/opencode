@@ -180,6 +180,18 @@ const sdkPermissionReplied = {
   properties: { sessionID: "ses_contract", requestID: "perm_contract", reply: "once" },
 } satisfies Extract<Event, { type: "permission.replied" }>
 
+const sdkPermissionV2Asked = {
+  id: "evt_sdk_permission_v2",
+  type: "permission.v2.asked",
+  properties: {
+    id: "perm_contract_v2",
+    sessionID: "ses_contract",
+    action: "read",
+    resources: ["src/**"],
+    source: { type: "tool", messageID: "msg_contract", callID: "call_contract" },
+  },
+} satisfies Extract<Event, { type: "permission.v2.asked" }>
+
 const sdkQuestionReplied = {
   id: "evt_sdk_question",
   type: "question.replied",
@@ -300,6 +312,7 @@ describe("product OpenCode contracts", () => {
       sdkShellEnded,
       sdkCommandExecuted,
       sdkPermissionReplied,
+      sdkPermissionV2Asked,
       sdkQuestionReplied,
       sdkFileChanged,
       sdkSessionError,
@@ -314,6 +327,7 @@ describe("product OpenCode contracts", () => {
       "shell.output",
       "command.output",
       "permission.replied",
+      "permission.asked",
       "question.replied",
       "file.changed",
       "error",
