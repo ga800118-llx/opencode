@@ -15,6 +15,26 @@ import {
 } from "./settings"
 
 describe("presentation settings", () => {
+  test("restores an existing advanced presentation without side effects", () => {
+    const stored: { value: unknown } = { value: "advanced" }
+    const writes: ["general", "presentationMode", ProductPresentationMode][] = []
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {})
+    const presentation = createPresentationSettings(
+      () => stored.value,
+      (section, key, value) => writes.push([section, key, value]),
+    )
+
+    try {
+      expect(presentation.mode()).toBe("advanced")
+      expect(presentation.simple()).toBe(false)
+      expect(presentation.advanced()).toBe(true)
+      expect(writes).toEqual([])
+      expect(reload).not.toHaveBeenCalled()
+    } finally {
+      reload.mockRestore()
+    }
+  })
+
   test("defaults missing and corrupt modes to the simple presentation", () => {
     const stored: { value: unknown } = { value: undefined }
     const presentation = createPresentationSettings(
