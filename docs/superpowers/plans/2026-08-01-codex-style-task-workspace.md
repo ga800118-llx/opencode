@@ -311,24 +311,24 @@ Expected: renderer recovery uses existing sanitized IPC and adds no channel.
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Add failing workflow-copy tests**
+- [x] **Step 1: Add failing workflow-copy tests**
 
 Assert primary product keys render Tasks, New task, Recent tasks, Search tasks,
 No tasks yet, archive-task labels, and equivalent Simplified Chinese copy. Keep
 API/developer keys named session where renaming would change contracts.
 
-- [ ] **Step 2: Update primary navigation actions**
+- [x] **Step 2: Update primary navigation actions**
 
 Change visible sidebar/home labels and accessible names to task terminology.
 Keep routes, command IDs, session IDs, list grouping, status indicators, archive,
 search, drag, tabs, worktrees, and child-session behavior unchanged.
 
-- [ ] **Step 3: Refine task empty states**
+- [x] **Step 3: Refine task empty states**
 
 No-project state leads to Open project. Project-with-no-task leads to New task.
 Search-empty names the active query and does not offer a destructive reset.
 
-- [ ] **Step 4: Verify navigation behavior and commit**
+- [x] **Step 4: Verify navigation behavior and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
