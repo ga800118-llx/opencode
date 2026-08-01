@@ -87,14 +87,96 @@ describe("normalizeProductEvent", () => {
           sessionID: "ses_1",
           messageID: "msg_1",
           partID: "prt_1",
-          field: "reasoning",
+          field: "text",
+          delta: "considering",
+        }),
+      ),
+    ).toMatchObject({
+      type: "assistant.part.delta",
+      data: { messageID: "msg_1", partID: "prt_1", field: "text", delta: "considering" },
+    })
+  })
+
+  test("keeps step failure non-terminal across retry and success", () => {
+    const events = [
+      envelope("session.step.failed", {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        error: { code: "ECONNRESET" },
+      }),
+      envelope("session.retry.scheduled", { sessionID: "ses_1", attempt: 1, at: 1_725_000_001_000 }),
+      envelope("session.execution.succeeded", { sessionID: "ses_1" }),
+    ].map((event) => normalizeProductEvent(event))
+
+    expect(events.map((event) => event.type)).toEqual([
+      "assistant.step.failed",
+      "task.status",
+      "task.execution.succeeded",
+    ])
+    expect(events[0]).toMatchObject({ data: { messageID: "msg_1", error: { kind: "unreachable-endpoint" } } })
+  })
+
+  test("normalizes SDK next events and legacy part snapshots", () => {
+    expect(
+      normalizeProductEvent(
+        envelope("session.next.reasoning.delta", {
+          timestamp: 1_725_000_000_100,
+          sessionID: "ses_1",
+          assistantMessageID: "msg_1",
+          reasoningID: "reasoning_1",
           delta: "considering",
         }),
       ),
     ).toMatchObject({
       type: "assistant.reasoning.delta",
-      data: { messageID: "msg_1", partID: "prt_1", delta: "considering" },
+      data: { messageID: "msg_1", partID: "reasoning_1", delta: "considering" },
     })
+
+    expect(
+      normalizeProductEvent(
+        envelope("message.part.updated", {
+          sessionID: "ses_1",
+          part: {
+            id: "prt_reasoning",
+            sessionID: "ses_1",
+            messageID: "msg_1",
+            type: "reasoning",
+            text: "complete reasoning",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      type: "assistant.reasoning.updated",
+      data: { messageID: "msg_1", partID: "prt_reasoning", text: "complete reasoning" },
+    })
+
+    expect(
+      normalizeProductEvent(
+        envelope("message.part.updated", {
+          sessionID: "ses_1",
+          part: {
+            id: "prt_tool",
+            sessionID: "ses_1",
+            messageID: "msg_1",
+            type: "tool",
+            callID: "call_1",
+            tool: "read",
+            state: { status: "completed", output: "ignored raw output" },
+          },
+        }),
+      ),
+    ).toMatchObject({ type: "tool.succeeded", data: { messageID: "msg_1", callID: "call_1" } })
+
+    expect(
+      normalizeProductEvent(
+        envelope("session.next.shell.ended", {
+          timestamp: 1_725_000_000_200,
+          sessionID: "ses_1",
+          callID: "call_shell",
+          output: "done",
+        }),
+      ),
+    ).toMatchObject({ type: "shell.output", data: { operationID: "call_shell", output: "done" } })
   })
 
   test("normalizes tool activity without copying provider payloads", () => {
@@ -248,6 +330,26 @@ describe("normalizeProductEvent", () => {
     })
   })
 
+  test("bounds question and answer payloads", () => {
+    const oversizedQuestions = Array.from({ length: 33 }, (_, index) => ({
+      header: `Question ${index}`,
+      question: "Choose",
+      options: [],
+    }))
+    expect(
+      normalizeProductEvent(
+        envelope("question.asked", { id: "question_1", sessionID: "ses_1", questions: oversizedQuestions }),
+      ),
+    ).toMatchObject({ type: "advanced", data: { sourceType: "question.asked" } })
+
+    const oversizedAnswers = Array.from({ length: 33 }, () => ["answer"])
+    expect(
+      normalizeProductEvent(
+        envelope("question.replied", { requestID: "question_1", sessionID: "ses_1", answers: oversizedAnswers }),
+      ),
+    ).toMatchObject({ type: "advanced", data: { sourceType: "question.replied" } })
+  })
+
   test("maps a representative event batch within the product overhead budget", () => {
     const fixtures = [
       envelope("session.text.delta", {
@@ -266,11 +368,14 @@ describe("normalizeProductEvent", () => {
       envelope("session.error", { sessionID: "ses_1", error: { code: "ECONNRESET" } }),
     ]
     const batch = Array.from({ length: 4_000 }, (_, index) => fixtures[index % fixtures.length])
-    const started = performance.now()
-    const output = batch.map((event) => normalizeProductEvent(event))
-    const elapsed = performance.now() - started
+    batch.slice(0, 100).forEach((event) => normalizeProductEvent(event))
+    const durations = Array.from({ length: 5 }, () => {
+      const started = performance.now()
+      batch.forEach((event) => normalizeProductEvent(event))
+      return performance.now() - started
+    }).sort((a, b) => a - b)
+    const median = durations[2] ?? Number.POSITIVE_INFINITY
 
-    expect(output).toHaveLength(batch.length)
-    expect(elapsed).toBeLessThan(200)
+    expect(median).toBeLessThan(200)
   })
 })

@@ -1,4 +1,9 @@
-import type { ProductDirectory, ProductError, ProductTaskID } from "./contracts"
+import type {
+  ProductError,
+  ProductEventEnvelope,
+  ProductOptionalTaskEvent,
+  ProductTaskEvent,
+} from "./contracts"
 import { normalizeProductError } from "./errors"
 
 export type AdaptedProductEventInput = {
@@ -9,22 +14,6 @@ export type AdaptedProductEventInput = {
   readonly created?: unknown
   readonly time?: unknown
   readonly location?: unknown
-}
-
-type ProductEventEnvelope<Type extends string, Data> = {
-  readonly id?: string
-  readonly type: Type
-  readonly directory?: ProductDirectory
-  readonly time?: number
-  readonly data: Readonly<Data>
-}
-
-type ProductTaskEvent<Type extends string, Data> = ProductEventEnvelope<Type, Data> & {
-  readonly taskID: ProductTaskID
-}
-
-type ProductOptionalTaskEvent<Type extends string, Data> = ProductEventEnvelope<Type, Data> & {
-  readonly taskID?: ProductTaskID
 }
 
 export type ProductQuestion = {
@@ -52,6 +41,19 @@ export type ProductEvent =
       "assistant.text.delta" | "assistant.reasoning.delta",
       { readonly messageID: string; readonly partID?: string; readonly ordinal?: number; readonly delta: string }
     >
+  | ProductTaskEvent<
+      "assistant.part.delta",
+      { readonly messageID: string; readonly partID: string; readonly field: string; readonly delta: string }
+    >
+  | ProductTaskEvent<
+      "assistant.text.updated" | "assistant.reasoning.updated",
+      { readonly messageID: string; readonly partID: string; readonly text: string }
+    >
+  | ProductTaskEvent<
+      "assistant.step.started" | "assistant.step.succeeded",
+      { readonly messageID: string; readonly finish?: string }
+    >
+  | ProductTaskEvent<"assistant.step.failed", { readonly messageID: string; readonly error: ProductError }>
   | ProductTaskEvent<
       "tool.input.started",
       { readonly messageID: string; readonly callID: string; readonly name: string }
@@ -117,7 +119,14 @@ export type ProductEvent =
   | ProductOptionalTaskEvent<"advanced", { readonly sourceType: string }>
 
 type UnknownRecord = Record<string, unknown>
-type Envelope = Pick<ProductEventEnvelope<string, unknown>, "id" | "directory" | "time">
+type Envelope = Pick<ProductEventEnvelope<string>, "id" | "directory" | "time">
+
+const MAX_QUESTIONS = 32
+const MAX_OPTIONS_PER_QUESTION = 64
+const MAX_ANSWERS = 32
+const MAX_ANSWER_VALUES = 64
+const MAX_PERMISSION_PATTERNS = 256
+const MAX_FORM_TEXT_LENGTH = 16_384
 
 export function normalizeProductEvent(input: AdaptedProductEventInput, directory?: string): ProductEvent {
   const properties = record(input.properties)
@@ -149,7 +158,7 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
           : "task.idle"
     return { ...envelope, type: normalized, taskID, data: {} }
   }
-  if (type === "session.execution.failed" || type === "session.step.failed") {
+  if (type === "session.execution.failed") {
     if (!taskID) return advancedEvent(type, properties, envelope)
     return { ...envelope, type: "task.execution.failed", taskID, data: { error: normalizeProductError(properties.error) } }
   }
@@ -163,6 +172,15 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
       data: reason ? { reason } : {},
     }
   }
+  if (
+    type === "session.step.started" ||
+    type === "session.step.ended" ||
+    type === "session.step.failed" ||
+    type === "session.next.step.started" ||
+    type === "session.next.step.ended" ||
+    type === "session.next.step.failed"
+  )
+    return assistantStep(properties, envelope, type)
   if (type === "session.status") {
     if (!taskID) return advancedEvent(type, properties, envelope)
     const status = record(properties.status)
@@ -179,10 +197,10 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
       },
     }
   }
-  if (type === "session.retry.scheduled") {
+  if (type === "session.retry.scheduled" || type === "session.next.retried") {
     if (!taskID) return advancedEvent(type, properties, envelope)
     const attempt = number(properties.attempt)
-    const next = number(properties.at)
+    const next = number(properties.at) ?? number(properties.next)
     return {
       ...envelope,
       type: "task.status",
@@ -194,48 +212,70 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
       },
     }
   }
-  if (type === "session.text.delta" || type === "session.reasoning.delta") {
+  if (
+    type === "session.text.delta" ||
+    type === "session.reasoning.delta" ||
+    type === "session.next.text.delta" ||
+    type === "session.next.reasoning.delta"
+  ) {
     const messageID = identifier(properties.assistantMessageID)
     const delta = text(properties.delta)
     if (!taskID || !messageID || delta === undefined) return advancedEvent(type, properties, envelope)
     const ordinal = number(properties.ordinal)
+    const partID =
+      type === "session.next.text.delta"
+        ? identifier(properties.textID)
+        : type === "session.next.reasoning.delta"
+          ? identifier(properties.reasoningID)
+          : undefined
     return {
       ...envelope,
-      type: type === "session.text.delta" ? "assistant.text.delta" : "assistant.reasoning.delta",
+      type:
+        type === "session.text.delta" || type === "session.next.text.delta"
+          ? "assistant.text.delta"
+          : "assistant.reasoning.delta",
       taskID,
-      data: { messageID, ...(ordinal === undefined ? {} : { ordinal }), delta },
+      data: { messageID, ...(partID ? { partID } : {}), ...(ordinal === undefined ? {} : { ordinal }), delta },
     }
   }
   if (type === "message.part.delta") return legacyAssistantDelta(properties, envelope, type)
+  if (type === "message.part.updated") return legacyPartUpdated(properties, envelope, type)
 
-  if (type === "session.tool.input.started") {
+  if (type === "session.tool.input.started" || type === "session.next.tool.input.started") {
     const common = toolFields(properties)
     const name = text(properties.name)
     if (!taskID || !common || !name) return advancedEvent(type, properties, envelope)
     return { ...envelope, type: "tool.input.started", taskID, data: { ...common, name } }
   }
-  if (type === "session.tool.input.delta") {
+  if (type === "session.tool.input.delta" || type === "session.next.tool.input.delta") {
     const common = toolFields(properties)
     const delta = text(properties.delta)
     if (!taskID || !common || delta === undefined) return advancedEvent(type, properties, envelope)
     return { ...envelope, type: "tool.input.delta", taskID, data: { ...common, delta } }
   }
-  if (type === "session.tool.input.ended") {
+  if (type === "session.tool.input.ended" || type === "session.next.tool.input.ended") {
     const common = toolFields(properties)
     const value = text(properties.text)
     if (!taskID || !common || value === undefined) return advancedEvent(type, properties, envelope)
     return { ...envelope, type: "tool.input.completed", taskID, data: { ...common, input: value } }
   }
-  if (type === "session.tool.called" || type === "session.tool.progress" || type === "session.tool.success") {
+  if (
+    type === "session.tool.called" ||
+    type === "session.tool.progress" ||
+    type === "session.tool.success" ||
+    type === "session.next.tool.called" ||
+    type === "session.next.tool.progress" ||
+    type === "session.next.tool.success"
+  ) {
     const common = toolFields(properties)
     if (!taskID || !common) return advancedEvent(type, properties, envelope)
     const normalized =
-      type === "session.tool.called"
+      type === "session.tool.called" || type === "session.next.tool.called"
         ? "tool.called"
-        : type === "session.tool.progress"
+        : type === "session.tool.progress" || type === "session.next.tool.progress"
           ? "tool.progress"
           : "tool.succeeded"
-    const executed = boolean(properties.executed)
+    const executed = boolean(properties.executed) ?? boolean(record(properties.provider).executed)
     return {
       ...envelope,
       type: normalized,
@@ -243,10 +283,10 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
       data: { ...common, ...(executed === undefined ? {} : { executed }) },
     }
   }
-  if (type === "session.tool.failed") {
+  if (type === "session.tool.failed" || type === "session.next.tool.failed") {
     const common = toolFields(properties)
     if (!taskID || !common) return advancedEvent(type, properties, envelope)
-    const executed = boolean(properties.executed)
+    const executed = boolean(properties.executed) ?? boolean(record(properties.provider).executed)
     return {
       ...envelope,
       type: "tool.failed",
@@ -258,14 +298,14 @@ export function normalizeProductEvent(input: AdaptedProductEventInput, directory
       },
     }
   }
-  if (type === "session.shell.ended") return shellOutput(properties, envelope, type)
+  if (type === "session.shell.ended" || type === "session.next.shell.ended")
+    return shellOutput(properties, envelope, type)
   if (type === "command.executed") return commandOutput(properties, envelope, type)
   if (type === "permission.asked") return permissionAsked(properties, envelope, type)
   if (type === "permission.replied") return permissionReplied(properties, envelope, type)
   if (type === "question.asked") return questionAsked(properties, envelope, type)
   if (type === "question.replied") return questionReplied(properties, envelope, type)
   if (type === "question.rejected") return questionRejected(properties, envelope, type)
-
   if (type === "filesystem.changed" || type === "file.watcher.updated" || type === "file.edited") {
     const path = text(properties.file)
     if (!path) return advancedEvent(type, properties, envelope)
@@ -308,11 +348,40 @@ function eventEnvelope(input: AdaptedProductEventInput, directory: string | unde
     nonEmpty(info.directory) ??
     nonEmpty(record(info.location).directory)
   const id = identifier(input.id) ?? identifier(current.id)
-  const time = number(current.created) ?? number(input.created) ?? number(input.time)
+  const time =
+    number(current.created) ??
+    number(input.created) ??
+    number(input.time) ??
+    number(properties.timestamp) ??
+    number(properties.time)
   return {
     ...(id ? { id } : {}),
     ...(selectedDirectory ? { directory: selectedDirectory } : {}),
     ...(time === undefined ? {} : { time }),
+  }
+}
+
+function assistantStep(properties: UnknownRecord, envelope: Envelope, sourceType: string): ProductEvent {
+  const taskID = identifier(properties.sessionID)
+  const messageID = identifier(properties.assistantMessageID)
+  if (!taskID || !messageID) return advancedEvent(sourceType, properties, envelope)
+  if (sourceType.endsWith(".started")) {
+    return { ...envelope, type: "assistant.step.started", taskID, data: { messageID } }
+  }
+  if (sourceType.endsWith(".failed")) {
+    return {
+      ...envelope,
+      type: "assistant.step.failed",
+      taskID,
+      data: { messageID, error: normalizeProductError(properties.error) },
+    }
+  }
+  const finish = text(properties.finish)
+  return {
+    ...envelope,
+    type: "assistant.step.succeeded",
+    taskID,
+    data: { messageID, ...(finish ? { finish } : {}) },
   }
 }
 
@@ -322,23 +391,65 @@ function legacyAssistantDelta(properties: UnknownRecord, envelope: Envelope, sou
   const partID = identifier(properties.partID)
   const delta = text(properties.delta)
   const field = text(properties.field)
-  if (!taskID || !messageID || delta === undefined || (field !== "text" && field !== "reasoning"))
+  if (!taskID || !messageID || !partID || delta === undefined || !field)
     return advancedEvent(sourceType, properties, envelope)
   return {
     ...envelope,
-    type: field === "text" ? "assistant.text.delta" : "assistant.reasoning.delta",
+    type: "assistant.part.delta",
     taskID,
-    data: { messageID, ...(partID ? { partID } : {}), delta },
+    data: { messageID, partID, field, delta },
   }
+}
+
+function legacyPartUpdated(properties: UnknownRecord, envelope: Envelope, sourceType: string): ProductEvent {
+  const part = record(properties.part)
+  const taskID = identifier(properties.sessionID) ?? identifier(part.sessionID)
+  const messageID = identifier(part.messageID)
+  const partID = identifier(part.id)
+  if (!taskID || !messageID || !partID) return advancedEvent(sourceType, properties, envelope)
+  if (part.type === "text" || part.type === "reasoning") {
+    const value = text(part.text)
+    if (value === undefined) return advancedEvent(sourceType, properties, envelope)
+    return {
+      ...envelope,
+      type: part.type === "text" ? "assistant.text.updated" : "assistant.reasoning.updated",
+      taskID,
+      data: { messageID, partID, text: value },
+    }
+  }
+  if (part.type !== "tool") return advancedEvent(sourceType, properties, envelope)
+  const callID = identifier(part.callID)
+  const state = record(part.state)
+  if (!callID) return advancedEvent(sourceType, properties, envelope)
+  if (state.status === "pending") {
+    const input = text(state.raw)
+    if (input === undefined) return advancedEvent(sourceType, properties, envelope)
+    return { ...envelope, type: "tool.input.completed", taskID, data: { messageID, callID, input } }
+  }
+  if (state.status === "running") {
+    return { ...envelope, type: "tool.called", taskID, data: { messageID, callID } }
+  }
+  if (state.status === "completed") {
+    return { ...envelope, type: "tool.succeeded", taskID, data: { messageID, callID } }
+  }
+  if (state.status === "error") {
+    return {
+      ...envelope,
+      type: "tool.failed",
+      taskID,
+      data: { messageID, callID, error: normalizeProductError(state.error) },
+    }
+  }
+  return advancedEvent(sourceType, properties, envelope)
 }
 
 function shellOutput(properties: UnknownRecord, envelope: Envelope, sourceType: string): ProductEvent {
   const taskID = identifier(properties.sessionID)
   const shell = record(properties.shell)
   const output = record(properties.output)
-  const value = text(output.output)
+  const value = text(properties.output) ?? text(output.output)
   if (!taskID || value === undefined) return advancedEvent(sourceType, properties, envelope)
-  const operationID = identifier(shell.id)
+  const operationID = identifier(shell.id) ?? identifier(properties.callID)
   const cursor = number(output.cursor)
   const size = number(output.size)
   const truncated = boolean(output.truncated)
@@ -379,8 +490,8 @@ function permissionAsked(properties: UnknownRecord, envelope: Envelope, sourceTy
   const taskID = identifier(properties.sessionID)
   const requestID = identifier(properties.id)
   const capability = text(properties.permission)
-  const resources = stringArray(properties.patterns)
-  const remember = stringArray(properties.always)
+  const resources = stringArray(properties.patterns, MAX_PERMISSION_PATTERNS, MAX_FORM_TEXT_LENGTH)
+  const remember = stringArray(properties.always, MAX_PERMISSION_PATTERNS, MAX_FORM_TEXT_LENGTH)
   if (!taskID || !requestID || !capability || !resources || !remember)
     return advancedEvent(sourceType, properties, envelope)
   const tool = record(properties.tool)
@@ -427,19 +538,20 @@ function questionRejected(properties: UnknownRecord, envelope: Envelope, sourceT
 }
 
 function productQuestions(value: unknown): readonly ProductQuestion[] | undefined {
-  if (!Array.isArray(value)) return undefined
+  if (!Array.isArray(value) || value.length > MAX_QUESTIONS) return undefined
   const questions: ProductQuestion[] = []
   for (const item of value) {
     const source = record(item)
-    const header = text(source.header)
-    const question = text(source.question)
-    if (!header || !question || !Array.isArray(source.options)) return undefined
+    const header = boundedText(source.header, MAX_FORM_TEXT_LENGTH)
+    const question = boundedText(source.question, MAX_FORM_TEXT_LENGTH)
+    if (!header || !question || !Array.isArray(source.options) || source.options.length > MAX_OPTIONS_PER_QUESTION)
+      return undefined
     const options: Array<{ label: string; description?: string }> = []
     for (const option of source.options) {
       const entry = record(option)
-      const label = text(entry.label)
+      const label = boundedText(entry.label, MAX_FORM_TEXT_LENGTH)
       if (!label) return undefined
-      const description = text(entry.description)
+      const description = boundedText(entry.description, MAX_FORM_TEXT_LENGTH)
       options.push({ label, ...(description ? { description } : {}) })
     }
     questions.push({
@@ -482,6 +594,10 @@ function text(value: unknown) {
   return typeof value === "string" ? value : undefined
 }
 
+function boundedText(value: unknown, maxLength: number) {
+  return typeof value === "string" && value.length <= maxLength ? value : undefined
+}
+
 function nonEmpty(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
@@ -498,15 +614,22 @@ function boolean(value: unknown) {
   return typeof value === "boolean" ? value : undefined
 }
 
-function stringArray(value: unknown) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined
+function stringArray(value: unknown, maxItems: number, maxLength: number): string[] | undefined {
+  if (!Array.isArray(value) || value.length > maxItems) return undefined
+  const result: string[] = []
+  for (const item of value) {
+    const selected = boundedText(item, maxLength)
+    if (selected === undefined) return undefined
+    result.push(selected)
+  }
+  return result
 }
 
 function stringMatrix(value: unknown): string[][] | undefined {
-  if (!Array.isArray(value)) return undefined
+  if (!Array.isArray(value) || value.length > MAX_ANSWERS) return undefined
   const result: string[][] = []
   for (const item of value) {
-    const row = stringArray(item)
+    const row = stringArray(item, MAX_ANSWER_VALUES, MAX_FORM_TEXT_LENGTH)
     if (!row) return undefined
     result.push([...row])
   }

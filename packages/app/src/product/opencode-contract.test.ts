@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
+import type { Event } from "@opencode-ai/sdk/v2/client"
 import { adaptProductServerEvent } from "@/context/server-sdk"
+import { normalizeProductEvent } from "./events"
 import type { CompatibleApi } from "@/utils/server-compat"
 
 type RequiredSessionMethods = Pick<CompatibleApi["session"], "create" | "prompt" | "command" | "shell" | "interrupt">
@@ -66,6 +68,171 @@ const shellEnded = {
   },
 } satisfies Extract<OpenCodeEvent, { type: "session.shell.ended" }>
 
+const executionStarted = {
+  id: "evt_contract_execution",
+  created: 1_725_000_000_004,
+  type: "session.execution.started",
+  durable: { aggregateID: "ses_contract", seq: 2, version: 1 },
+  location: { directory: "/repo" },
+  data: { sessionID: "ses_contract" },
+} satisfies Extract<OpenCodeEvent, { type: "session.execution.started" }>
+
+const reasoningDelta = {
+  id: "evt_contract_reasoning",
+  created: 1_725_000_000_005,
+  type: "session.reasoning.delta",
+  location: { directory: "/repo" },
+  data: { sessionID: "ses_contract", assistantMessageID: "msg_contract", ordinal: 0, delta: "think" },
+} satisfies Extract<OpenCodeEvent, { type: "session.reasoning.delta" }>
+
+const toolInputStarted = {
+  id: "evt_contract_tool",
+  created: 1_725_000_000_006,
+  type: "session.tool.input.started",
+  durable: { aggregateID: "ses_contract", seq: 3, version: 1 },
+  location: { directory: "/repo" },
+  data: {
+    sessionID: "ses_contract",
+    assistantMessageID: "msg_contract",
+    callID: "call_contract",
+    name: "read",
+  },
+} satisfies Extract<OpenCodeEvent, { type: "session.tool.input.started" }>
+
+const permissionReplied = {
+  id: "evt_contract_permission_reply",
+  created: 1_725_000_000_007,
+  type: "permission.v2.replied",
+  location: { directory: "/repo" },
+  data: { sessionID: "ses_contract", requestID: "perm_contract", reply: "once" },
+} satisfies Extract<OpenCodeEvent, { type: "permission.v2.replied" }>
+
+const questionReplied = {
+  id: "evt_contract_question",
+  created: 1_725_000_000_008,
+  type: "question.v2.replied",
+  location: { directory: "/repo" },
+  data: { sessionID: "ses_contract", requestID: "question_contract", answers: [["automatic"]] },
+} satisfies Extract<OpenCodeEvent, { type: "question.v2.replied" }>
+
+const filesystemChanged = {
+  id: "evt_contract_file",
+  created: 1_725_000_000_009,
+  type: "filesystem.changed",
+  location: { directory: "/repo" },
+  data: { file: "src/index.ts", event: "change" },
+} satisfies Extract<OpenCodeEvent, { type: "filesystem.changed" }>
+
+const sessionError = {
+  id: "evt_contract_error",
+  created: 1_725_000_000_010,
+  type: "session.error",
+  location: { directory: "/repo" },
+  data: { sessionID: "ses_contract" },
+} satisfies Extract<OpenCodeEvent, { type: "session.error" }>
+
+const serverConnected = {
+  id: "evt_contract_server",
+  type: "server.connected",
+  location: { directory: "/repo" },
+  data: {},
+} satisfies Extract<OpenCodeEvent, { type: "server.connected" }>
+
+const sdkReasoningDelta = {
+  id: "evt_sdk_reasoning",
+  type: "session.next.reasoning.delta",
+  properties: {
+    timestamp: 1_725_000_000_011,
+    sessionID: "ses_contract",
+    assistantMessageID: "msg_contract",
+    reasoningID: "reasoning_contract",
+    delta: "think",
+  },
+} satisfies Extract<Event, { type: "session.next.reasoning.delta" }>
+
+const sdkToolInputStarted = {
+  id: "evt_sdk_tool",
+  type: "session.next.tool.input.started",
+  properties: {
+    timestamp: 1_725_000_000_012,
+    sessionID: "ses_contract",
+    assistantMessageID: "msg_contract",
+    callID: "call_contract",
+    name: "read",
+  },
+} satisfies Extract<Event, { type: "session.next.tool.input.started" }>
+
+const sdkShellEnded = {
+  id: "evt_sdk_shell",
+  type: "session.next.shell.ended",
+  properties: { timestamp: 1_725_000_000_013, sessionID: "ses_contract", callID: "call_shell", output: "done" },
+} satisfies Extract<Event, { type: "session.next.shell.ended" }>
+
+const sdkCommandExecuted = {
+  id: "evt_sdk_command",
+  type: "command.executed",
+  properties: { name: "review", sessionID: "ses_contract", arguments: "--staged", messageID: "msg_contract" },
+} satisfies Extract<Event, { type: "command.executed" }>
+
+const sdkPermissionReplied = {
+  id: "evt_sdk_permission",
+  type: "permission.replied",
+  properties: { sessionID: "ses_contract", requestID: "perm_contract", reply: "once" },
+} satisfies Extract<Event, { type: "permission.replied" }>
+
+const sdkQuestionReplied = {
+  id: "evt_sdk_question",
+  type: "question.replied",
+  properties: { sessionID: "ses_contract", requestID: "question_contract", answers: [["automatic"]] },
+} satisfies Extract<Event, { type: "question.replied" }>
+
+const sdkFileChanged = {
+  id: "evt_sdk_file",
+  type: "file.watcher.updated",
+  properties: { file: "src/index.ts", event: "change" },
+} satisfies Extract<Event, { type: "file.watcher.updated" }>
+
+const sdkSessionError = {
+  id: "evt_sdk_error",
+  type: "session.error",
+  properties: { sessionID: "ses_contract" },
+} satisfies Extract<Event, { type: "session.error" }>
+
+const sdkWorkspaceStatus = {
+  id: "evt_sdk_workspace",
+  type: "workspace.status",
+  properties: { workspaceID: "workspace_contract", status: "connected" },
+} satisfies Extract<Event, { type: "workspace.status" }>
+
+const sdkServerConnected = {
+  id: "evt_sdk_server",
+  type: "server.connected",
+  properties: {},
+} satisfies Extract<Event, { type: "server.connected" }>
+
+const sdkReasoningSnapshot = {
+  id: "evt_sdk_part",
+  type: "message.part.updated",
+  properties: {
+    sessionID: "ses_contract",
+    time: 1_725_000_000_014,
+    part: {
+      id: "prt_contract",
+      sessionID: "ses_contract",
+      messageID: "msg_contract",
+      type: "reasoning",
+      text: "complete",
+      time: { start: 1_725_000_000_000, end: 1_725_000_000_014 },
+    },
+  },
+} satisfies Extract<Event, { type: "message.part.updated" }>
+
+const sdkAdvanced = {
+  id: "evt_sdk_advanced",
+  type: "installation.updated",
+  properties: { version: "1.18.10" },
+} satisfies Extract<Event, { type: "installation.updated" }>
+
 describe("product OpenCode contracts", () => {
   test("locks the CompatibleApi methods consumed by product workflows", () => {
     expect(contractLocked).toBe(true)
@@ -85,6 +252,27 @@ describe("product OpenCode contracts", () => {
       taskID: "ses_contract",
       data: { operationID: "shell_contract", output: "done" },
     })
+    expect(
+      [
+        executionStarted,
+        reasoningDelta,
+        toolInputStarted,
+        permissionReplied,
+        questionReplied,
+        filesystemChanged,
+        sessionError,
+        serverConnected,
+      ].map((event) => adaptProductServerEvent(event).type),
+    ).toEqual([
+      "task.execution.started",
+      "assistant.reasoning.delta",
+      "tool.input.started",
+      "permission.replied",
+      "question.replied",
+      "file.changed",
+      "error",
+      "server.connected",
+    ])
   })
 
   test("reuses protocol adaptation for V2 permissions", () => {
@@ -102,6 +290,42 @@ describe("product OpenCode contracts", () => {
         messageID: "msg_contract",
         callID: "call_contract",
       },
+    })
+  })
+
+  test("adapts typed SDK event fixtures", () => {
+    const fixtures: Event[] = [
+      sdkReasoningDelta,
+      sdkToolInputStarted,
+      sdkShellEnded,
+      sdkCommandExecuted,
+      sdkPermissionReplied,
+      sdkQuestionReplied,
+      sdkFileChanged,
+      sdkSessionError,
+      sdkWorkspaceStatus,
+      sdkServerConnected,
+      sdkReasoningSnapshot,
+      sdkAdvanced,
+    ]
+    expect(fixtures.map((event) => normalizeProductEvent(event, "/repo").type)).toEqual([
+      "assistant.reasoning.delta",
+      "tool.input.started",
+      "shell.output",
+      "command.output",
+      "permission.replied",
+      "question.replied",
+      "file.changed",
+      "error",
+      "server.status",
+      "server.connected",
+      "assistant.reasoning.updated",
+      "advanced",
+    ])
+    expect(normalizeProductEvent(sdkReasoningDelta, "/repo")).toMatchObject({
+      id: "evt_sdk_reasoning",
+      directory: "/repo",
+      time: 1_725_000_000_011,
     })
   })
 })

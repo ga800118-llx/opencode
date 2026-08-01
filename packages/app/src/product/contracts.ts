@@ -172,12 +172,20 @@ export type ProductTaskAdapter<SessionRecord = unknown> = {
   readonly interrupt: (input: ProductInterruptInput) => Promise<ProductOperationOutput | void>
 }
 
-export type ProductTaskEvent<Type extends string = string, Data = unknown> = {
+export type ProductEventEnvelope<Type extends string = string, Data = unknown> = {
+  readonly id?: string
   readonly type: Type
-  readonly taskID: ProductTaskID
-  readonly directory: ProductDirectory
-  readonly time: number
+  readonly directory?: ProductDirectory
+  readonly time?: number
   readonly data: Data
+}
+
+export type ProductTaskEvent<Type extends string = string, Data = unknown> = ProductEventEnvelope<Type, Data> & {
+  readonly taskID: ProductTaskID
+}
+
+export type ProductOptionalTaskEvent<Type extends string = string, Data = unknown> = ProductEventEnvelope<Type, Data> & {
+  readonly taskID?: ProductTaskID
 }
 
 export type ProductErrorKind =
