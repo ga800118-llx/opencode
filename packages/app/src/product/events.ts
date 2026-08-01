@@ -119,7 +119,7 @@ export type ProductEvent =
   | ProductOptionalTaskEvent<"advanced", { readonly sourceType: string }>
 
 type UnknownRecord = Record<string, unknown>
-type Envelope = Pick<ProductEventEnvelope<string>, "id" | "directory" | "time">
+type Envelope = Pick<ProductEventEnvelope, "id" | "directory" | "time">
 
 const MAX_QUESTIONS = 32
 const MAX_OPTIONS_PER_QUESTION = 64
