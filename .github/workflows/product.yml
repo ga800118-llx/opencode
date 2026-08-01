@@ -47,7 +47,7 @@ jobs:
 
       - name: Test Desktop
         working-directory: packages/desktop
-        run: bun test src
+        run: bun test
 
       - name: Check protected OpenCode runtime packages
         run: git diff --exit-code v1.18.10...HEAD -- packages/core packages/opencode packages/server packages/protocol
