@@ -1,5 +1,3 @@
-import type { ProductHost } from "@opencode-ai/app"
-
 export const PRODUCT_HOST_CHANNELS = Object.freeze({
   sidecarGetStatus: "product-sidecar-get-status",
   sidecarSubscribe: "product-sidecar-subscribe",
@@ -60,7 +58,7 @@ export type DesktopProductHostAPI = {
   }
 }
 
-export type DesktopProductHost = ProductHost & DesktopProductHostAPI & { readonly kind: "desktop" }
+export type DesktopProductHost = DesktopProductHostAPI & { readonly kind: "desktop" }
 
 const SIDE_CAR_STATES: readonly string[] = [
   "unavailable",
