@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
-import type { Event } from "@opencode-ai/sdk/v2/client"
+import type { Config, Event } from "@opencode-ai/sdk/v2/client"
 import { adaptProductServerEvent } from "@/context/server-sdk"
 import { normalizeProductEvent } from "./events"
 import type { CompatibleApi } from "@/utils/server-compat"
@@ -16,6 +16,23 @@ type RequiredCompatibleApi = {
 type CompatibleApiContractLocked = CompatibleApi extends RequiredCompatibleApi ? true : false
 
 const contractLocked: CompatibleApiContractLocked = true
+
+const modelCenterProviderConfig = {
+  provider: {
+    "agent-profile-contract": {
+      npm: "@ai-sdk/openai-compatible",
+      name: "Contract Provider",
+      env: ["AGENT_PROFILE_CONTRACT_API_KEY"],
+      options: { baseURL: "http://127.0.0.1:1234/v1", timeout: 30_000 },
+      models: {
+        coder: { name: "Coder", tool_call: true, limit: { context: 32_000, output: 4_000 } },
+      },
+    },
+  },
+  disabled_providers: [],
+} satisfies Config
+
+const modelCenterDefaultConfig = { model: "agent-profile-contract/coder" } satisfies Config
 
 const textDelta = {
   id: "evt_contract_text",
@@ -248,6 +265,13 @@ const sdkAdvanced = {
 describe("product OpenCode contracts", () => {
   test("locks the CompatibleApi methods consumed by product workflows", () => {
     expect(contractLocked).toBe(true)
+  })
+
+  test("locks model-center patches to the public OpenCode config shape", () => {
+    expect(modelCenterProviderConfig.provider?.["agent-profile-contract"]?.npm).toBe(
+      "@ai-sdk/openai-compatible",
+    )
+    expect(modelCenterDefaultConfig.model).toBe("agent-profile-contract/coder")
   })
 
   test("adapts recorded OpenCode event fixtures", () => {

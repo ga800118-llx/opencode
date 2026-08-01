@@ -2,6 +2,7 @@ import type { ProductModelCenterAPI, ProductModelCenterCapabilities } from "./co
 
 export * from "./contracts"
 export * from "./config"
+export * from "./controller"
 
 const unavailableCapabilities = Object.freeze({
   available: false,

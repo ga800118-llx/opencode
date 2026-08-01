@@ -436,7 +436,7 @@ git commit -m "feat: expose typed model center host"
 - Modify: `packages/app/src/product/model-center/index.ts`
 - Modify: `packages/app/src/product/opencode-contract.test.ts`
 
-- [ ] **Step 1: Write orchestration tests with fake host and config API**
+- [x] **Step 1: Write orchestration tests with fake host and config API**
 
 Assert this exact successful order for save:
 
@@ -449,15 +449,15 @@ serverSync.refreshProviders
 
 Assert delete first disables the provider in OpenCode config, then removes the profile/credential, reloads the sidecar, and refreshes providers. Assert default selection updates both profile state and OpenCode's `model` key. Failure tests must retain the previous usable profile and return a redacted actionable error.
 
-- [ ] **Step 2: Implement a controller over product host and public config functions**
+- [x] **Step 2: Implement a controller over product host and public config functions**
 
 The controller accepts injected `updateConfig`, `refreshProviders`, and `disabledProviders` accessors instead of importing server internals. It serializes only Task 1 config patches and never calls OpenCode auth storage for product-managed private/local profiles.
 
-- [ ] **Step 3: Extend the OpenCode contract lock**
+- [x] **Step 3: Extend the OpenCode contract lock**
 
 Assert the consumed public config surface still exposes global config update, provider refresh/list, model defaults, and model selection values. Keep protected runtime packages unchanged.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
