@@ -132,18 +132,18 @@ Expected: product tests and App type check pass.
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Add failing settings tests**
+- [x] **Step 1: Add failing settings tests**
 
 Assert the default is `simple`, a persisted `advanced` value is restored,
 corrupt values resolve to `simple`, switching writes only
 `general.presentationMode`, and switching does not call reload.
 
-- [ ] **Step 2: Add failing control rendering tests**
+- [x] **Step 2: Add failing control rendering tests**
 
 Render the control with the existing select/segmented primitive. Assert labels,
 keyboard-reachable options, selected state, and callback values in both modes.
 
-- [ ] **Step 3: Implement the settings API**
+- [x] **Step 3: Implement the settings API**
 
 Add `presentationMode?: ProductPresentationMode` to persisted settings and
 expose:
@@ -158,14 +158,14 @@ settings.presentation.advanced()
 Use the product normalizer and preserve existing `settings.v3` migration
 behavior.
 
-- [ ] **Step 4: Put the mode row first in General settings**
+- [x] **Step 4: Put the mode row first in General settings**
 
 Render localized title, description, and exact Simple/Advanced options. Keep
 the complete existing General settings reachable; in Simple mode, group the
 existing technical rows under a clearly labeled Advanced section rather than
 deleting or resetting them.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
