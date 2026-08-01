@@ -1,4 +1,6 @@
 export const SETTINGS_STORE = "opencode.settings"
+export const MODEL_CREDENTIALS_STORE = "agent.credentials"
+export const MODEL_PROFILES_STORE = "agent.model-profiles"
 export const DEFAULT_SERVER_URL_KEY = "defaultServerUrl"
 export const FIRST_LAUNCH_ONBOARDING_COMPLETE_KEY = "firstLaunchOnboardingComplete"
 export const OLD_LAYOUT_ELIGIBLE_KEY = "oldLayoutEligible"

@@ -1,3 +1,5 @@
+import type { ProductModelCenterAPI } from "@opencode-ai/app/product/model-center"
+
 export const PRODUCT_HOST_CHANNELS = Object.freeze({
   sidecarGetStatus: "product-sidecar-get-status",
   sidecarSubscribe: "product-sidecar-subscribe",
@@ -58,7 +60,27 @@ export type DesktopProductHostAPI = {
   }
 }
 
-export type DesktopProductHost = DesktopProductHostAPI & { readonly kind: "desktop" }
+export type DesktopProductHost = DesktopProductHostAPI & {
+  readonly kind: "desktop"
+  readonly modelCenter: ProductModelCenterAPI
+}
+
+const unavailableModelCenter = Object.freeze({
+  capabilities: async () => ({
+    available: false,
+    credentialBackend: "unsupported" as const,
+    credentialOperations: Object.freeze({ read: false, write: false, delete: false }),
+    localDetection: false,
+  }),
+  list: async () => [],
+  save: async () => Promise.reject(new Error("The visual model center is not available.")),
+  remove: async () => Promise.reject(new Error("The visual model center is not available.")),
+  discover: async () => Promise.reject(new Error("The visual model center is not available.")),
+  test: async () => Promise.reject(new Error("The visual model center is not available.")),
+  detectLocal: async () => [],
+  selectDefault: async () => Promise.reject(new Error("The visual model center is not available.")),
+  reloadCredentials: async () => Promise.reject(new Error("The visual model center is not available.")),
+}) satisfies ProductModelCenterAPI
 
 const SIDE_CAR_STATES: readonly string[] = [
   "unavailable",
@@ -111,6 +133,7 @@ export function createUnavailableSidecarStatus(time = Date.now()): ProductSideca
 export function createProductCredentialCapabilities(
   namespace: string,
   platform: NodeJS.Platform,
+  available = false,
 ): ProductCredentialCapabilities {
   const backend =
     platform === "darwin"
@@ -118,17 +141,19 @@ export function createProductCredentialCapabilities(
       : platform === "win32"
         ? "windows-credential-manager"
         : "unsupported"
+  const enabled = platform === "darwin" && available
   return Object.freeze({
     namespace,
     backend,
-    available: false,
-    operations: Object.freeze({ read: false, write: false, delete: false }),
+    available: enabled,
+    operations: Object.freeze({ read: enabled, write: enabled, delete: enabled }),
   })
 }
 
 export function createDesktopProductHost(api: DesktopProductHostAPI): DesktopProductHost {
   return Object.freeze({
     kind: "desktop" as const,
+    modelCenter: unavailableModelCenter,
     sidecar: Object.freeze({
       getStatus: () => api.sidecar.getStatus(),
       subscribe: (listener: (status: ProductSidecarStatus) => void) => api.sidecar.subscribe(listener),

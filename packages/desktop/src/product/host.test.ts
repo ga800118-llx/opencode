@@ -84,6 +84,15 @@ describe("desktop product host", () => {
     expect(windows).toMatchObject({ backend: "windows-credential-manager", available: false })
     expect(linux).toMatchObject({ backend: "unsupported", available: false })
     expect(mac.operations).toEqual({ read: false, write: false, delete: false })
+    expect(createProductCredentialCapabilities("dev.agent.desktop.credentials", "darwin", true)).toEqual({
+      namespace: "dev.agent.desktop.credentials",
+      backend: "macos-keychain",
+      available: true,
+      operations: { read: true, write: true, delete: true },
+    })
+    expect(createProductCredentialCapabilities("dev.agent.desktop.credentials", "win32", true).available).toBe(
+      false,
+    )
   })
 
   test("creates a frozen host that delegates lifecycle operations", async () => {
@@ -115,6 +124,7 @@ describe("desktop product host", () => {
     const host = createDesktopProductHost(api)
 
     expect(host.kind).toBe("desktop")
+    expect((await host.modelCenter.capabilities()).available).toBe(false)
     expect(await host.sidecar.getStatus()).toBe(ready)
     const unsubscribe = await host.sidecar.subscribe(() => calls.push("state"))
     expect(await host.sidecar.restart()).toBe(ready)
@@ -123,5 +133,6 @@ describe("desktop product host", () => {
     expect(calls).toEqual(["get", "subscribe", "state", "restart", "credentials", "unsubscribe"])
     expect(Object.isFrozen(host)).toBe(true)
     expect(Object.isFrozen(host.sidecar)).toBe(true)
+    expect(Object.isFrozen(host.modelCenter)).toBe(true)
   })
 })

@@ -156,11 +156,11 @@ Expected: product tests and App type check pass.
 - Modify: `packages/desktop/src/product/host.test.ts`
 - Modify: `packages/desktop/src/main/store-keys.ts`
 
-- [ ] **Step 1: Write credential-service tests with injected `safeStorage` and store**
+- [x] **Step 1: Write credential-service tests with injected `safeStorage` and store**
 
 Test unavailable encryption, write/read/update/delete, missing entries, corrupt ciphertext, platform gating, and capability metadata. Record every value sent to the fake store and assert none equals or contains `sk-test-secret` or `Bearer secret-header`.
 
-- [ ] **Step 2: Run the focused test and confirm failure**
+- [x] **Step 2: Run the focused test and confirm failure**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -170,7 +170,7 @@ bun test src/main/model-center/credentials.test.ts
 
 Expected: FAIL because `credentials.ts` is absent.
 
-- [ ] **Step 3: Implement a platform-neutral service over Electron `safeStorage`**
+- [x] **Step 3: Implement a platform-neutral service over Electron `safeStorage`**
 
 Use this interface:
 
@@ -186,11 +186,11 @@ export type ProductCredentialService = {
 
 On `darwin`, call `safeStorage.isEncryptionAvailable()`, `encryptString`, and `decryptString`; persist only base64 ciphertext in the dedicated `agent.credentials` store. Keep Windows and Linux operations unavailable in this phase. Validate decrypted JSON before use and map failures to redacted credential errors.
 
-- [ ] **Step 4: Replace the Phase 1 capability stub**
+- [x] **Step 4: Replace the Phase 1 capability stub**
 
 `ProductCredentialCapabilities` must report `macos-keychain`, `available: true`, and read/write/delete operations only when macOS encryption is available. Preserve the future Windows backend name but do not claim operations that are not implemented.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
