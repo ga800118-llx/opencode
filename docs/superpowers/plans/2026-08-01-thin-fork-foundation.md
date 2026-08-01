@@ -257,23 +257,23 @@ git commit -m "test: lock product OpenCode contracts"
 - Create: `packages/desktop/src/main/sidecar-supervisor.test.ts`
 - Modify: `packages/desktop/src/main/index.ts`
 
-- [ ] **Step 1: Expose process completion from `spawnLocalServer`**
+- [x] **Step 1: Expose process completion from `spawnLocalServer`**
 
 Extend `SidecarListener` with an exit promise or equivalent typed completion signal. Preserve existing startup, health, and graceful-stop behavior.
 
-- [ ] **Step 2: Test the supervisor as a pure state machine**
+- [x] **Step 2: Test the supervisor as a pure state machine**
 
 Inject spawn, delay, logger, and clock dependencies. Cover starting, ready, unexpected exit, bounded exponential restart, failed restart, manual restart, graceful stop, concurrent calls, and no restart after app quit.
 
-- [ ] **Step 3: Implement one stable connection lifecycle**
+- [x] **Step 3: Implement one stable connection lifecycle**
 
 Allocate hostname, port, username, and password once. Restart the sidecar with the same renderer-visible connection values. Publish only sanitized state and a redacted error summary.
 
-- [ ] **Step 4: Integrate with Desktop startup and shutdown**
+- [x] **Step 4: Integrate with Desktop startup and shutdown**
 
 Replace the V1 global `server` listener in `main/index.ts` with the supervisor. Keep background CLI V2 behavior explicit and do not claim restart support for it until it uses the same contract.
 
-- [ ] **Step 5: Verify lifecycle behavior**
+- [x] **Step 5: Verify lifecycle behavior**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -281,7 +281,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun run --cwd packages/desktop typecheck
 ```
 
-- [ ] **Step 6: Commit sidecar supervision**
+- [x] **Step 6: Commit sidecar supervision**
 
 ```bash
 git add packages/desktop/src/main/server.ts packages/desktop/src/main/sidecar-supervisor.ts packages/desktop/src/main/sidecar-supervisor.test.ts packages/desktop/src/main/index.ts
