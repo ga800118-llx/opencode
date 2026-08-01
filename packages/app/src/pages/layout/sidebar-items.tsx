@@ -251,12 +251,12 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                 "group-focus-within/session:w-6 group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
               }}
             >
-              <Tooltip value={language.t("common.archive")} placement="top">
+              <Tooltip value={language.t("command.session.archive")} placement="top">
                 <IconButton
                   icon="archive"
                   variant="ghost"
                   class="size-6 rounded-md"
-                  aria-label={language.t("common.archive")}
+                  aria-label={language.t("command.session.archive")}
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()

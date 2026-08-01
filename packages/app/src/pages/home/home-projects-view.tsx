@@ -83,7 +83,10 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
         <Show
           when={props.servers().length === 1 && !(props.projects().length === 0 && props.recentlyClosed().length > 0)}
         >
-          <TooltipV2 placement="bottom" value={props.language.t("home.project.add")}>
+          <TooltipV2
+            placement="bottom"
+            value={props.language.t(props.projects().length === 0 ? "command.project.open" : "home.project.add")}
+          >
             <IconButtonV2
               data-action="home-add-project"
               variant="ghost-muted"
@@ -92,7 +95,7 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
               icon={<IconV2 name="folder-add-left" />}
               disabled={props.serverHealth(props.servers()[0])?.healthy === false}
               onClick={() => props.onChooseProject(props.servers()[0])}
-              aria-label={props.language.t("home.project.add")}
+              aria-label={props.language.t(props.projects().length === 0 ? "command.project.open" : "home.project.add")}
             />
           </TooltipV2>
         </Show>
@@ -400,7 +403,7 @@ function HomeProjectEmpty(
         onClick={() => props.onChooseProject(props.server)}
       >
         <IconV2 name="folder-add-left" size="small" />
-        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.add")}</span>
+        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("command.project.open")}</span>
       </HomeProjectNavButton>
       <Show when={props.items.length > 0}>
         <div class="mt-3 flex h-7 min-w-0 shrink-0 items-center pl-1.5 pr-3">

@@ -460,13 +460,17 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
         >
-          <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("common.archive")}>
+          <TooltipV2
+            class="flex shrink-0 items-center"
+            placement="bottom"
+            value={props.language.t("command.session.archive")}
+          >
             <IconButtonV2
               data-action="home-session-archive"
               variant="ghost-muted"
               size="large"
               icon={<IconV2 name="archive" />}
-              aria-label={props.language.t("common.archive")}
+              aria-label={props.language.t("command.session.archive")}
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
