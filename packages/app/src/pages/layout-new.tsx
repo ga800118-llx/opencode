@@ -45,6 +45,7 @@ export default function NewLayout(props: ParentProps) {
       />
       <SidecarRecoveryMount />
       <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
+        <h1 class="sr-only">Agent Desktop</h1>
         <Suspense>{props.children}</Suspense>
       </main>
       {import.meta.env.DEV && state.debugTools && <DebugBar inline />}

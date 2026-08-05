@@ -41,9 +41,9 @@ describe("electron renderer html", () => {
         expect(content).not.toContain('rel="manifest"')
       })
 
-      test("leaves the native product title authoritative", async () => {
+      test("provides an accessible document title", async () => {
         const content = await html(name)
-        expect(content).toContain("<title></title>")
+        expect(content).toContain("<title>Agent Desktop</title>")
       })
     })
   }

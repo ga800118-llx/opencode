@@ -110,6 +110,7 @@ export function ScrollView(props: ScrollViewProps) {
       "thumbContainer",
       "thumbHoverTarget",
       "style",
+      "aria-label",
     ],
     [
       "onScroll",
@@ -368,7 +369,7 @@ export function ScrollView(props: ScrollViewProps) {
         onClick={events.onClick as any}
         tabIndex={0}
         role="region"
-        aria-label={i18n.t("ui.scrollView.ariaLabel")}
+        aria-label={local["aria-label"] ?? i18n.t("ui.scrollView.ariaLabel")}
         onKeyDown={(e) => {
           onKeyDown(e)
           if (typeof events.onKeyDown === "function") events.onKeyDown(e as any)

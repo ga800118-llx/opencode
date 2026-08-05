@@ -250,7 +250,11 @@ function HomeSessionSearch(props: HomeSessionsViewProps) {
                       >
                         {props.language.t("home.sessions.search.sessions")}
                       </p>
-                      <ScrollView class="max-h-80" viewportRef={props.onSetSearchList}>
+                      <ScrollView
+                        aria-label={props.language.t("home.sessions.search.sessions")}
+                        class="max-h-80"
+                        viewportRef={props.onSetSearchList}
+                      >
                         <div class="flex flex-col gap-px pb-2">
                           <For each={props.searchResults()}>
                             {(record) => (
@@ -286,6 +290,7 @@ function HomeSessionSearch(props: HomeSessionsViewProps) {
             `}
             value={props.searchValue()}
             placeholder={props.searchPlaceholder()}
+            role="combobox"
             aria-label={props.searchPlaceholder()}
             aria-expanded={props.searchOpen()}
             aria-controls={HOME_SESSION_SEARCH_RESULTS_ID}

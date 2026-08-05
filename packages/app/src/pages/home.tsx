@@ -25,6 +25,7 @@ export function NewHome() {
       `}
     >
       <ScrollView
+        aria-label={sessions.copy.language.t("home.title")}
         class="h-full [container-type:size]"
         thumbContainer={scroll.viewport.thumbTrack}
         thumbHoverTarget={scroll.viewport.hoverTarget}

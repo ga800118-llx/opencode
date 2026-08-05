@@ -100,7 +100,11 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
           </TooltipV2>
         </Show>
       </div>
-      <ScrollView data-slot="home-projects-scroll" class="min-h-0 min-w-0 shrink">
+      <ScrollView
+        aria-label={props.language.t("home.projects")}
+        data-slot="home-projects-scroll"
+        class="min-h-0 min-w-0 shrink"
+      >
         <Show
           when={props.servers().length > 1}
           fallback={
@@ -475,11 +479,11 @@ function HomeProjectRow(
   })
   return (
     <div
-      ref={sortable.ref}
       class="group/project relative flex h-7 min-w-0 items-center rounded-[6px]"
       classList={{ "z-10": sortable.isDragSource() }}
     >
       <HomeProjectNavButton
+        ref={sortable.ref}
         type="button"
         data-component="home-project-row"
         class="pr-16 disabled:opacity-60"
