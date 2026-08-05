@@ -51,18 +51,8 @@ export function NewSessionView(props: {
           <div class={NEW_SESSION_CONTENT_WIDTH}>
             <WordmarkV2 class="h-auto w-full text-v2-background-bg-inverse" />
             <div class="mt-4 flex flex-col gap-4">
-              <div
-                data-component="new-session-composer"
-                data-presentation-priority={props.presentation().controls.composer.priority}
-              >
-                <PromptInputV2Composer controller={props.input} />
-              </div>
-              <div
-                data-component="new-session-model-readiness"
-                data-presentation-priority={props.presentation().controls.modelReadiness.priority}
-              >
-                <ModelSetupNoticeSlot readiness={props.modelReadiness} />
-              </div>
+              <PromptInputV2Composer controller={props.input} />
+              <ModelSetupNoticeSlot readiness={props.modelReadiness} />
               <div
                 data-component="new-session-project-controls"
                 data-presentation-priority={props.presentation().controls.project.priority}

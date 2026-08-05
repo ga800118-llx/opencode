@@ -28,13 +28,13 @@ test.beforeEach(async ({ page }) => {
             "model-a": {
               id: "model-a",
               name: "Model A",
-              cost: { input: 1, output: 1 },
+              cost: { input: 0, output: 0 },
               limit: { context: 200_000 },
             },
             "model-b": {
               id: "model-b",
               name: "Model B",
-              cost: { input: 1, output: 1 },
+              cost: { input: 0, output: 0 },
               limit: { context: 200_000 },
               variants: { high: {} },
             },
@@ -74,19 +74,18 @@ test("keeps the prompt workflow mounted while switching from Simple to Advanced"
   await page.goto(`/new-session?draftId=${draftID}`)
 
   const view = page.locator('[data-component="session-new-design"]')
-  const composerSurface = page.locator('[data-component="new-session-composer"]')
-  const composer = composerSurface.locator('[data-component="prompt-input-v2"]')
+  const composer = page.locator('[data-component="prompt-input-v2"]')
   const editor = composer.locator('[data-component="prompt-input"]')
   const model = composer.locator('[data-action="prompt-model"]')
   const attach = composer.locator('[data-action="prompt-attach"]')
   const submit = composer.locator('[data-action="prompt-submit"]')
   const project = page.locator('[data-component="new-session-project-controls"] [data-action="prompt-project"]')
   const workspace = page.locator('[data-component="new-session-workspace-details"]')
+  const providerTip = page.locator('[data-component="provider-tip"]')
 
   await expectAppVisible(composer)
   await dismissTabsInformation(page)
   await expect(view).toHaveAttribute("data-presentation-mode", "simple")
-  await expect(composerSurface).toHaveAttribute("data-presentation-priority", "primary")
   await expect(composer).toHaveCount(1)
   await expect(model).toContainText("Model A")
   await expect(attach).toBeVisible()
@@ -96,32 +95,41 @@ test("keeps the prompt workflow mounted while switching from Simple to Advanced"
   await expect(workspace).toContainText("main")
   await expect(workspace).toHaveAttribute("data-presentation-priority", "secondary")
   await expect(workspace).toHaveCSS("opacity", "0.7")
+  await expect(providerTip).toBeVisible()
+  await expect(providerTip).toHaveAttribute("data-presentation-priority", "secondary")
+  await expect(providerTip).toHaveCSS("opacity", "0.7")
   await expectFirstViewport(page, composer, workspace)
 
   await editor.fill("Keep this non-empty draft")
   await model.click()
-  await page.locator('[data-option-key="opencode:model-b"]').click()
+  await page.getByRole("button", { name: "Model B Free", exact: true }).click()
   await expect(model).toContainText("Model B")
   await expect(composer.getByRole("button", { name: "Choose agent" })).toBeVisible()
   await expect(composer.getByRole("button", { name: "Choose model variant" })).toBeVisible()
   await attach.click()
-  await expect(page.getByRole("menuitem", { name: "Commands" })).toBeVisible()
-  await page.keyboard.press("Escape")
+  const commands = page.getByRole("menuitem", { name: "Commands" })
+  await expect(commands).toBeVisible()
+  await editor.click()
+  await expect(commands).toHaveCount(0)
 
   await markMounted(editor, "editor")
   await markMounted(model, "model")
   await markMounted(project, "project")
   await markMounted(workspace, "workspace")
+  await markMounted(providerTip, "provider-tip")
   await selectAdvancedMode(page)
 
   await expect(view).toHaveAttribute("data-presentation-mode", "advanced")
   await expect(workspace).toHaveAttribute("data-presentation-priority", "primary")
   await expect(workspace).toHaveCSS("opacity", "1")
+  await expect(providerTip).toHaveAttribute("data-presentation-priority", "primary")
+  await expect(providerTip).toHaveCSS("opacity", "1")
   await expect(composer).toHaveCount(1)
   await expect(editor).toHaveAttribute("data-mounted-identity", "editor")
   await expect(model).toHaveAttribute("data-mounted-identity", "model")
   await expect(project).toHaveAttribute("data-mounted-identity", "project")
   await expect(workspace).toHaveAttribute("data-mounted-identity", "workspace")
+  await expect(providerTip).toHaveAttribute("data-mounted-identity", "provider-tip")
   await expect(editor).toHaveText("Keep this non-empty draft")
   await expect(model).toContainText("Model B")
   await expect(project).toContainText("prompt-first")
@@ -138,19 +146,12 @@ async function dismissTabsInformation(page: Page) {
 }
 
 async function expectFirstViewport(page: Page, composer: Locator, next: Locator) {
-  expect(
-    await page.evaluate(
-      ({ composer, next }) => {
-        const composerRect = document.querySelector(composer)?.getBoundingClientRect()
-        const nextRect = document.querySelector(next)?.getBoundingClientRect()
-        return {
-          composerVisible: !!composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight,
-          nextVisible: !!nextRect && nextRect.top >= 0 && nextRect.bottom <= innerHeight,
-        }
-      },
-      { composer: '[data-component="prompt-input-v2"]', next: '[data-component="new-session-workspace-details"]' },
-    ),
-  ).toEqual({ composerVisible: true, nextVisible: true })
+  const [composerBox, nextBox] = await Promise.all([composer.boundingBox(), next.boundingBox()])
+  const height = page.viewportSize()?.height ?? 0
+  expect({
+    composerVisible: !!composerBox && composerBox.y >= 0 && composerBox.y + composerBox.height <= height,
+    nextVisible: !!nextBox && nextBox.y >= 0 && nextBox.y + nextBox.height <= height,
+  }).toEqual({ composerVisible: true, nextVisible: true })
 }
 
 async function markMounted(locator: Locator, value: string) {
