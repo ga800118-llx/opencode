@@ -84,6 +84,7 @@ import {
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
+import { createTaskPresentation } from "@/pages/session/task-presentation"
 import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
 import { SessionReviewEmptyNoGitV2 } from "@opencode-ai/session-ui/v2/session-review-empty-no-git-v2"
 import { SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
@@ -509,6 +510,20 @@ export default function Page() {
       review: desktopV2ReviewOpen(),
       terminal: desktopTerminalOpen(),
       files: desktopFileTreeOpen(),
+    }),
+  )
+  const taskPresentation = createMemo(() =>
+    createTaskPresentation({
+      mode: settings.general.presentationMode(),
+      shellToolPartsExpanded: settings.general.shellToolPartsExpanded(),
+      editToolPartsExpanded: settings.general.editToolPartsExpanded(),
+      visibility: {
+        review: desktopReviewOpen(),
+        files: desktopFileTreeOpen(),
+        terminal: desktopTerminalOpen(),
+        agents: settings.visibility.customAgents(),
+        status: settings.visibility.status(),
+      },
     }),
   )
 
@@ -2083,6 +2098,7 @@ export default function Page() {
               {(_id) => (
                 <MessageTimeline
                   actions={actions}
+                  toolDetails={() => taskPresentation().toolDetails}
                   scroll={ui.scroll}
                   onResumeScroll={resumeScroll}
                   setScrollRef={setScrollRef}
@@ -2302,6 +2318,7 @@ export default function Page() {
         <Show when={!newSessionDesign() && desktopSidePanelOpen()}>
           <Suspense>
             <SessionSidePanel
+              contextActionDensity={() => taskPresentation().contextActionDensity}
               canReview={canReview}
               diffs={reviewDiffs}
               diffsReady={reviewReady}
@@ -2324,6 +2341,7 @@ export default function Page() {
                 <div class="min-h-0 flex-1">
                   <Suspense>
                     <SessionSidePanel
+                      contextActionDensity={() => taskPresentation().contextActionDensity}
                       canReview={canReview}
                       diffs={reviewDiffs}
                       diffsReady={reviewReady}

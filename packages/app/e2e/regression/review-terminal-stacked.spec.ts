@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
 
@@ -109,6 +109,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
       }),
     }),
   )
+  await page.route("**/pty/shells", (route) => route.fulfill({ json: [] }))
   await page.route("**/pty/pty_review_terminal*", (route) =>
     route.fulfill({
       status: 200,
@@ -139,7 +140,10 @@ test("keeps the review tree and terminal sized when both panels are open", async
   )
   await page.routeWebSocket("**/pty/pty_review_terminal/connect", () => undefined)
   await page.addInitScript(() => {
-    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    localStorage.setItem(
+      "settings.v3",
+      JSON.stringify({ general: { newLayoutDesigns: true, presentationMode: "simple" } }),
+    )
     localStorage.setItem(
       "opencode.global.dat:layout",
       JSON.stringify({ review: { diffStyle: "split", panelOpened: true } }),
@@ -157,6 +161,34 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expect(page.locator("#terminal-panel")).toBeVisible()
   await expectTree(page, 2_773, "action.yml")
   await expectStackGeometry(page)
+
+  const contextButton = page.getByRole("button", { name: "View context usage" })
+  const composer = page.locator('[data-component="prompt-input-v2"]')
+  const reviewPanel = page.locator("#review-panel")
+  const terminalPanel = page.locator("#terminal-panel")
+  await contextButton.click()
+  const contextTab = page.getByRole("tab", { name: "Context" })
+  await expect(contextTab).toHaveAttribute("data-selected", "")
+  await expect(contextTab.locator("[data-context-action-density]")).toHaveAttribute(
+    "data-context-action-density",
+    "compact",
+  )
+  await markMounted(composer, "composer")
+  await markMounted(reviewPanel, "review")
+  await markMounted(terminalPanel, "terminal")
+  await markMounted(contextTab, "context")
+  await selectAdvancedPresentation(page)
+  await expect(contextTab.locator("[data-context-action-density]")).toHaveAttribute(
+    "data-context-action-density",
+    "full",
+  )
+  await expect(contextTab).toHaveText("Context")
+  await expect(composer).toHaveAttribute("data-mounted-identity", "composer")
+  await expect(reviewPanel).toHaveAttribute("data-mounted-identity", "review")
+  await expect(terminalPanel).toHaveAttribute("data-mounted-identity", "terminal")
+  await expect(contextTab).toHaveAttribute("data-mounted-identity", "context")
+  await page.locator("#session-side-panel-review-tab").click()
+  await expectTree(page, 2_773, "action.yml")
 
   const treeViewport = page.locator('#review-panel [data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
   await treeViewport.hover()
@@ -241,6 +273,24 @@ async function selectMode(page: Page, current: string, next: string) {
   const option = page.getByRole("option", { name: next })
   await expect(option).toBeVisible()
   await option.click()
+}
+
+async function markMounted(locator: Locator, value: string) {
+  await locator.evaluate((element, identity) => element.setAttribute("data-mounted-identity", identity), value)
+}
+
+async function selectAdvancedPresentation(page: Page) {
+  await page.keyboard.press("Control+,")
+  const dialog = page.locator(".settings-v2-dialog")
+  await expect(dialog).toBeVisible()
+  const trigger = dialog.locator('[data-action="settings-presentation-mode"]').getByRole("button")
+  await trigger.press("Enter")
+  const option = page.locator('[role="option"]').filter({ hasText: /^Advanced$/ })
+  await expect(option).toBeVisible()
+  await option.press("Enter")
+  await expect(trigger).toHaveAccessibleName("Advanced")
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
 }
 
 async function expectTree(page: Page, total: number, file: string) {

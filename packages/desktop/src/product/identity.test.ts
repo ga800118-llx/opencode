@@ -48,7 +48,7 @@ describe("desktop product identity", () => {
 
   test("preserves beta and production release identities", () => {
     expect(getProductIdentity("beta")).toMatchObject({
-      name: "OpenCode Beta",
+      name: "Agent Desktop Beta",
       appId: "ai.opencode.desktop.beta",
       protocolScheme: "opencode",
       artifactPrefix: "opencode-desktop",
@@ -56,7 +56,7 @@ describe("desktop product identity", () => {
       publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
     })
     expect(getProductIdentity("prod")).toMatchObject({
-      name: "OpenCode",
+      name: "Agent Desktop",
       appId: "ai.opencode.desktop",
       protocolScheme: "opencode",
       artifactPrefix: "opencode-desktop",

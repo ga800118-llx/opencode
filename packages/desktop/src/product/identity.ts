@@ -40,7 +40,7 @@ const identities = Object.freeze({
   }),
   beta: defineProductIdentity({
     channel: "beta",
-    name: "OpenCode Beta",
+    name: "Agent Desktop Beta",
     appId: "ai.opencode.desktop.beta",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
@@ -50,7 +50,7 @@ const identities = Object.freeze({
   }),
   prod: defineProductIdentity({
     channel: "prod",
-    name: "OpenCode",
+    name: "Agent Desktop",
     appId: "ai.opencode.desktop",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",

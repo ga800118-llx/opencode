@@ -239,6 +239,7 @@ function TimelineDiffView(props: { diff: SummaryDiff }) {
 
 export function MessageTimeline(props: {
   actions?: UserActions
+  toolDetails: () => { shell: boolean; edit: boolean }
   scroll: { overflow: boolean; bottom: boolean; jump: boolean }
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
@@ -1037,7 +1038,7 @@ export function MessageTimeline(props: {
     const defaultOpen = createMemo(() => {
       const item = part()
       if (!item) return
-      return partDefaultOpen(item, settings.general.shellToolPartsExpanded(), settings.general.editToolPartsExpanded())
+      return partDefaultOpen(item, props.toolDetails().shell, props.toolDetails().edit)
     })
 
     return (

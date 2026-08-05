@@ -16,7 +16,7 @@ const channels = [
   {
     channel: "beta",
     appId: "ai.opencode.desktop.beta",
-    productName: "OpenCode Beta",
+    productName: "Agent Desktop Beta",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
     linuxPackageName: "opencode-beta",
@@ -25,7 +25,7 @@ const channels = [
   {
     channel: "prod",
     appId: "ai.opencode.desktop",
-    productName: "OpenCode",
+    productName: "Agent Desktop",
     protocolScheme: "opencode",
     artifactPrefix: "opencode-desktop",
     linuxPackageName: "opencode",

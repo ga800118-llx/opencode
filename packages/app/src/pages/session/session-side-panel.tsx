@@ -65,6 +65,7 @@ function renderDiff(value: ReviewDiff): value is RenderDiff {
 }
 
 export function SessionSidePanel(props: {
+  contextActionDensity: () => "compact" | "full"
   canReview: () => boolean
   diffs: () => ReviewDiff[]
   diffsReady: () => boolean
@@ -383,9 +384,18 @@ export function SessionSidePanel(props: {
                                   hideCloseButton
                                   onMiddleClick={() => tabs().close("context")}
                                 >
-                                  <div class="flex items-center gap-2">
+                                  <div
+                                    class="flex items-center gap-2"
+                                    data-context-action-density={props.contextActionDensity()}
+                                    title={language.t("session.tab.context")}
+                                  >
                                     <SessionContextUsage variant="indicator" />
-                                    <div>{language.t("session.tab.context")}</div>
+                                    <Show
+                                      when={props.contextActionDensity() === "full"}
+                                      fallback={<span class="sr-only">{language.t("session.tab.context")}</span>}
+                                    >
+                                      <div>{language.t("session.tab.context")}</div>
+                                    </Show>
                                   </div>
                                 </Tabs.Trigger>
                               </Show>
@@ -597,9 +607,18 @@ export function SessionSidePanel(props: {
                                 hideCloseButton
                                 onMiddleClick={() => tabs().close("context")}
                               >
-                                <div class="flex items-center gap-2">
+                                <div
+                                  class="flex items-center gap-2"
+                                  data-context-action-density={props.contextActionDensity()}
+                                  title={language.t("session.tab.context")}
+                                >
                                   <SessionContextUsage variant="indicator" />
-                                  <div>{language.t("session.tab.context")}</div>
+                                  <Show
+                                    when={props.contextActionDensity() === "full"}
+                                    fallback={<span class="sr-only">{language.t("session.tab.context")}</span>}
+                                  >
+                                    <div>{language.t("session.tab.context")}</div>
+                                  </Show>
                                 </div>
                               </Tabs.Trigger>
                             </Show>
