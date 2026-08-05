@@ -8,6 +8,11 @@ import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol } f
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
+import {
+  createDesktopProductPresentation,
+  preserveDesktopWindowTitle,
+  type DesktopProductPresentation,
+} from "../product/presentation"
 import { exportDebugLogs, write as writeLog } from "./logging"
 import { getStore, removeStoreFile } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
@@ -164,6 +169,7 @@ export function setDockIcon() {
 }
 
 export function createMainWindow(id: string = randomUUID()) {
+  const product = createDesktopProductPresentation(app.name)
   const state = windowState({
     file: windowStateFile(id),
     defaultWidth: 1280,
@@ -178,7 +184,7 @@ export function createMainWindow(id: string = randomUUID()) {
     height: state.height,
     show: false,
     autoHideMenuBar: true,
-    title: app.name,
+    title: product.name,
     icon: iconPath(),
     backgroundColor: backgroundColor ?? defaultBackgroundColor(),
     ...(process.platform === "darwin"
@@ -203,7 +209,8 @@ export function createMainWindow(id: string = randomUUID()) {
   })
 
   allowRendererPermissions(win)
-  wireWindowRecovery(win, id)
+  win.on("page-title-updated", (event) => preserveDesktopWindowTitle(product, event, win))
+  wireWindowRecovery(win, id, product)
 
   win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const { requestHeaders } = details
@@ -305,7 +312,7 @@ function loadWindow(win: BrowserWindow, html: string) {
   void win.loadURL(`${rendererProtocol}://${rendererHost}/${html}`)
 }
 
-function wireWindowRecovery(win: BrowserWindow, name: string) {
+function wireWindowRecovery(win: BrowserWindow, name: string, product: DesktopProductPresentation) {
   let showing = false
   const sampler = createUnresponsiveSampler(win, name)
 
@@ -374,7 +381,7 @@ function wireWindowRecovery(win: BrowserWindow, name: string) {
 
     if (!isMainFrame || errorCode === -3) return
     void show(
-      `${app.name} failed to load`,
+      product.recovery.loadFailed,
       [`Window: ${name}`, `URL: ${validatedURL}`, `Error: ${errorCode} ${errorDescription}`].join("\n"),
       false,
     )
@@ -390,7 +397,7 @@ function wireWindowRecovery(win: BrowserWindow, name: string) {
     sampler.stopAndFlush()
     writeLog("window", "renderer process gone", { window: name, currentURL: safeWindowURL(win), details }, "error")
     void show(
-      `${app.name} window terminated unexpectedly`,
+      product.recovery.processGone,
       [`Window: ${name}`, `Reason: ${details.reason}`, `Code: ${details.exitCode ?? "<unknown>"}`].join("\n"),
       false,
     )
@@ -398,7 +405,7 @@ function wireWindowRecovery(win: BrowserWindow, name: string) {
   win.on("unresponsive", () => {
     writeLog("window", "renderer unresponsive", { window: name, currentURL: safeWindowURL(win) }, "error")
     sampler.start()
-    void show(`${app.name} is not responding`, "You can relaunch the app, open the logs, or keep waiting.", true)
+    void show(product.recovery.unresponsive, "You can relaunch the app, open the logs, or keep waiting.", true)
   })
   win.on("responsive", () => {
     writeLog("window", "renderer responsive", { window: name, currentURL: safeWindowURL(win) }, "error")

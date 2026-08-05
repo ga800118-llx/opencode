@@ -84,7 +84,7 @@ import {
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
-import { createTaskPresentation } from "@/pages/session/task-presentation"
+import { createTaskPresentation, createTaskToolDetails, sameTaskToolDetails } from "@/pages/session/task-presentation"
 import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
 import { SessionReviewEmptyNoGitV2 } from "@opencode-ai/session-ui/v2/session-review-empty-no-git-v2"
 import { SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
@@ -525,6 +525,16 @@ export default function Page() {
         status: settings.visibility.status(),
       },
     }),
+  )
+  const toolDetails = createMemo(
+    () =>
+      createTaskToolDetails({
+        mode: settings.general.presentationMode(),
+        shellToolPartsExpanded: settings.general.shellToolPartsExpanded(),
+        editToolPartsExpanded: settings.general.editToolPartsExpanded(),
+      }),
+    undefined,
+    { equals: sameTaskToolDetails },
   )
 
   function normalizeTab(tab: string) {
@@ -2098,7 +2108,7 @@ export default function Page() {
               {(_id) => (
                 <MessageTimeline
                   actions={actions}
-                  toolDetails={() => taskPresentation().toolDetails}
+                  toolDetails={toolDetails}
                   scroll={ui.scroll}
                   onResumeScroll={resumeScroll}
                   setScrollRef={setScrollRef}

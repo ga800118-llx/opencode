@@ -8,9 +8,14 @@ export type TaskPresentationVisibility = Readonly<{
   status: boolean
 }>
 
+export type TaskToolDetails = Readonly<{
+  shell: boolean
+  edit: boolean
+}>
+
 export type TaskPresentation = Readonly<{
   mode: ProductPresentationMode
-  toolDetails: Readonly<{ shell: boolean; edit: boolean }>
+  toolDetails: TaskToolDetails
   contextActionDensity: "compact" | "full"
   visibility: TaskPresentationVisibility
   capabilities: Readonly<{
@@ -47,12 +52,25 @@ export function createTaskPresentation(input: {
   const advanced = input.mode === "advanced"
   return Object.freeze({
     mode: input.mode,
-    toolDetails: Object.freeze({
-      shell: advanced && input.shellToolPartsExpanded,
-      edit: advanced && input.editToolPartsExpanded,
-    }),
+    toolDetails: createTaskToolDetails(input),
     contextActionDensity: advanced ? "full" : "compact",
     visibility: Object.freeze({ ...input.visibility }),
     capabilities,
   })
+}
+
+export function createTaskToolDetails(input: {
+  mode: ProductPresentationMode
+  shellToolPartsExpanded: boolean
+  editToolPartsExpanded: boolean
+}): TaskToolDetails {
+  const advanced = input.mode === "advanced"
+  return Object.freeze({
+    shell: advanced && input.shellToolPartsExpanded,
+    edit: advanced && input.editToolPartsExpanded,
+  })
+}
+
+export function sameTaskToolDetails(previous: TaskToolDetails, next: TaskToolDetails) {
+  return previous.shell === next.shell && previous.edit === next.edit
 }

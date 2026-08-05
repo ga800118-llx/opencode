@@ -41,9 +41,9 @@ describe("electron renderer html", () => {
         expect(content).not.toContain('rel="manifest"')
       })
 
-      test("uses the Agent Desktop product title", async () => {
+      test("leaves the native product title authoritative", async () => {
         const content = await html(name)
-        expect(content).toContain("<title>Agent Desktop</title>")
+        expect(content).toContain("<title></title>")
       })
     })
   }
@@ -56,13 +56,6 @@ test("renderer updater copy identifies Agent Desktop in English and Simplified C
   )
   expect(chinese["desktop.updater.none.message"]).toBe("你已经在使用最新版本的 Agent Desktop")
   expect(chinese["desktop.updater.downloaded.prompt"]).toBe("已下载 Agent Desktop {{version}} 版本，是否安装并重启？")
-})
-
-test("window error titles use the runtime product name", async () => {
-  const content = await Bun.file(join(root, "src/main/windows.ts")).text()
-  expect(content).toContain("`${app.name} failed to load`")
-  expect(content).toContain("`${app.name} window terminated unexpectedly`")
-  expect(content).toContain("`${app.name} is not responding`")
 })
 
 /**

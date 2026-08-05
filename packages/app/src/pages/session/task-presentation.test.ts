@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createTaskPresentation } from "./task-presentation"
+import { createTaskPresentation, createTaskToolDetails, sameTaskToolDetails } from "./task-presentation"
 
 const visibility = {
   review: true,
@@ -58,5 +58,23 @@ describe("createTaskPresentation", () => {
       })
       expect(Object.isFrozen(presentation.capabilities)).toBe(true)
     }
+  })
+
+  test("compares tool detail policy independently from panel visibility", () => {
+    const simple = createTaskToolDetails({
+      mode: "simple",
+      shellToolPartsExpanded: true,
+      editToolPartsExpanded: true,
+    })
+    const advanced = createTaskToolDetails({
+      mode: "advanced",
+      shellToolPartsExpanded: true,
+      editToolPartsExpanded: true,
+    })
+
+    expect(simple).toEqual({ shell: false, edit: false })
+    expect(advanced).toEqual({ shell: true, edit: true })
+    expect(sameTaskToolDetails(simple, { shell: false, edit: false })).toBe(true)
+    expect(sameTaskToolDetails(advanced, { shell: true, edit: false })).toBe(false)
   })
 })

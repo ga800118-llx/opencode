@@ -5,7 +5,93 @@ import { expectSessionTitle } from "../utils/waits"
 const directory = "C:/OpenCode/ReviewTerminalStacked"
 const projectID = "proj_review_terminal_stacked"
 const sessionID = "ses_review_terminal_stacked"
+const userMessageID = "msg_review_terminal_user"
+const assistantMessageID = "msg_review_terminal_assistant"
+const shellPartID = "prt_review_terminal_shell"
+const editPartID = "prt_review_terminal_edit"
 const title = "Review terminal stacked"
+const userMessage = {
+  info: {
+    id: userMessageID,
+    sessionID,
+    role: "user",
+    time: { created: 1700000000000 },
+    summary: { diffs: [] },
+    agent: "build",
+    model: { providerID: "opencode", modelID: "test" },
+  },
+  parts: [
+    {
+      id: "prt_review_terminal_user_text",
+      sessionID,
+      messageID: userMessageID,
+      type: "text",
+      text: "Run the focused tests and update the implementation.",
+    },
+  ],
+}
+const assistantMessage = {
+  info: {
+    id: assistantMessageID,
+    sessionID,
+    role: "assistant",
+    time: { created: 1700000001000, completed: 1700000003000 },
+    parentID: userMessageID,
+    modelID: "test",
+    providerID: "opencode",
+    mode: "build",
+    agent: "build",
+    path: { cwd: directory, root: directory },
+    cost: 0.01,
+    tokens: { input: 100, output: 200, reasoning: 0, cache: { read: 0, write: 0 } },
+  },
+  parts: [
+    {
+      id: shellPartID,
+      sessionID,
+      messageID: assistantMessageID,
+      type: "tool",
+      callID: "call_review_terminal_shell",
+      tool: "bash",
+      state: {
+        status: "completed",
+        input: { command: "bun test src/pages/session/task-presentation.test.ts" },
+        output: "4 pass\n0 fail",
+        title: "bun test src/pages/session/task-presentation.test.ts",
+        metadata: {
+          command: "bun test src/pages/session/task-presentation.test.ts",
+          output: "4 pass\n0 fail",
+        },
+        time: { start: 1700000001000, end: 1700000002000 },
+      },
+    },
+    {
+      id: editPartID,
+      sessionID,
+      messageID: assistantMessageID,
+      type: "tool",
+      callID: "call_review_terminal_edit",
+      tool: "edit",
+      state: {
+        status: "completed",
+        input: { filePath: "src/pages/session/task-presentation.ts" },
+        output: "Edited src/pages/session/task-presentation.ts",
+        title: "src/pages/session/task-presentation.ts",
+        metadata: {
+          filediff: {
+            file: "src/pages/session/task-presentation.ts",
+            additions: 1,
+            deletions: 1,
+            before: "const compact = false\n",
+            after: "const compact = true\n",
+          },
+          diff: "@@ -1 +1 @@\n-const compact = false\n+const compact = true",
+        },
+        time: { start: 1700000002000, end: 1700000003000 },
+      },
+    },
+  ],
+}
 const branchDiffs = [
   fileDiff(".github/actions/setup-bun/action.yml", 7),
   ...Array.from({ length: 2_739 }, (_, index) =>
@@ -58,7 +144,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
       },
     ],
     sessionStatus: () => sessionStatus,
-    pageMessages: () => ({ items: [] }),
+    pageMessages: () => ({ items: [userMessage, assistantMessage] }),
     events: () => events.splice(0, 1),
     eventRetry: 16,
   })
@@ -142,7 +228,14 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await page.addInitScript(() => {
     localStorage.setItem(
       "settings.v3",
-      JSON.stringify({ general: { newLayoutDesigns: true, presentationMode: "simple" } }),
+      JSON.stringify({
+        general: {
+          newLayoutDesigns: true,
+          presentationMode: "simple",
+          shellToolPartsExpanded: true,
+          editToolPartsExpanded: true,
+        },
+      }),
     )
     localStorage.setItem(
       "opencode.global.dat:layout",
@@ -162,6 +255,13 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expectTree(page, 2_773, "action.yml")
   await expectStackGeometry(page)
 
+  const shellPart = page.locator(`[data-timeline-part-id="${shellPartID}"]`)
+  const editPart = page.locator(`[data-timeline-part-id="${editPartID}"]`)
+  await expect(shellPart).toBeVisible()
+  await expect(editPart).toBeVisible()
+  await expectToolExpanded(shellPart, false)
+  await expectToolExpanded(editPart, false)
+
   const contextButton = page.getByRole("button", { name: "View context usage" })
   const composer = page.locator('[data-component="prompt-input-v2"]')
   const reviewPanel = page.locator("#review-panel")
@@ -177,6 +277,8 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await markMounted(reviewPanel, "review")
   await markMounted(terminalPanel, "terminal")
   await markMounted(contextTab, "context")
+  await markMounted(shellPart, "shell")
+  await markMounted(editPart, "edit")
   await selectAdvancedPresentation(page)
   await expect(contextTab.locator("[data-context-action-density]")).toHaveAttribute(
     "data-context-action-density",
@@ -187,6 +289,10 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expect(reviewPanel).toHaveAttribute("data-mounted-identity", "review")
   await expect(terminalPanel).toHaveAttribute("data-mounted-identity", "terminal")
   await expect(contextTab).toHaveAttribute("data-mounted-identity", "context")
+  await expect(shellPart).toHaveAttribute("data-mounted-identity", "shell")
+  await expect(editPart).toHaveAttribute("data-mounted-identity", "edit")
+  await expectToolExpanded(shellPart, true)
+  await expectToolExpanded(editPart, true)
   await page.locator("#session-side-panel-review-tab").click()
   await expectTree(page, 2_773, "action.yml")
 
@@ -277,6 +383,24 @@ async function selectMode(page: Page, current: string, next: string) {
 
 async function markMounted(locator: Locator, value: string) {
   await locator.evaluate((element, identity) => element.setAttribute("data-mounted-identity", identity), value)
+}
+
+async function expectToolExpanded(locator: Locator, expected: boolean) {
+  await expect.poll(() => locator.evaluate(readExpanded)).toBe(expected)
+}
+
+function readExpanded(element: Element) {
+  const trigger = element.querySelector('[data-slot="collapsible-trigger"]')
+  const expanded = trigger?.getAttribute("aria-expanded")
+  if (expanded === "true") return true
+  if (expanded === "false") return false
+
+  const root = element.querySelector('[data-component="collapsible"]')
+  if (root?.hasAttribute("data-expanded")) return true
+  if (root?.hasAttribute("data-closed")) return false
+
+  const content = element.querySelector<HTMLElement>('[data-slot="collapsible-content"]')
+  return !!content && content.getBoundingClientRect().height > 0
 }
 
 async function selectAdvancedPresentation(page: Page) {
