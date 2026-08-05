@@ -790,8 +790,7 @@ body[data-new-layout]
   #review-panel
   [data-component="tabs"]
   .session-review-v2-tabs-bar
-  [data-slot="tabs-list"]
-  > .sticky {
+  .session-review-v2-open-file-slot {
   padding-right: 0;
 
   [data-component="icon-button-v2"] {
@@ -815,8 +814,7 @@ body[data-new-layout]
   #review-panel
   [data-component="tabs"]
   .session-review-v2-tabs-bar
-  [data-slot="tabs-list"]
-  > .session-review-v2-sidebar-toggle-slot.sticky {
+  .session-review-v2-sidebar-toggle-slot {
   padding-right: 0;
 
   &::before {

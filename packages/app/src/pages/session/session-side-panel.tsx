@@ -554,6 +554,13 @@ export function SessionSidePanel(props: {
                     >
                       <Tabs value={activeTab()} onChange={activateTab}>
                         <div class="session-review-v2-tabs-bar sticky top-0 shrink-0 flex items-center">
+                          <Show when={props.reviewSidebarToggle}>
+                            {(toggle) => (
+                              <div class="session-review-v2-sidebar-toggle-slot h-full shrink-0 flex items-center justify-center bg-v2-background-bg-base">
+                                {toggle()(activeTab() === SESSION_OPEN_FILE_TAB)}
+                              </div>
+                            )}
+                          </Show>
                           <Tabs.List
                             ref={(el: HTMLDivElement) => {
                               tabList = el
@@ -561,13 +568,6 @@ export function SessionSidePanel(props: {
                               onCleanup(stop)
                             }}
                           >
-                            <Show when={props.reviewSidebarToggle}>
-                              {(toggle) => (
-                                <div class="session-review-v2-sidebar-toggle-slot h-full shrink-0 sticky left-0 z-10 flex items-center justify-center bg-v2-background-bg-base">
-                                  {toggle()(activeTab() === SESSION_OPEN_FILE_TAB)}
-                                </div>
-                              )}
-                            </Show>
                             <Show when={reviewTab() && props.canReview()}>
                               <Tabs.Trigger
                                 value="review"
@@ -671,35 +671,35 @@ export function SessionSidePanel(props: {
                                 </Show>
                               )}
                             </For>
-                            <div
-                              class="h-full shrink-0 sticky right-0 z-10 flex items-center justify-center"
-                              classList={{
-                                "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
-                                "bg-background-stronger": !settings.general.newLayoutDesigns(),
-                              }}
-                            >
-                              <TooltipV2
-                                value={
-                                  <>
-                                    {language.t("command.file.open")}
-                                    <Show when={openFileKeybind().length > 0}>
-                                      <KeybindV2 keys={openFileKeybind()} variant="neutral" />
-                                    </Show>
-                                  </>
-                                }
-                                placement="bottom"
-                                class="flex items-center"
-                              >
-                                <IconButtonV2
-                                  icon={<Icon name="plus-small" />}
-                                  variant="ghost-muted"
-                                  size="large"
-                                  onClick={() => openFileBrowser()}
-                                  aria-label={language.t("command.file.open")}
-                                />
-                              </TooltipV2>
-                            </div>
                           </Tabs.List>
+                          <div
+                            class="session-review-v2-open-file-slot h-full shrink-0 flex items-center justify-center"
+                            classList={{
+                              "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                              "bg-background-stronger": !settings.general.newLayoutDesigns(),
+                            }}
+                          >
+                            <TooltipV2
+                              value={
+                                <>
+                                  {language.t("command.file.open")}
+                                  <Show when={openFileKeybind().length > 0}>
+                                    <KeybindV2 keys={openFileKeybind()} variant="neutral" />
+                                  </Show>
+                                </>
+                              }
+                              placement="bottom"
+                              class="flex items-center"
+                            >
+                              <IconButtonV2
+                                icon={<Icon name="plus-small" />}
+                                variant="ghost-muted"
+                                size="large"
+                                onClick={() => openFileBrowser()}
+                                aria-label={language.t("command.file.open")}
+                              />
+                            </TooltipV2>
+                          </div>
                           <div
                             class="session-review-v2-open-in-app-slot shrink-0 flex items-center pr-3"
                             onPointerDown={(event) => event.stopPropagation()}
