@@ -355,26 +355,26 @@ paths retain their existing behavior.
 - Modify: `packages/app/src/i18n/en.ts`
 - Modify: `packages/app/src/i18n/zh.ts`
 
-- [ ] **Step 1: Write failing presentation-policy tests**
+- [x] **Step 1: Write failing presentation-policy tests**
 
 Assert Simple keeps composer, project selection, model selection, attachments,
 and submit visible while making worktree/git and provider-promotion details
 secondary. Assert Advanced exposes the complete existing control set.
 
-- [ ] **Step 2: Implement presentation without duplicating the composer**
+- [x] **Step 2: Implement presentation without duplicating the composer**
 
 Pass presentation state into `NewSessionView`; reuse one
 `PromptInputV2Composer`. Add a compact New task heading/supporting state only if
 it improves hierarchy without moving the composer below the first viewport.
 Use existing responsive constraints and keep the next section visible.
 
-- [ ] **Step 3: Preserve draft and selection during mode switching**
+- [x] **Step 3: Preserve draft and selection during mode switching**
 
 Mode changes must not remount the draft controller, reset prompt text, restore a
 different worktree, or change the selected model. Add a mounted component test
 covering a non-empty draft.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
