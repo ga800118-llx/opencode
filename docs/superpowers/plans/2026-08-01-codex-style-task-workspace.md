@@ -401,26 +401,26 @@ Expected: submission still promotes the draft through the existing task adapter.
 - Modify: `packages/desktop/src/product/identity.ts`
 - Modify: focused Desktop identity tests
 
-- [ ] **Step 1: Write failing task-presentation tests**
+- [x] **Step 1: Write failing task-presentation tests**
 
 Assert Simple uses existing collapsed tool-detail defaults and compact context
 actions, while Advanced honors all existing review/file/terminal/agent/status
 visibility settings. Assert both modes retain review, terminal, files,
 permissions, questions, attachments, child sessions, commands, and model access.
 
-- [ ] **Step 2: Integrate presentation state into existing layout helpers**
+- [x] **Step 2: Integrate presentation state into existing layout helpers**
 
 Do not fork `Page`, timeline, composer, review, or terminal trees. Derive only
 initial visibility and labels through a pure task-presentation policy. Existing
 user toggles and keyboard commands remain authoritative.
 
-- [ ] **Step 3: Apply Agent Desktop identity copy**
+- [x] **Step 3: Apply Agent Desktop identity copy**
 
 Use the existing centralized Desktop product identity. Update product-facing
 English/Simplified Chinese desktop labels without changing OpenCode API names,
 configuration namespaces, protocol compatibility, or third-party attribution.
 
-- [ ] **Step 4: Verify full App/Desktop tests and commit**
+- [x] **Step 4: Verify full App/Desktop tests and commit**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
