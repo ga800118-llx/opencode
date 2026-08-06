@@ -97,7 +97,10 @@ commands, snapshots, results, relaunch checks, DB output, matrix summary, and
 final listener/process cleanup. `task-management-db.txt` records session IDs,
 titles, creation/archive timestamps, message counts, summary counts, and the
 database SHA-256
-`a3a57d691e8344293dd5907b935eeaca9e40e6c5b7248ecb998c708cdd10cff5`.
+`2baabdf8bafdb61372118b538809cc169b04882f3af6d7e07d382010d126ca1e`.
+The hash was computed after `PRAGMA wal_checkpoint(TRUNCATE)` returned
+`busy=0`, `log=0`, and `checkpointed=0`; the retained WAL is zero bytes and the
+SHM is a transient index with no database pages pending.
 
 ### Technical Surfaces And Permissions
 
