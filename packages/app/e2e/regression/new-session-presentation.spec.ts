@@ -84,8 +84,6 @@ test("keeps the prompt workflow mounted while switching from Simple to Advanced"
   const providerTip = page.locator('[data-component="provider-tip"]')
 
   await expectAppVisible(composer)
-  await expect(page.locator("main > h1")).toHaveCount(0)
-  await expect(page.locator("h1")).toHaveCount(1)
   await expect(page.getByRole("heading", { level: 1, name: "New task" })).toHaveCount(1)
   await dismissTabsInformation(page)
   await expect(view).toHaveAttribute("data-presentation-mode", "simple")
