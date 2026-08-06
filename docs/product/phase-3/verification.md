@@ -3,9 +3,10 @@
 ## Result
 
 **PASS.** The macOS arm64 development candidate completed the Task 8 static,
-packaged-workflow, recovery, accessibility, startup, isolation, and secret
-gates. This is an unsigned/adhoc development artifact. Signing, notarization,
-distribution readiness, and distribution license/notice review remain deferred.
+packaged-workflow, durable task-management, visual, recovery, accessibility,
+startup, isolation, and secret gates. This is an unsigned/adhoc development
+artifact. Signing, notarization, distribution readiness, and distribution
+license/notice review remain deferred.
 
 ## Environment
 
@@ -24,19 +25,25 @@ distribution readiness, and distribution license/notice review remain deferred.
 
 ## Automated Gates
 
-| Gate                  | Result                                                            |
-| --------------------- | ----------------------------------------------------------------- |
-| Frozen install        | 2,419 installs across 2,710 packages; no changes                  |
-| App discovery run     | 860 passed, 0 failed, 2,207 assertions across 125 files           |
-| App scripted unit run | 860 passed, 0 failed, 2,207 assertions across 125 files           |
-| App browser run       | 39 passed, 0 failed, 96 assertions across 14 files                |
-| App scripted total    | 899 passed, 0 failed, 2,303 assertions                            |
-| App typecheck         | `bun run typecheck` passed                                        |
-| App E2E typecheck     | `bun run typecheck:e2e` passed                                    |
-| Desktop               | 149 passed, 0 failed, 462 assertions; typecheck passed            |
-| UI focused            | 8 passed, 0 failed, 16 assertions; typecheck passed               |
-| Root lint             | 4,872 warnings and 0 errors                                       |
-| Protected diff        | No changes from `v1.18.10` in Core, OpenCode, Server, or Protocol |
+| Gate                  | Result                                                               |
+| --------------------- | -------------------------------------------------------------------- |
+| Frozen install        | Bun 1.3.14; 2,419 installs across 2,710 packages; exit 0, no changes |
+| App discovery run     | 860 passed, 0 failed, 2,207 assertions across 125 files              |
+| App scripted unit run | 860 passed, 0 failed, 2,207 assertions across 125 files              |
+| App browser run       | 39 passed, 0 failed, 96 assertions across 14 files                   |
+| App scripted total    | 899 passed, 0 failed, 2,303 assertions                               |
+| App typecheck         | `bun run typecheck` passed                                           |
+| App E2E typecheck     | `bun run typecheck:e2e` passed                                       |
+| Desktop               | 149 passed, 0 failed, 462 assertions; typecheck passed               |
+| UI focused            | 8 passed, 0 failed, 16 assertions; typecheck passed                  |
+| Root lint             | 4,872 warnings and 0 errors                                          |
+| Protected diff        | No changes from `v1.18.10` in Core, OpenCode, Server, or Protocol    |
+
+`gate-logs/frozen-install.log` retains the prescribed root command, Bun version,
+stdout/stderr, exit code, before/after Git status, and unchanged lockfile hash
+`e3c51b315182eb68ca7865351675a05d55d86c2a792462adb510999cc47d6185`.
+The only status entries before and after were the user-owned `.superpowers/`
+files; the install changed neither them nor tracked files.
 
 The UI log first records a mistyped, nonmatching test path, followed by the
 corrected focused command and its passing total above. This was a command typo,
@@ -68,17 +75,29 @@ composer submissions reached the configured fixture, streamed, and returned
 
 A clean profile opened in Simple mode. Switching to Advanced preserved the
 active task, multiple task tabs, a non-empty draft, selected `coder` model,
-review/context state, and terminal state. A complete process relaunch preserved
-the presentation mode, selected model, active task, and task history. The
-restored terminal recreated its process-local PTY after one sanitized
-`PTY session not found` warning without blocking initialization.
+review/context state, and terminal state. A complete process termination and
+fresh launch of the same package preserved Advanced mode, selected `coder`
+model, active task `ses_02b35ef8cffeqnMQkYM3m0ljhJ`, two task tabs, and task
+history. The restored terminal recreated its process-local PTY after one
+sanitized `PTY session not found` warning without blocking initialization.
 
 ### Task Management
 
-Acceptance created and opened multiple tasks, searched history, archived a
-task, and resumed the remaining task. The composer, task tabs, Home history,
-draft, selected agent/model, and active task stayed coherent through mode
-changes and relaunch.
+Acceptance submitted real composer requests for two additional durable tasks;
+each has two persisted messages. The final SQLite dump in
+`task-management-db.txt` proves three total sessions, two active sessions, one
+archived session, and two Task 8-created durable sessions. History search found
+the `New session` task, which was opened and archived as
+`ses_02b372ea7ffeY7SNKwuyUsODjP` at `2026-08-06 01:58:16 UTC`. The other new
+task, `ses_02b35ef8cffeqnMQkYM3m0ljhJ`, was opened and remained active after a
+complete process relaunch with Advanced mode and `coder` selected.
+
+`gate-logs/task-management-acceptance.log` retains timestamped agent-browser
+commands, snapshots, results, relaunch checks, DB output, matrix summary, and
+final listener/process cleanup. `task-management-db.txt` records session IDs,
+titles, creation/archive timestamps, message counts, summary counts, and the
+database SHA-256
+`a3a57d691e8344293dd5907b935eeaca9e40e6c5b7248ecb998c708cdd10cff5`.
 
 ### Technical Surfaces And Permissions
 
@@ -121,23 +140,37 @@ All medians pass the Phase 0 boundaries.
 
 ## Visual Matrix
 
-English and Simplified Chinese were inspected in Simple and Advanced at
-1440x900, 1024x768, and 720x800: 12 locale/mode/viewport states. Body and root
-client/scroll geometry matched at every size, with no document-level overflow,
-blank task panel, clipped primary control, incoherent overlap, focus loss, or
-mode-switch layout shift.
+The final exact-candidate matrix retains all 12 English/Simplified Chinese x
+Simple/Advanced x 1440x900/1024x768/720x800 screenshots under `visuals/`.
+Agent-browser captured Settings > General, where the selected Interface mode
+and Language values visibly distinguish every state. Screenshots have the exact
+pixel dimensions named in their filenames, including a true 720x800 renderer
+surface with no black area below it.
 
-The first 720x800 Electron capture showed black below the resized window because
-the capture included area outside the renderer's visible backing surface. The
-final `visuals/720x800-visible-size.png` used `Emulation.setVisibleSize`; its
-1,440x1,600 Retina pixels represent a true 720x800 visible area and are fully
-filled while DOM and main bounds remain 720x800. This is capture geometry, not
-document blanking. The final localized-start state shows the reactive Chinese
-composer placeholder `随便问点什么...`; the earlier English placeholder was
-captured before the locale-switch reload completed.
+`visuals/visual-matrix-manifest.json` records the package hashes, CDP capture
+method, exact locale/mode state, screenshot dimensions and SHA-256, body/root
+geometry, dialog and control bounds, overflow, overlap, renderer-fill, and
+blank-state checks. All 12 entries report renderer fill, no document overflow,
+dialog/mode/language controls inside the viewport, no primary-control overlap,
+and nonblank content.
 
-The documentation captures are exact 2x Retina images of the 1440x900 packaged
-workspace:
+| Locale | Mode     | Viewport | Retained screenshot                   | SHA-256                                                            |
+| ------ | -------- | -------- | ------------------------------------- | ------------------------------------------------------------------ |
+| EN     | Simple   | 1440x900 | `visuals/en-simple-1440x900.png`      | `2bf21141aa83ad65bdbfa9e4aca950dce8d09715eda8ee5f7584ca0ce40a9ab5` |
+| EN     | Simple   | 1024x768 | `visuals/en-simple-1024x768.png`      | `857a59c74a5fd82a679a26f0d012e7aa9507e8e3b36632fc29214571e3f5b87b` |
+| EN     | Simple   | 720x800  | `visuals/en-simple-720x800.png`       | `7c8b73d18d2936b654e57f71482d83be2302f025cac26339deb5a5d181af5835` |
+| EN     | Advanced | 1440x900 | `visuals/en-advanced-1440x900.png`    | `7276734eeee81a1f4b7d3706cf447d7fe7b44a8a603a9f5f33c183dd14d0fb72` |
+| EN     | Advanced | 1024x768 | `visuals/en-advanced-1024x768.png`    | `300e559462d514bd106fcc4692e5a481ebdb9529bb967362118d86af0148121f` |
+| EN     | Advanced | 720x800  | `visuals/en-advanced-720x800.png`     | `8582fb451c56797f5dda38d5ff931dd670b86ea01930c5ebfcde22d019fb6ef1` |
+| zh-CN  | Simple   | 1440x900 | `visuals/zh-CN-simple-1440x900.png`   | `3148efda5cd242d0403e7fa1315135daf1ac3fa4231725cbf3e64cc6f47efced` |
+| zh-CN  | Simple   | 1024x768 | `visuals/zh-CN-simple-1024x768.png`   | `701d17faf6dedbc1d0590f57cbb9cd828c4833ef434e1b5398a0a7d2b5f16a56` |
+| zh-CN  | Simple   | 720x800  | `visuals/zh-CN-simple-720x800.png`    | `be71eff29e7007eb2a8d7c329cc485cf33721025c5847918368d9f9edb677594` |
+| zh-CN  | Advanced | 1440x900 | `visuals/zh-CN-advanced-1440x900.png` | `6c3f920fa718341eb6a606749575f3624257672d1c2b02cb7b16fcb0ebf44d37` |
+| zh-CN  | Advanced | 1024x768 | `visuals/zh-CN-advanced-1024x768.png` | `2c55f103db863fcc186594d67886413bf5c574d1fd6259419e24e88c660f139f` |
+| zh-CN  | Advanced | 720x800  | `visuals/zh-CN-advanced-720x800.png`  | `9c90cf25a8a82c997495e1c7c9ed2a9565f733912e0c3161c95676c1023e5729` |
+
+The documentation captures are the visibly distinct exact-candidate English
+1440x900 Settings > General Simple and Advanced states:
 
 ![Simple task workspace](artifacts/task-workspace-simple.png)
 
@@ -166,12 +199,16 @@ Models settings.
 
 ## Security And Isolation
 
-The complete scan covered the acceptance root and package output: fresh user
-data, Chromium caches and databases, logs and every `network.netlog`, sidecar
-XDG config/data/cache/state, diagnostics ZIP and extracted contents, source and
-copied app bundles, extracted ZIP, raw ZIP/DMG, and mounted DMG. Both fixture
-credential canaries returned `PLAINTEXT_MATCH_FILES=0`; the raw/mounted DMG
-check independently returned `DMG_PLAINTEXT_MATCH_FILES=0`.
+`gate-logs/security-scan.log` retains the reproducible binary-safe fixed-string
+method, hashes for both fixture canary classes without printing their values,
+per-scope commands, locations, file counts, match counts, results, and package
+hashes. Its 24 scope/class observations cover both canary classes across the
+complete acceptance root, user data, XDG config/data/cache/state, Chromium
+caches/databases, logs/network data, extracted diagnostics ZIP, source app
+bundle, raw ZIP, raw DMG, extracted ZIP, byte-identical package copy, and
+read-only mounted DMG. Every observation has zero matches; the DMG was detached
+and `secret-scan.txt` is synchronized at `PLAINTEXT_MATCH_FILES=0` and
+`DMG_PLAINTEXT_MATCH_FILES=0`.
 
 Profile metadata and IPC views remained renderer-safe. Credentials were stored
 by the product credential service using macOS `safeStorage`; package and sidecar
@@ -188,9 +225,8 @@ production release profile was written.
 | `agent-desktop-dev-mac-arm64.zip` |                 - | `c986c44e1a7d78d171b510870f6c0b6be15453d18950fec57dc9b94423c63633` |
 | `agent-desktop-dev-mac-arm64.dmg` |                 - | `70392fb5e51caddd221ea425b27c04e49e5a132413c2a22ac21e601d998d72a7` |
 | Packaged `opencode-cli`           | 144,371,024 bytes | `97d65671c27949869e4d3e9e90b596d9b9b81cd00ca7b3d602d409a06c83612e` |
-| `task-workspace-simple.png`       |         2880x1800 | `96bea95dd08421779955bc04c53d66220ebfc50eb18c89a073d13cf972a65002` |
-| `task-workspace-advanced.png`     |         2880x1800 | `f9fb0e6300fdaec211fdf2c83037921c4fa8c1ced97c6b64cf32926b32e9e069` |
-| `720x800-visible-size.png`        |         1440x1600 | `02ba0bc9155ccf89df18104a6a4f172893b67e93616d9b76fd9a88c8f288f62e` |
+| `task-workspace-simple.png`       |          1440x900 | `2bf21141aa83ad65bdbfa9e4aca950dce8d09715eda8ee5f7584ca0ce40a9ab5` |
+| `task-workspace-advanced.png`     |          1440x900 | `7276734eeee81a1f4b7d3706cf447d7fe7b44a8a603a9f5f33c183dd14d0fb72` |
 
 ## Deferred Risks
 
