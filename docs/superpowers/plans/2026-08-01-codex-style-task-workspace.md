@@ -448,7 +448,7 @@ Expected: full App and Desktop suites pass with no protected-runtime diff.
 - Modify: `docs/product/baseline/feature-parity.md`
 - Modify: this plan as tasks complete
 
-- [ ] **Step 1: Run static and unit gates**
+- [x] **Step 1: Run static and unit gates**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -461,7 +461,7 @@ cd ../.. && bun run lint
 Record exact test totals, assertion totals, lint errors/warnings, and any
 pre-existing warnings separately.
 
-- [ ] **Step 2: Build and package the exact candidate**
+- [x] **Step 2: Build and package the exact candidate**
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -473,7 +473,7 @@ bun run package
 Record app.asar, ZIP, and DMG SHA-256 hashes. Use a fresh acceptance data root,
 never a developer profile reused from earlier smoke tests.
 
-- [ ] **Step 3: Run Agent Browser workflow acceptance**
+- [x] **Step 3: Run Agent Browser workflow acceptance**
 
 On the exact packaged candidate verify:
 
@@ -486,7 +486,7 @@ On the exact packaged candidate verify:
 7. simulate sanitized sidecar failure, restart, and export diagnostics;
 8. restart the app and confirm selected mode/model/task continuity.
 
-- [ ] **Step 4: Run visual and accessibility acceptance**
+- [x] **Step 4: Run visual and accessibility acceptance**
 
 Capture 1440x900, 1024x768, and 720x800 in English and Simplified Chinese.
 Inspect for overflow, overlap, clipped controls, blank panels, focus loss, and
@@ -494,7 +494,7 @@ layout shift. Run axe-core on Home, New Task, active Task, General settings in
 both modes, Models settings, and sidecar failure banner. Require zero violations
 or document and fix the responsible code before continuing.
 
-- [ ] **Step 5: Run security and isolation checks**
+- [x] **Step 5: Run security and isolation checks**
 
 ```bash
 git diff --exit-code v1.18.10...HEAD -- \
@@ -505,13 +505,13 @@ Scan the complete packaged data root, caches, logs, network data, sidecar config
 and package output for fixture credentials. Require zero plaintext matches.
 Confirm only the current app data root and product identity were used.
 
-- [ ] **Step 6: Update parity and verification evidence**
+- [x] **Step 6: Update parity and verification evidence**
 
 For every baseline row, name the exact visual route in Simple and Advanced and
 the test or packaged acceptance evidence. Mark Windows credential backend and
 Windows packaging as deferred; do not imply support not exercised in Phase 3.
 
-- [ ] **Step 7: Commit documentation**
+- [x] **Step 7: Commit documentation**
 
 ```bash
 git add docs/product/phase-3 docs/product/baseline/feature-parity.md \
