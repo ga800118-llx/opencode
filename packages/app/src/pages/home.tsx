@@ -24,6 +24,7 @@ export function NewHome() {
         bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]
       `}
     >
+      <h1 class="sr-only">{sessions.copy.language.t("home.title")}</h1>
       <ScrollView
         aria-label={sessions.copy.language.t("home.title")}
         class="h-full [container-type:size]"

@@ -253,6 +253,7 @@ function HomeSessionSearch(props: HomeSessionsViewProps) {
                       <ScrollView
                         aria-label={props.language.t("home.sessions.search.sessions")}
                         class="max-h-80"
+                        tabIndex={-1}
                         viewportRef={props.onSetSearchList}
                       >
                         <div class="flex flex-col gap-px pb-2">
@@ -365,6 +366,7 @@ function HomeSessionSearchResultRow(
       data-component="home-session-search-row"
       role="option"
       aria-selected={props.selected}
+      tabIndex={-1}
       class={`
         flex h-10 w-full shrink-0 cursor-default items-center gap-2 border-0 py-3 pl-[18px] pr-6 text-left
         transition-[background-color] duration-[120ms] ease-in-out

@@ -36,12 +36,14 @@ export function NewSessionView(props: {
   modelReadiness: Accessor<ProductModelReadiness>
   presentation: Accessor<NewSessionPresentation>
 }) {
+  const language = useLanguage()
   const workspacePresentation = createMemo(() =>
     props.workspace.bar.visible() ? props.presentation().controls.worktree : props.presentation().controls.git,
   )
 
   return (
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
+      <h1 class="sr-only">{language.t("command.session.new")}</h1>
       <div
         data-component="session-new-design"
         data-presentation-mode={props.presentation().mode}

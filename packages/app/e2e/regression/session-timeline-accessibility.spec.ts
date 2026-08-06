@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { assistantMessage, setupTimeline, shell, userMessage } from "../performance/timeline-stability/fixture"
+import { assistantMessage, setupTimeline, shell, title, userMessage } from "../performance/timeline-stability/fixture"
 
 test("space activates a focused timeline button instead of scrolling", async ({ page }) => {
   const shellID = "prt_space_button_shell"
@@ -8,6 +8,9 @@ test("space activates a focused timeline button instead of scrolling", async ({ 
     settings: { shellToolPartsExpanded: false },
     reducedMotion: true,
   })
+  await expect(page.locator("main > h1")).toHaveCount(0)
+  await expect(page.locator("h1")).toHaveCount(1)
+  await expect(page.getByRole("heading", { level: 1, name: title })).toHaveCount(1)
   const scroller = page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
   const trigger = page.locator(`[data-timeline-part-id="${shellID}"] [data-slot="collapsible-trigger"]`)
   await trigger.focus()
