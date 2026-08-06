@@ -2,178 +2,197 @@
 
 ## Result
 
-**PASS.** The macOS arm64 development candidate completed the Task 8 static,
-packaged-workflow, durable task-management, visual, recovery, accessibility,
-startup, isolation, and secret gates. This is an unsigned/adhoc development
-artifact. Signing, notarization, distribution readiness, and distribution
-license/notice review remain deferred.
+**PASS.** The fresh macOS arm64 development candidate completed the Task 8
+source, package, workflow, durable task-management, recovery, accessibility,
+visual, startup, isolation, and secret gates. It is an unsigned development
+artifact with only an adhoc linker signature. Signing, notarization, and
+distribution readiness are not claimed.
 
 ## Environment
 
 - Acceptance date: 2026-08-06.
-- Source: `codex/phase-0-3` at product-fix commit `a193e624b`.
+- Source: `codex/phase-0-3` at product-source commit
+  `0a5285184bab6916f289b7acf6ad988ed7a52cba`.
 - Host: Apple Silicon macOS 26.3.1 (a), Asia/Shanghai.
 - Runtime: Bun 1.3.14 and Electron 42.3.3.
-- Final acceptance root: `/tmp/agent-phase3-final.MFXvKB`.
-- Candidate inputs: `OPENCODE_CHANNEL=dev` and the pinned
-  `packages/core/test/plugin/fixtures/models-dev.json` snapshot.
-- Electron user data and all XDG config/data/cache/state paths were under the
-  fresh root. `HOME` and `CFFIXED_USER_HOME` remained the real macOS home only
-  for `safeStorage`/login-Keychain behavior and the Downloads diagnostics
-  export. A fresh migration-complete sentinel prevented importing any existing
-  development profile.
+- Fresh authoritative root: `/tmp/agent-phase3-final.saJRUu`.
+- Build inputs: `OPENCODE_CHANNEL=dev` and the pinned
+  `packages/core/test/plugin/fixtures/models-dev.json` model snapshot.
+- Packaged workflow roots: fresh Electron `user-data`, XDG
+  config/data/cache/state, and temporary directories under the authoritative
+  root. The development bundle identifier is `dev.agent.desktop`.
+
+`source-state.txt`, `environment.txt`, and `gate-logs/source-checks.log` retain
+the exact source and environment. A fresh migration-complete sentinel prevented
+profile import; onboarding completed without creating or importing a project.
 
 ## Automated Gates
 
-| Gate                  | Result                                                               |
-| --------------------- | -------------------------------------------------------------------- |
-| Frozen install        | Bun 1.3.14; 2,419 installs across 2,710 packages; exit 0, no changes |
-| App discovery run     | 860 passed, 0 failed, 2,207 assertions across 125 files              |
-| App scripted unit run | 860 passed, 0 failed, 2,207 assertions across 125 files              |
-| App browser run       | 39 passed, 0 failed, 96 assertions across 14 files                   |
-| App scripted total    | 899 passed, 0 failed, 2,303 assertions                               |
-| App typecheck         | `bun run typecheck` passed                                           |
-| App E2E typecheck     | `bun run typecheck:e2e` passed                                       |
-| Desktop               | 149 passed, 0 failed, 462 assertions; typecheck passed               |
-| UI focused            | 8 passed, 0 failed, 16 assertions; typecheck passed                  |
-| Root lint             | 4,872 warnings and 0 errors                                          |
-| Protected diff        | No changes from `v1.18.10` in Core, OpenCode, Server, or Protocol    |
+| Gate                       | Exact result                                                         |
+| -------------------------- | -------------------------------------------------------------------- |
+| Frozen install             | Bun 1.3.14; 2,419 installs across 2,710 packages; exit 0, no changes |
+| App discovery              | 860 passed, 0 failed, 2,207 assertions across 125 files              |
+| App scripted unit          | 860 passed, 0 failed, 2,207 assertions across 125 files              |
+| App browser                | 39 passed, 0 failed, 96 assertions across 14 files                   |
+| App scripted total         | 899 passed, 0 failed, 2,303 assertions                               |
+| Focused Task 8 browser E2E | 11 passed, 0 failed across 4 specs                                   |
+| App typecheck              | Passed                                                               |
+| App E2E typecheck          | Passed                                                               |
+| Desktop                    | 149 passed, 0 failed, 462 assertions across 32 files; typecheck pass |
+| UI focused                 | 8 passed, 0 failed, 16 assertions in 1 file; typecheck pass          |
+| Root lint                  | 4,872 warnings, 0 errors; 3,189 files and 130 rules                  |
+| Protected diff             | No Core, OpenCode, Server, or Protocol changes from `v1.18.10`       |
+| Tracked diff check         | `git diff --check` passed                                            |
 
-`gate-logs/frozen-install.log` retains the prescribed root command, Bun version,
-stdout/stderr, exit code, before/after Git status, and unchanged lockfile hash
+The focused E2E command ran
+`home-task-terminology.spec.ts`, `new-session-presentation.spec.ts`,
+`session-timeline-accessibility.spec.ts`, and `presentation-mode.spec.ts` with
+one worker. Playwright reports tests/specs rather than an assertion total for
+this command. `gate-logs/app-accessibility-e2e.log` retains all 11 test names.
+
+`gate-logs/frozen-install.log` retains the prescribed root
+`bun install --frozen-lockfile` command, Bun version, stdout/stderr, exit code,
+before/after status, and unchanged lockfile SHA-256
 `e3c51b315182eb68ca7865351675a05d55d86c2a792462adb510999cc47d6185`.
-The only status entries before and after were the user-owned `.superpowers/`
-files; the install changed neither them nor tracked files.
+Only the user-owned untracked `.superpowers/` directory appeared before and
+after; the install changed neither it nor tracked files.
 
-The UI log first records a mistyped, nonmatching test path, followed by the
-corrected focused command and its passing total above. This was a command typo,
-not a product failure. The lint total is the exact final line in
-`gate-logs/lint.log`; warnings are warning-only repository debt and the gate has
-zero errors.
-
-Build/package warnings were non-blocking: Node's `module.register()`
-deprecation, bundled upstream `eval` notices, Vite static/dynamic import and
-chunk notices, a missing package description, missing optional dependencies for
-other platforms/architectures, and the absent optional Desktop `native`
-directory. Electron Builder explicitly skipped macOS application signing; the
-packaged launcher has only an adhoc linker signature, no Team ID or sealed
-resources.
+The first build invocation encountered a transient `ECONNRESET` while fetching
+models.dev data. The final exact build used the pinned repository fixture and
+passed, followed by a successful package. Retained non-blocking warnings cover
+Node's `module.register()` deprecation, upstream `eval`, Vite import/chunk and
+static-script notices, a missing package description, absent optional
+other-platform dependencies, and the absent optional Desktop `native`
+directory. Electron Builder found no valid signing identity. The final bundle
+reports `Signature=adhoc`, no Team ID, and no sealed resources in
+`gate-logs/signature.log`.
 
 ## Packaged Workflows
 
 ### Model Setup
 
-The exact package configured **Phase 3 Private** at `127.0.0.1:59739` through
-Settings > Models. The authenticated OpenAI-compatible fixture used encrypted
-fixture credentials, exposed deterministic models, passed streaming and tool
-checks, and selected `coder`. An Ollama-compatible fixture was also available
-at `127.0.0.1:11434` and its deterministic models were discovered. Real
-composer submissions reached the configured fixture, streamed, and returned
-`OK`.
+The fresh package opened in Simple mode with no migration or imported profile.
+Through Settings > Models, acceptance visually configured authenticated private
+profile **Phase 3 Final Private** at `127.0.0.1:59739`, entered API-key and
+sensitive-header fixture canaries, marked the header sensitive, discovered its
+deterministic models, passed chat/streaming/tool capability checks, saved the
+profile, and selected `coder` as default. Product credential storage encrypted
+the sensitive values; renderer-visible state retained only non-secret metadata.
+
+Settings > Models also exercised Ollama discovery at `127.0.0.1:11434` and
+found two deterministic models. Three real composer submissions reached the
+private fixture, streamed, and returned `OK`.
 
 ### Mode And State Continuity
 
-A clean profile opened in Simple mode. Switching to Advanced preserved the
-active task, multiple task tabs, a non-empty draft, selected `coder` model,
-review/context state, and terminal state. A complete process termination and
-fresh launch of the same package preserved Advanced mode, selected `coder`
-model, active task `ses_02b35ef8cffeqnMQkYM3m0ljhJ`, two task tabs, and task
-history. The restored terminal recreated its process-local PTY after one
-sanitized `PTY session not found` warning without blocking initialization.
+Before switching modes, acceptance opened Review with one changed file,
+Context > Open File with `README.md`, two Terminal tabs, the model selector,
+the Build/Plan agent selector, and Settings > General permission controls. The
+Simple-to-Advanced switch preserved the active task, three durable task tabs,
+nonempty draft `PRESERVE_DRAFT_ACROSS_MODE`, selected `coder`, review/context,
+and terminal state.
+
+After archive/search/resume, a complete process termination and relaunch of the
+same exact package preserved Advanced mode, `coder`, active task
+`ses_02ad72d04ffePT7DFLAZ3VRctv`, two durable tabs, and the `OK` history. The
+later visual-matrix steps intentionally changed mode and locale after this
+continuity proof.
 
 ### Task Management
 
-Acceptance submitted real composer requests for two additional durable tasks;
-each has two persisted messages. The final SQLite dump in
-`task-management-db.txt` proves three total sessions, two active sessions, one
-archived session, and two Task 8-created durable sessions. History search found
-the `New session` task, which was opened and archived as
-`ses_02b372ea7ffeY7SNKwuyUsODjP` at `2026-08-06 01:58:16 UTC`. The other new
-task, `ses_02b35ef8cffeqnMQkYM3m0ljhJ`, was opened and remained active after a
-complete process relaunch with Advanced mode and `coder` selected.
+`gate-logs/task-management-acceptance.log` is the timestamped, redacted
+agent-browser transcript. It proves three real durable submissions, UI archive,
+Home search, opening/resuming a search result, and complete process relaunch.
+The final checkpointed `task-management-db.txt` records:
 
-`gate-logs/task-management-acceptance.log` retains timestamped agent-browser
-commands, snapshots, results, relaunch checks, DB output, matrix summary, and
-final listener/process cleanup. `task-management-db.txt` records session IDs,
-titles, creation/archive timestamps, message counts, summary counts, and the
-database SHA-256
-`2baabdf8bafdb61372118b538809cc169b04882f3af6d7e07d382010d126ca1e`.
-The hash was computed after `PRAGMA wal_checkpoint(TRUNCATE)` returned
-`busy=0`, `log=0`, and `checkpointed=0`; the retained WAL is zero bytes and the
-SHM is a transient index with no database pages pending.
+| Session ID                       | Created UTC         | Archived UTC        | State    | Messages |
+| -------------------------------- | ------------------- | ------------------- | -------- | -------: |
+| `ses_02ad94856ffebLRCsyvFvkMmte` | 2026-08-06 03:38:32 | 2026-08-06 03:48:05 | archived |        2 |
+| `ses_02ad72d04ffePT7DFLAZ3VRctv` | 2026-08-06 03:40:50 | -                   | active   |        2 |
+| `ses_02ad6d254ffeJi2nyXBBOGfUjA` | 2026-08-06 03:41:13 | -                   | active   |        2 |
+
+Logical totals are exactly **3 total, 2 active, 1 archived**, with two messages
+per session. After all workflow processes stopped,
+`PRAGMA wal_checkpoint(TRUNCATE)` returned `0|0|0` and
+`PRAGMA integrity_check` returned `ok`. The final main database is 278,528
+bytes with SHA-256
+`da8fbd798a1ebf9e36ddc02cb60046b30cb36a7a76eb7b791ae5f2a870f81557`.
+The WAL is zero bytes; the retained 32,768-byte SHM index is explicitly hashed
+in the dump and has no pending database pages.
 
 ### Technical Surfaces And Permissions
 
-Review, Context/Open File, multi-tab terminal, model/agent selectors, and
-Settings > General permission controls remained reachable. The same underlying
-capabilities remain available in both modes; Simple uses compact task controls
-and collapsed shell/edit detail, while Advanced uses full action density and
-allows those details to expand. This acceptance does not claim visual CRUD for
-agents, MCP servers, or skills.
+Review, Context/Open File, multi-tab Terminal, model and agent selectors, and
+General permission controls were all exercised through the packaged UI. Simple
+keeps core task actions compact; Advanced exposes the existing detailed
+controls. This acceptance preserves agent, MCP, and skill runtime/selector
+surfaces but does not claim dedicated visual CRUD for them.
 
 ## Recovery And Export
 
-Fault injection used a byte-identical app copy under the acceptance root. After
-launch, `app.asar` was temporarily made unavailable and the active utility
-process was terminated. New starts exhausted the bounded four attempts and
-ended in the sanitized product failure banner. Axe reported 35 passes, zero
-violations, and one incomplete color-contrast check on that state.
+Fault acceptance launched the byte-identical app copy under `package-copy/`,
+temporarily made its already-loaded `app.asar` unavailable, and terminated the
+generated sidecar utility. `gate-logs/fault-launch.console.log` records start
+attempts 1, 2, 3, and 4, followed by bounded exhaustion and the sanitized
+failure banner. The failure surface passed axe with 39 passes, 0 violations,
+and 1 incomplete color-contrast check.
 
-After `app.asar` was restored, its hash matched the exact candidate. The visible
-**Restart service** action returned the app to ready, the existing task remained
-available, and **Export diagnostics** produced
-`diagnostics/opencode-debug-20260805T103109.zip`. The restored package copy also
-retained the exact `opencode-cli` hash.
+The visible **Export diagnostics** action produced
+`diagnostics/opencode-debug-20260806T040116.zip` with SHA-256
+`ddff91f4562716ce125dd7daae52a4286f7eadad64017ed0b7d1988b9c2200d0`.
+After restoring exact `app.asar` and CLI hashes, the visible **Restart service**
+action returned to ready; the failure banner disappeared and both active task
+tabs remained available.
 
 ## Startup Performance
 
-The main-log method measures from `app starting` to `loading task finished`
+The retained method measures from `app starting` to `loading task finished`
 (sidecar healthy), `server ready` (renderer requested initialization), and the
-onboarding check (application initialized).
+onboarding check (application initialized). Every sample used a fresh isolated
+user-data/XDG root.
 
-|                   Sample | App start    | Sidecar healthy | Renderer ready | Initialized |
-| -----------------------: | ------------ | --------------: | -------------: | ----------: |
-|                        1 | 18:35:49.595 |         0.971 s |        1.324 s |     1.399 s |
-|                        2 | 18:41:20.822 |         0.981 s |        1.325 s |     1.397 s |
-|                        3 | 18:41:56.143 |         0.964 s |        1.318 s |     1.392 s |
-|               **Median** |              |     **0.971 s** |    **1.324 s** | **1.397 s** |
+| Sample                   | App start    | Sidecar healthy | Renderer ready | Initialized |
+| ------------------------ | ------------ | --------------: | -------------: | ----------: |
+| 1                        | 12:04:16.125 |         1.027 s |        1.461 s |     1.567 s |
+| 2                        | 12:04:18.289 |         1.013 s |        1.462 s |     1.560 s |
+| 3                        | 12:04:20.513 |         1.021 s |        1.468 s |     1.570 s |
+| **Median**               |              |     **1.021 s** |    **1.462 s** | **1.567 s** |
 | **Phase 0 20% boundary** |              |     **1.192 s** |    **1.585 s** | **1.676 s** |
 
-All medians pass the Phase 0 boundaries.
+All three medians pass. Raw logs are `gate-logs/perf-1.console.log` through
+`perf-3.console.log`; `performance-summary.txt` retains timestamps,
+calculations, boundaries, and the result.
 
 ## Visual Matrix
 
-The final exact-candidate matrix retains all 12 English/Simplified Chinese x
-Simple/Advanced x 1440x900/1024x768/720x800 screenshots under `visuals/`.
-Agent-browser captured Settings > General, where the selected Interface mode
-and Language values visibly distinguish every state. Screenshots have the exact
-pixel dimensions named in their filenames, including a true 720x800 renderer
-surface with no black area below it.
-
-`visuals/visual-matrix-manifest.json` records the package hashes, CDP capture
-method, exact locale/mode state, screenshot dimensions and SHA-256, body/root
-geometry, dialog and control bounds, overflow, overlap, renderer-fill, and
-blank-state checks. All 12 entries report renderer fill, no document overflow,
-dialog/mode/language controls inside the viewport, no primary-control overlap,
-and nonblank content.
+All 12 exact-candidate screenshots are retained under `visuals/` for English
+and Simplified Chinese, Simple and Advanced, and 1440x900, 1024x768, and
+720x800. Settings > General visibly shows the selected mode and language.
 
 | Locale | Mode     | Viewport | Retained screenshot                   | SHA-256                                                            |
 | ------ | -------- | -------- | ------------------------------------- | ------------------------------------------------------------------ |
-| EN     | Simple   | 1440x900 | `visuals/en-simple-1440x900.png`      | `2bf21141aa83ad65bdbfa9e4aca950dce8d09715eda8ee5f7584ca0ce40a9ab5` |
-| EN     | Simple   | 1024x768 | `visuals/en-simple-1024x768.png`      | `857a59c74a5fd82a679a26f0d012e7aa9507e8e3b36632fc29214571e3f5b87b` |
-| EN     | Simple   | 720x800  | `visuals/en-simple-720x800.png`       | `7c8b73d18d2936b654e57f71482d83be2302f025cac26339deb5a5d181af5835` |
-| EN     | Advanced | 1440x900 | `visuals/en-advanced-1440x900.png`    | `7276734eeee81a1f4b7d3706cf447d7fe7b44a8a603a9f5f33c183dd14d0fb72` |
-| EN     | Advanced | 1024x768 | `visuals/en-advanced-1024x768.png`    | `300e559462d514bd106fcc4692e5a481ebdb9529bb967362118d86af0148121f` |
-| EN     | Advanced | 720x800  | `visuals/en-advanced-720x800.png`     | `8582fb451c56797f5dda38d5ff931dd670b86ea01930c5ebfcde22d019fb6ef1` |
-| zh-CN  | Simple   | 1440x900 | `visuals/zh-CN-simple-1440x900.png`   | `3148efda5cd242d0403e7fa1315135daf1ac3fa4231725cbf3e64cc6f47efced` |
-| zh-CN  | Simple   | 1024x768 | `visuals/zh-CN-simple-1024x768.png`   | `701d17faf6dedbc1d0590f57cbb9cd828c4833ef434e1b5398a0a7d2b5f16a56` |
-| zh-CN  | Simple   | 720x800  | `visuals/zh-CN-simple-720x800.png`    | `be71eff29e7007eb2a8d7c329cc485cf33721025c5847918368d9f9edb677594` |
-| zh-CN  | Advanced | 1440x900 | `visuals/zh-CN-advanced-1440x900.png` | `6c3f920fa718341eb6a606749575f3624257672d1c2b02cb7b16fcb0ebf44d37` |
-| zh-CN  | Advanced | 1024x768 | `visuals/zh-CN-advanced-1024x768.png` | `2c55f103db863fcc186594d67886413bf5c574d1fd6259419e24e88c660f139f` |
-| zh-CN  | Advanced | 720x800  | `visuals/zh-CN-advanced-720x800.png`  | `9c90cf25a8a82c997495e1c7c9ed2a9565f733912e0c3161c95676c1023e5729` |
+| EN     | Simple   | 1440x900 | `visuals/en-simple-1440x900.png`      | `e67725bc11df5a0551504ee9591d8e881ec3b1d9cf0b421294e61c94249b9929` |
+| EN     | Simple   | 1024x768 | `visuals/en-simple-1024x768.png`      | `bb209f0dfd0116f6d130f046b91add45a03cec961caa4a471c6f646532e9be38` |
+| EN     | Simple   | 720x800  | `visuals/en-simple-720x800.png`       | `74063a08ec827683482b443a85c680885d3537f9507999329222cc135370834a` |
+| EN     | Advanced | 1440x900 | `visuals/en-advanced-1440x900.png`    | `2372eb6a2d1d2939cb114e061873fb572d5ba8a39a04b58fa9d8aa5986f5ea39` |
+| EN     | Advanced | 1024x768 | `visuals/en-advanced-1024x768.png`    | `85cb76889248bc04ea401ea2101985b041104c35b12985f3648f514b0063c5b3` |
+| EN     | Advanced | 720x800  | `visuals/en-advanced-720x800.png`     | `5037943c1c94e9773a65e862d77089f41b36cf54e85f8647767fbb9973c7677e` |
+| zh-CN  | Simple   | 1440x900 | `visuals/zh-CN-simple-1440x900.png`   | `c06693e55d80f07093502761f6f4b671f009a4a02a742b4a5c6ed550539b79cb` |
+| zh-CN  | Simple   | 1024x768 | `visuals/zh-CN-simple-1024x768.png`   | `67726dd53e9c46eb9896b5a467d0970d840962d1d1559994af8f91278a9e4bda` |
+| zh-CN  | Simple   | 720x800  | `visuals/zh-CN-simple-720x800.png`    | `4096ce357db5b673021d13a4e5d27c8af8e228c0f9ac7b05487538f56c4c3391` |
+| zh-CN  | Advanced | 1440x900 | `visuals/zh-CN-advanced-1440x900.png` | `0460949c9913b4ded6b1653497c78bddf5008c92b737a371f7e82d1b488d12ad` |
+| zh-CN  | Advanced | 1024x768 | `visuals/zh-CN-advanced-1024x768.png` | `0efc6df8dc0cd807a466173b5561947aa8c81890705692325f1cdd3380f305d5` |
+| zh-CN  | Advanced | 720x800  | `visuals/zh-CN-advanced-720x800.png`  | `34e59c0d71152897e99b168e62212eaadbdff6bd453129c35f727842e507b1dc` |
 
-The documentation captures are the visibly distinct exact-candidate English
-1440x900 Settings > General Simple and Advanced states:
+`visuals/visual-matrix-manifest.json` records candidate hashes, screenshot
+hashes/dimensions, exact locale/mode, body/root dimensions, renderer fill,
+overflow, dialog/control bounds, overlap, frame settling, and nonblank checks.
+All 12 pass. At 720x800, the body and root are exactly 720x800; the dark area
+around the settings dialog is the dimmed in-app workspace, not capture outside
+the visible renderer or a blank document region.
+
+The documentation artifacts are visibly identified exact-candidate English
+1440x900 General settings states:
 
 ![Simple task workspace](artifacts/task-workspace-simple.png)
 
@@ -181,70 +200,75 @@ The documentation captures are the visibly distinct exact-candidate English
 
 ## Accessibility
 
-| Axe surface            |  Passes | Violations | Incomplete |
-| ---------------------- | ------: | ---------: | ---------: |
-| Home, Simple           |      39 |          0 |          1 |
-| New Task, Simple       |      35 |          0 |          1 |
-| Active Task, Simple    |      35 |          0 |          1 |
-| General, Simple        |      38 |          0 |          2 |
-| Home, Advanced         |      39 |          0 |          1 |
-| New Task, Advanced     |      35 |          0 |          1 |
-| Active Task, Advanced  |      35 |          0 |          1 |
-| General, Advanced      |      38 |          0 |          2 |
-| Models settings        |      36 |          0 |          2 |
-| Sidecar failure banner |      35 |          0 |          1 |
-| **Total**              | **365** |      **0** |     **13** |
+| Axe surface            |  Passes | Violations | Incomplete | Inapplicable |
+| ---------------------- | ------: | ---------: | ---------: | -----------: |
+| Home, Simple           |      39 |          0 |          1 |           50 |
+| New Task, Simple       |      35 |          0 |          1 |           54 |
+| Active Task, Simple    |      35 |          0 |          1 |           54 |
+| General, Simple        |      38 |          0 |          2 |           51 |
+| Home, Advanced         |      39 |          0 |          1 |           50 |
+| New Task, Advanced     |      35 |          0 |          1 |           54 |
+| Active Task, Advanced  |      35 |          0 |          1 |           54 |
+| General, Advanced      |      38 |          0 |          2 |           51 |
+| Models settings        |      36 |          0 |          2 |           53 |
+| Sidecar failure banner |      39 |          0 |          1 |           50 |
+| **Total**              | **369** |      **0** |     **13** |      **521** |
 
-All 10 result files report success and zero violations. The 13 incomplete
-checks are axe uncertainty, not violations: `color-contrast` on layered/short
-content and the existing `aria-hidden-focus` modal uncertainty on General and
-Models settings.
+All 10 retained `axe-*.json` files report success and zero violations;
+`axe-summary.json` contains the aggregate. The 13 incompletes are axe
+uncertainty, not violations: layered/short-content `color-contrast`, plus one
+existing modal `aria-hidden-focus` uncertainty on each General and Models
+surface. Packaged checks also recorded exactly one level-one heading on Home and
+Active Task, and a labeled Home combobox with `aria-controls`, correct expanded
+state, a listbox, and two search options.
 
 ## Security And Isolation
 
-`gate-logs/security-scan.log` retains the reproducible binary-safe fixed-string
-method, hashes for both fixture canary classes without printing their values,
-per-scope commands, locations, file counts, match counts, results, and package
-hashes. Its 24 scope/class observations cover both canary classes across the
-complete acceptance root, user data, XDG config/data/cache/state, Chromium
-caches/databases, logs/network data, extracted diagnostics ZIP, source app
-bundle, raw ZIP, raw DMG, extracted ZIP, byte-identical package copy, and
-read-only mounted DMG. Every observation has zero matches; the DMG was detached
-and `secret-scan.txt` is synchronized at `PLAINTEXT_MATCH_FILES=0` and
-`DMG_PLAINTEXT_MATCH_FILES=0`.
+`gate-logs/security-scan.log` retains the binary-safe fixed-string method,
+hashes for both canary classes without their values, package hashes, extraction
+and mount locations, file counts, and every result. Its 24 scope/class scans
+cover both canary classes across the complete acceptance root, fresh user data,
+fresh XDG roots, Chromium caches/databases/network state, Desktop/sidecar logs
+and netlogs, extracted diagnostics, source app bundle, raw ZIP, raw DMG,
+extracted ZIP, byte-identical app copy, and read-only mounted DMG.
 
-Profile metadata and IPC views remained renderer-safe. Credentials were stored
-by the product credential service using macOS `safeStorage`; package and sidecar
-state contained only non-secret metadata/proxy values. Only the development
-product identity, fresh Electron user-data root, and fresh XDG `opencode`
-namespace were used. Migration was explicitly skipped, and no OpenCode beta or
-production release profile was written.
+All 24 observations found zero plaintext match files. `secret-scan.txt` records
+`PLAINTEXT_MATCH_FILES=0`, `DMG_PLAINTEXT_MATCH_FILES=0`, and `FINAL_RESULT=PASS`.
+The DMG was detached. Every packaged launch used the development identity and
+explicit fresh roots; no release-profile path was configured or written by the
+acceptance commands.
 
 ## Artifact Hashes
 
-| Artifact                          |        Dimensions | SHA-256                                                            |
-| --------------------------------- | ----------------: | ------------------------------------------------------------------ |
-| `app.asar`                        | 159,930,317 bytes | `84cc46810a325512e27237bbcd4ffb43f3e750d90577142436109c55b4b7a708` |
-| `agent-desktop-dev-mac-arm64.zip` |                 - | `c986c44e1a7d78d171b510870f6c0b6be15453d18950fec57dc9b94423c63633` |
-| `agent-desktop-dev-mac-arm64.dmg` |                 - | `70392fb5e51caddd221ea425b27c04e49e5a132413c2a22ac21e601d998d72a7` |
+| Artifact                          | Size / dimensions | SHA-256                                                            |
+| --------------------------------- | ----------------- | ------------------------------------------------------------------ |
+| `app.asar`                        | 159,931,457 bytes | `93b0b52415c41103068ba160225bd5d50335a411016cb3219d2e54139717b031` |
+| `agent-desktop-dev-mac-arm64.zip` | 215,279,981 bytes | `f961f47270f686290e4b87d37f4619e2319064e1b14092412a7801443a77d80f` |
+| `agent-desktop-dev-mac-arm64.dmg` | 216,207,372 bytes | `bb9d1b23dcb978cd0c450ea7aeba814a569d5cde7de8c85db7685458d2ff3b58` |
 | Packaged `opencode-cli`           | 144,371,024 bytes | `97d65671c27949869e4d3e9e90b596d9b9b81cd00ca7b3d602d409a06c83612e` |
-| `task-workspace-simple.png`       |          1440x900 | `2bf21141aa83ad65bdbfa9e4aca950dce8d09715eda8ee5f7584ca0ce40a9ab5` |
-| `task-workspace-advanced.png`     |          1440x900 | `7276734eeee81a1f4b7d3706cf447d7fe7b44a8a603a9f5f33c183dd14d0fb72` |
+| `task-workspace-simple.png`       | 1440x900          | `e67725bc11df5a0551504ee9591d8e881ec3b1d9cf0b421294e61c94249b9929` |
+| `task-workspace-advanced.png`     | 1440x900          | `2372eb6a2d1d2939cb114e061873fb572d5ba8a39a04b58fa9d8aa5986f5ea39` |
+
+`artifact-hashes.txt` and `cli-hashes.txt` are the authoritative package
+records. The source bundle and byte-identical fault copy match after recovery.
 
 ## Deferred Risks
 
 - Windows Credential Manager/backend and Windows packaging were not exercised
   and are not claimed.
-- macOS signing and notarization were not performed.
-- Distribution license/notice review and distribution readiness remain
-  deferred.
 - SSH remains a reserved server type, not an implemented or verified feature.
-- Durable in-flight task execution recovery after a process crash remains
-  deferred; this gate covers sidecar recovery and persisted UI/task continuity.
-- Dedicated visual CRUD/managers for agents, MCP, and skills remain deferred.
+- macOS signing and notarization were not performed; distribution license and
+  notice review and distribution readiness remain deferred.
+- Durable in-flight execution recovery after a process crash remains deferred;
+  this gate covers persisted task/UI continuity and supervised sidecar recovery.
+- Dedicated visual CRUD/managers for agents, MCP servers, and skills remain
+  deferred. Delivered MCP coverage is the preserved status, toggle, resource,
+  prompt, OAuth, and command surfaces.
+- Axe color-contrast and modal aria-hidden-focus incompletes require manual
+  review; they are not automated violations.
 
 ## Gate Decision
 
-**GO for Phase 3 development acceptance on unsigned/adhoc macOS arm64
-artifacts.** This is not a Windows-support, SSH-support, signing, notarization,
-or distribution-readiness decision.
+**GO for Phase 3 development acceptance on this exact unsigned/adhoc macOS
+arm64 candidate.** This decision does not imply Windows support, SSH support,
+signing, notarization, distribution licensing, or distribution readiness.
