@@ -1,4 +1,4 @@
-import { APPLICATION_LOCALE_CHANNEL } from "../preload/application-locale"
+import { APPLICATION_LOCALE_CHANNEL } from "../application-locale"
 
 export function registerApplicationLocaleIpc(
   register: (channel: string, listener: (locale: string) => Promise<void> | void) => void,

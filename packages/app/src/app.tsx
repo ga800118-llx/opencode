@@ -65,6 +65,7 @@ import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 import { legacySessionHref, legacySessionServer, requireServerKey, sessionHref } from "./utils/session-route"
 import { createSessionLineage } from "@/pages/session/session-lineage"
+import { synchronizeApplicationLocale } from "@/application-locale-sync"
 
 import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } from "@/pages/session"
 import { NewHome } from "@/pages/home"
@@ -238,7 +239,8 @@ function UiI18nBridge(props: ParentProps) {
   const platform = usePlatform()
 
   createEffect(() => {
-    void platform.setApplicationLocale?.(language.locale())
+    const locale = language.locale()
+    void synchronizeApplicationLocale(locale, () => platform.setApplicationLocale?.(locale))
   })
 
   return <I18nProvider value={{ locale: language.intl, t: language.t }}>{props.children}</I18nProvider>

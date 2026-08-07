@@ -28,6 +28,7 @@ import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as 
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { createContextMenuLabels } from "./context-menu-labels"
+import { createContextMenuInstaller } from "./context-menu-installer"
 import { createNativeUiController } from "./native-ui-controller"
 import {
   finishFirstLaunchOnboarding,
@@ -364,6 +365,16 @@ const main = Effect.gen(function* () {
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
+  const installContextMenu = createContextMenuInstaller({
+    createLabels: createContextMenuLabels,
+    register: (labels) =>
+      contextMenu({
+        labels,
+        showSaveImageAs: true,
+        showLookUpSelection: false,
+        showSearchWithGoogle: false,
+      }),
+  })
   const nativeUiController = createNativeUiController({
     initialLocale: app.getLocale(),
     installApplicationMenu: (locale) =>
@@ -379,13 +390,7 @@ const main = Effect.gen(function* () {
         },
         relaunch,
       }),
-    installContextMenu: (locale) =>
-      contextMenu({
-        labels: createContextMenuLabels(locale),
-        showSaveImageAs: true,
-        showLookUpSelection: false,
-        showSearchWithGoogle: false,
-      }),
+    installContextMenu,
   })
   nativeUi = nativeUiController
   nativeUiController.start()
