@@ -15,6 +15,13 @@ export type ModelDiscoveryCopyKey =
   | "settings.modelCenter.discovery.aborted"
   | "settings.modelCenter.discovery.unexpected"
 
+export type ModelDiscoveryPresentation = {
+  readonly key: ModelDiscoveryCopyKey
+  readonly params?: Readonly<{ count: number }>
+  readonly live: "polite" | "assertive"
+  readonly tone: "progress" | "success" | "error"
+}
+
 const DIAGNOSTIC_KEYS = {
   "unreachable-endpoint": "settings.modelCenter.discovery.unreachableEndpoint",
   authentication: "settings.modelCenter.discovery.authentication",
@@ -32,14 +39,7 @@ const DIAGNOSTIC_KEYS = {
 export function modelDiscoveryPresentation(
   discovering: boolean,
   feedback: ModelDiscoveryFeedback | undefined,
-):
-  | {
-      readonly key: ModelDiscoveryCopyKey
-      readonly params?: Readonly<{ count: number }>
-      readonly live: "polite" | "assertive"
-      readonly tone: "progress" | "success" | "error"
-    }
-  | undefined {
+): ModelDiscoveryPresentation | undefined {
   if (discovering) {
     return { key: "settings.modelCenter.discovery.progress", live: "polite", tone: "progress" }
   }

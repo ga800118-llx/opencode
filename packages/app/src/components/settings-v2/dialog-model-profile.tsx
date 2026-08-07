@@ -13,6 +13,7 @@ import { showToast } from "@/utils/toast"
 import { createModelProfileFormController, type ModelProfileOperations } from "./model-center-controller"
 import { ModelCapabilityStatus } from "./model-capability-status"
 import { createModelDiscoveryCoordinator, modelDiscoveryPresentation } from "./model-discovery-presentation"
+import { ModelDiscoveryStatus } from "./model-discovery-status"
 
 const KINDS: ProductProviderKind[] = ["openai-compatible", "ollama", "lm-studio", "custom-local"]
 
@@ -36,7 +37,8 @@ export const DialogModelProfile: Component<{
   const [manualID, setManualID] = createSignal("")
   const [advanced, setAdvanced] = createSignal(false)
   let advancedSection: HTMLElement | undefined
-  let discoveryStatus: HTMLDivElement | undefined
+  let discoveryPoliteStatus: HTMLDivElement | undefined
+  let discoveryErrorStatus: HTMLDivElement | undefined
 
   const applyKind = (kind: ProductProviderKind) => {
     form.setKind(kind)
@@ -64,10 +66,18 @@ export const DialogModelProfile: Component<{
     discovering: () => form.state.discovering,
     hasFeedback: () => form.state.discoveryFeedback !== undefined,
     schedule: (callback) => requestAnimationFrame(callback),
-    scroll: () => discoveryStatus?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+    scroll: () => {
+      const element = discoveryPresentation()?.tone === "error" ? discoveryErrorStatus : discoveryPoliteStatus
+      element?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+    },
   })
 
   const discoveryPresentation = () => modelDiscoveryPresentation(form.state.discovering, form.state.discoveryFeedback)
+  const discoveryMessage = () => {
+    const status = discoveryPresentation()
+    if (!status) return ""
+    return language.t(status.key, status.params)
+  }
 
   const toggleAdvanced = () => {
     const next = !advanced()
@@ -116,7 +126,7 @@ export const DialogModelProfile: Component<{
   }
 
   return (
-    <Dialog size="large" class="model-profile-dialog">
+    <Dialog size="large" class="model-profile-dialog" containerClass="model-profile-dialog-container">
       <DialogHeader closeLabel={language.t("common.close")}>
         <DialogTitle>{title()}</DialogTitle>
       </DialogHeader>
@@ -265,20 +275,12 @@ export const DialogModelProfile: Component<{
                 onClick={addManual}
               />
             </div>
-            <Show when={discoveryPresentation()}>
-              {(status) => (
-                <div
-                  ref={discoveryStatus}
-                  class="model-profile-discovery-status"
-                  data-tone={status().tone}
-                  role="status"
-                  aria-live={status().live}
-                  aria-atomic="true"
-                >
-                  {language.t(status().key, status().params)}
-                </div>
-              )}
-            </Show>
+            <ModelDiscoveryStatus
+              presentation={discoveryPresentation()}
+              message={discoveryMessage()}
+              onPoliteElement={(element) => (discoveryPoliteStatus = element)}
+              onErrorElement={(element) => (discoveryErrorStatus = element)}
+            />
             <Show
               when={form.state.models.length > 0}
               fallback={<div class="model-profile-empty">{language.t("settings.modelCenter.models.empty")}</div>}
