@@ -29,6 +29,7 @@ import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { createContextMenuLabels } from "./context-menu-labels"
 import { createContextMenuInstaller } from "./context-menu-installer"
+import { createContextMenuOptions } from "./context-menu-options"
 import { createNativeUiController } from "./native-ui-controller"
 import {
   finishFirstLaunchOnboarding,
@@ -367,13 +368,7 @@ const main = Effect.gen(function* () {
   const updater = setupAutoUpdater(stopSidecars)
   const installContextMenu = createContextMenuInstaller({
     createLabels: createContextMenuLabels,
-    register: (labels) =>
-      contextMenu({
-        labels,
-        showSaveImageAs: true,
-        showLookUpSelection: false,
-        showSearchWithGoogle: false,
-      }),
+    register: (labels) => contextMenu(createContextMenuOptions(labels)),
   })
   const nativeUiController = createNativeUiController({
     initialLocale: app.getLocale(),
