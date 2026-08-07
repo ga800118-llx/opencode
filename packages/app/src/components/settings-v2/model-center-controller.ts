@@ -355,25 +355,24 @@ export function createModelProfileFormController(options: {
     async discover() {
       const generation = ++discoveryGeneration
       const baseURL = state.baseURL.trim()
-      const endpoint = URL.canParse(baseURL) ? new URL(baseURL) : undefined
+      const endpoint = /^https?:\/\/[^/?#]+/i.test(baseURL) && URL.canParse(baseURL) ? new URL(baseURL) : undefined
       if (
         !endpoint ||
         (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
+        !endpoint.hostname ||
         endpoint.username ||
         endpoint.password
       ) {
         setState("discovering", false)
-        clearFeedback()
         setState("discoveryFeedback", { type: "invalid-endpoint" })
         return
       }
       setState("discovering", true)
-      clearFeedback()
+      setState("discoveryFeedback", undefined)
       try {
         const result = await options.operations.discover({ draft: input() })
         if (generation !== discoveryGeneration) return result
         if (result.diagnostic) {
-          setState("diagnostic", result.diagnostic.message)
           setState("discoveryFeedback", { type: "diagnostic", diagnostic: result.diagnostic })
           return result
         }
@@ -390,7 +389,7 @@ export function createModelProfileFormController(options: {
       } catch (error) {
         if (generation !== discoveryGeneration) return undefined
         setState("discoveryFeedback", { type: "unexpected" })
-        throw recordError(error)
+        throw redactedError(error)
       } finally {
         if (generation === discoveryGeneration) setState("discovering", false)
       }
@@ -510,9 +509,13 @@ export function createModelProfileFormController(options: {
   }
 
   function recordError(error: unknown) {
-    const message = redact(error instanceof Error ? error.message : String(error))
-    setState("error", message)
-    return new Error(message)
+    const safe = redactedError(error)
+    setState("error", safe.message)
+    return safe
+  }
+
+  function redactedError(error: unknown) {
+    return new Error(redact(error instanceof Error ? error.message : String(error)))
   }
 
   function redact(message: string) {

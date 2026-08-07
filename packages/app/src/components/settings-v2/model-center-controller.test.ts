@@ -144,6 +144,29 @@ describe("createModelProfileFormController", () => {
     expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 2 })
   })
 
+  test("selects the first reconciled model when discovery removes the previous selection", async () => {
+    const fallbackProfile = {
+      ...profile,
+      models: [
+        { id: "manual-coder", name: "Manual coder", source: "manual" },
+        { id: "obsolete", name: "Obsolete", source: "discovered" },
+      ],
+      defaultModelID: "obsolete",
+    } satisfies ProductProviderProfile
+    const { form } = fixture({
+      profile: fallbackProfile,
+      discover: async () => ({
+        models: [{ id: "new-coder", name: "New coder", source: "discovered" }],
+        requestID: "req-fallback",
+      }),
+    })
+
+    await form.discover()
+
+    expect(form.state.models.map((model) => model.id)).toEqual(["manual-coder", "new-coder"])
+    expect(form.state.selectedModelID).toBe("manual-coder")
+  })
+
   test("filters models by name or ID without changing discovery feedback", async () => {
     const searchableProfile = {
       ...profile,
@@ -192,13 +215,20 @@ describe("createModelProfileFormController", () => {
         diagnostic,
       }),
     })
+    const models = form.state.models
+    const selectedModelID = form.state.selectedModelID
+    const capabilityReport = form.state.report
 
     await form.discover()
 
+    expect(form.state.models).toBe(models)
     expect(form.state.models).toEqual(diagnosticProfile.models)
-    expect(form.state.selectedModelID).toBe("reasoner")
+    expect(form.state.selectedModelID).toBe(selectedModelID)
+    expect(form.state.report).toBe(capabilityReport)
     expect(form.state.report).toEqual(report)
     expect(form.state.discoveryFeedback).toEqual({ type: "diagnostic", diagnostic })
+    expect(form.state.error).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
   })
 
   test("rejects incomplete, non-HTTP, and credential-bearing discovery endpoints", async () => {
@@ -213,6 +243,8 @@ describe("createModelProfileFormController", () => {
     for (const baseURL of [
       "models.example.test/v1",
       "ftp://models.example.test/v1",
+      "https:/models.example.test/v1",
+      "https:models.example.test/v1",
       "https://user:secret@models.example.test/v1",
     ]) {
       form.setField("baseURL", baseURL)
@@ -237,6 +269,55 @@ describe("createModelProfileFormController", () => {
     expect(form.state.discoveryFeedback).toBeUndefined()
     await form.discover()
     form.setKind("ollama")
+    expect(form.state.discoveryFeedback).toBeUndefined()
+  })
+
+  test("invalidates in-flight discovery when provider inputs change", async () => {
+    const requests = [
+      deferred<ProductModelDiscoveryResult>(),
+      deferred<ProductModelDiscoveryResult>(),
+      deferred<ProductModelDiscoveryResult>(),
+    ]
+    let request = 0
+    const { form } = fixture({
+      profile,
+      discover: () => requests[request++]!.promise,
+    })
+
+    const baseURLRequest = form.discover()
+    expect(form.state.discovering).toBe(true)
+    form.setField("baseURL", "https://other.example.test/v1")
+    expect(form.state.discovering).toBe(false)
+    requests[0].resolve({
+      models: [{ id: "stale-base-url", name: "Stale base URL", source: "discovered" }],
+      requestID: "stale-base-url",
+    })
+    await baseURLRequest
+    expect(form.state.models.map((model) => model.id)).toEqual(["coder"])
+    expect(form.state.discoveryFeedback).toBeUndefined()
+
+    const apiKeyRequest = form.discover()
+    expect(form.state.discovering).toBe(true)
+    form.setApiKey("replacement-key")
+    expect(form.state.discovering).toBe(false)
+    requests[1].resolve({
+      models: [{ id: "stale-api-key", name: "Stale API key", source: "discovered" }],
+      requestID: "stale-api-key",
+    })
+    await apiKeyRequest
+    expect(form.state.models.map((model) => model.id)).toEqual(["coder"])
+    expect(form.state.discoveryFeedback).toBeUndefined()
+
+    const kindRequest = form.discover()
+    expect(form.state.discovering).toBe(true)
+    form.setKind("ollama")
+    expect(form.state.discovering).toBe(false)
+    requests[2].resolve({
+      models: [{ id: "stale-kind", name: "Stale kind", source: "discovered" }],
+      requestID: "stale-kind",
+    })
+    await kindRequest
+    expect(form.state.models).toEqual([])
     expect(form.state.discoveryFeedback).toBeUndefined()
   })
 
@@ -291,7 +372,8 @@ describe("createModelProfileFormController", () => {
     await expect(form.discover()).rejects.toThrow("failed with [redacted]")
 
     expect(form.state.discoveryFeedback).toEqual({ type: "unexpected" })
-    expect(form.state.error).toBe("failed with [redacted]")
+    expect(form.state.error).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
     expect(JSON.stringify(form.state)).not.toContain("sk-private")
   })
 
