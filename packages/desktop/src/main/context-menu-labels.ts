@@ -65,5 +65,5 @@ const labels = {
 } satisfies Record<DesktopMenuLocale, Required<Labels>>
 
 export function createContextMenuLabels(locale: string): Required<Labels> {
-  return labels[normalizeDesktopMenuLocale(locale)]
+  return { ...labels[normalizeDesktopMenuLocale(locale)] }
 }

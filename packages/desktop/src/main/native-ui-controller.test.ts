@@ -98,3 +98,165 @@ test("can restart after disposal", () => {
   expect(recorded.disposed).toEqual(["en"])
   expect(recorded.menus).toEqual(["en", "en"])
 })
+
+test("retries start after context-menu installation fails", () => {
+  const contexts: DesktopMenuLocale[] = []
+  const disposed: DesktopMenuLocale[] = []
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: () => undefined,
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      if (contexts.length === 1) throw new Error("context install failed")
+      return () => disposed.push(locale)
+    },
+  })
+
+  expect(() => controller.start()).toThrow("context install failed")
+  controller.start()
+  controller.start()
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "en"])
+  expect(disposed).toEqual(["en"])
+})
+
+test("retries enabling the application menu after installation fails", () => {
+  const menus: DesktopMenuLocale[] = []
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: (locale) => {
+      menus.push(locale)
+      if (menus.length === 1) throw new Error("menu install failed")
+    },
+    installContextMenu: () => () => undefined,
+  })
+
+  expect(() => controller.enableApplicationMenu()).toThrow("menu install failed")
+  controller.enableApplicationMenu()
+  controller.enableApplicationMenu()
+
+  expect(menus).toEqual(["en", "en"])
+})
+
+test("keeps the current locale when replacement context installation fails", () => {
+  const contexts: DesktopMenuLocale[] = []
+  const menus: DesktopMenuLocale[] = []
+  const disposed: DesktopMenuLocale[] = []
+  let failed = false
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: (locale) => menus.push(locale),
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      if (locale === "zh" && !failed) {
+        failed = true
+        throw new Error("replacement context failed")
+      }
+      return () => disposed.push(locale)
+    },
+  })
+
+  controller.start()
+  controller.enableApplicationMenu()
+  expect(() => controller.setLocale("zh-CN")).toThrow("replacement context failed")
+  expect(contexts).toEqual(["en", "zh"])
+  expect(menus).toEqual(["en"])
+  expect(disposed).toEqual([])
+
+  controller.setLocale("zh-CN")
+  controller.setLocale("zh")
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "zh", "zh"])
+  expect(menus).toEqual(["en", "zh"])
+  expect(disposed).toEqual(["en", "zh"])
+})
+
+test("cleans replacement context and restores the current menu when menu installation fails", () => {
+  const contexts: DesktopMenuLocale[] = []
+  const menus: DesktopMenuLocale[] = []
+  const disposed: DesktopMenuLocale[] = []
+  let failed = false
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: (locale) => {
+      menus.push(locale)
+      if (locale === "zh" && !failed) {
+        failed = true
+        throw new Error("replacement menu failed")
+      }
+    },
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      return () => disposed.push(locale)
+    },
+  })
+
+  controller.start()
+  controller.enableApplicationMenu()
+  expect(() => controller.setLocale("zh")).toThrow("replacement menu failed")
+  expect(contexts).toEqual(["en", "zh"])
+  expect(menus).toEqual(["en", "zh", "en"])
+  expect(disposed).toEqual(["zh"])
+
+  controller.setLocale("zh")
+  controller.setLocale("zh-CN")
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "zh", "zh"])
+  expect(menus).toEqual(["en", "zh", "en", "zh"])
+  expect(disposed).toEqual(["zh", "en", "zh"])
+})
+
+test("commits the replacement before calling an old disposer that fails", () => {
+  const contexts: DesktopMenuLocale[] = []
+  const disposed: DesktopMenuLocale[] = []
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: () => undefined,
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      return () => {
+        disposed.push(locale)
+        if (locale === "en") throw new Error("old dispose failed")
+      }
+    },
+  })
+
+  controller.start()
+  expect(() => controller.setLocale("zh")).toThrow("old dispose failed")
+  controller.setLocale("zh-CN")
+  controller.setLocale("zh-TW")
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "zh", "zht"])
+  expect(disposed).toEqual(["en", "zh", "zht"])
+})
+
+test("clears stopped state before calling a disposer that fails", () => {
+  const contexts: DesktopMenuLocale[] = []
+  const disposed: string[] = []
+  let installation = 0
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: () => undefined,
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      const id = ++installation
+      return () => {
+        disposed.push(`${locale}:${id}`)
+        if (id === 1) throw new Error("dispose failed")
+      }
+    },
+  })
+
+  controller.start()
+  expect(() => controller.dispose()).toThrow("dispose failed")
+  controller.dispose()
+  controller.start()
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "en"])
+  expect(disposed).toEqual(["en:1", "en:2"])
+})

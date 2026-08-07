@@ -12,33 +12,63 @@ export function createNativeUiController(options: {
     disposeContextMenu: undefined as (() => void) | undefined,
   }
 
-  const refresh = () => {
-    state.disposeContextMenu?.()
-    state.disposeContextMenu = options.installContextMenu(state.locale)
-    if (state.menuEnabled) options.installApplicationMenu(state.locale)
+  const install = (locale: DesktopMenuLocale, restoreMenuLocale?: DesktopMenuLocale) => {
+    const disposeContextMenu = options.installContextMenu(locale)
+    if (!state.menuEnabled) return disposeContextMenu
+
+    try {
+      options.installApplicationMenu(locale)
+      return disposeContextMenu
+    } catch (error) {
+      const failures = [error]
+      try {
+        disposeContextMenu()
+      } catch (cleanupError) {
+        failures.push(cleanupError)
+      }
+      if (restoreMenuLocale) {
+        try {
+          options.installApplicationMenu(restoreMenuLocale)
+        } catch (restoreError) {
+          failures.push(restoreError)
+        }
+      }
+      if (failures.length === 1) throw error
+      throw new AggregateError(failures, `Failed to install native UI for locale ${locale}`)
+    }
   }
 
   return {
     start() {
       if (state.started) return
+      const disposeContextMenu = install(state.locale)
+      state.disposeContextMenu = disposeContextMenu
       state.started = true
-      refresh()
     },
     enableApplicationMenu() {
       if (state.menuEnabled) return
-      state.menuEnabled = true
       options.installApplicationMenu(state.locale)
+      state.menuEnabled = true
     },
     setLocale(value: string) {
       const locale = normalizeDesktopMenuLocale(value)
       if (locale === state.locale) return
+      if (!state.started) {
+        state.locale = locale
+        return
+      }
+
+      const disposeContextMenu = install(locale, state.locale)
+      const disposePreviousContextMenu = state.disposeContextMenu
+      state.disposeContextMenu = disposeContextMenu
       state.locale = locale
-      if (state.started) refresh()
+      disposePreviousContextMenu?.()
     },
     dispose() {
-      state.disposeContextMenu?.()
+      const disposeContextMenu = state.disposeContextMenu
       state.disposeContextMenu = undefined
       state.started = false
+      disposeContextMenu?.()
     },
   }
 }

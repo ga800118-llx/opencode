@@ -33,6 +33,23 @@ test("provides the same complete key set for every supported locale", () => {
   expect(Object.keys(createContextMenuLabels("zht"))).toEqual(keys)
 })
 
+test("provides representative English and Traditional Chinese labels", () => {
+  expect(createContextMenuLabels("en")).toMatchObject({
+    cut: "Cut",
+    paste: "Paste",
+    saveVideoAs: "Save Video As…",
+    copyImageAddress: "Copy Image Address",
+    services: "Services",
+  })
+  expect(createContextMenuLabels("zht")).toMatchObject({
+    cut: "剪下",
+    paste: "貼上",
+    saveVideoAs: "影片另存為...",
+    copyImageAddress: "複製圖像位址",
+    services: "服務",
+  })
+})
+
 test("falls back to English for unsupported locales", () => {
   expect(createContextMenuLabels("fr-FR")).toEqual(createContextMenuLabels("en"))
 })
@@ -41,4 +58,12 @@ test("preserves the selection placeholder in every supported locale", () => {
   expect(
     ["en", "zh", "zht"].map((locale) => createContextMenuLabels(locale).lookUpSelection.includes("{selection}")),
   ).toEqual([true, true, true])
+})
+
+test("returns an isolated labels object", () => {
+  const first = createContextMenuLabels("zh")
+  Object.assign(first, { copy: "changed" })
+
+  expect(first.copy).toBe("changed")
+  expect(createContextMenuLabels("zh").copy).toBe("复制")
 })
