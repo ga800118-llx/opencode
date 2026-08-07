@@ -652,8 +652,15 @@
 
 .model-profile-dialog-body {
   min-height: 0;
-  overflow-y: auto;
   padding: 20px 24px 28px;
+}
+
+[data-component="dialog-v2"]
+  [data-slot="dialog-content"].model-profile-dialog
+  > [data-slot="dialog-body"].model-profile-dialog-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .model-profile-form {
@@ -799,17 +806,51 @@
   width: 100%;
 }
 
-.model-profile-model-list {
-  display: flex;
-  flex-direction: column;
+.model-profile-models > [data-component="text-input-v2"] {
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.model-profile-discovery-status {
+  min-height: 38px;
+  padding: 9px 11px;
   border: 0.5px solid var(--v2-border-border-base);
   border-radius: 6px;
   background: var(--v2-background-bg-layer-01);
+  color: var(--v2-text-text-base);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.model-profile-discovery-status[data-tone="success"] {
+  border-color: var(--v2-state-border-success);
+  background: var(--v2-state-bg-success);
+  color: var(--v2-state-fg-success);
+}
+
+.model-profile-discovery-status[data-tone="error"] {
+  border-color: var(--v2-state-border-danger);
+  background: var(--v2-state-bg-danger);
+  color: var(--v2-state-fg-danger);
+}
+
+.model-profile-model-list {
+  display: flex;
+  max-height: clamp(280px, 38vh, 340px);
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0.5px solid var(--v2-border-border-base);
+  border-radius: 6px;
+  background: var(--v2-background-bg-layer-01);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .model-profile-model-row {
   display: grid;
-  min-height: 48px;
+  min-height: 52px;
+  flex: 0 0 auto;
   grid-template-columns: 16px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 10px;
