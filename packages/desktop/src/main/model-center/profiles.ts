@@ -88,7 +88,8 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
       }))
       const hasApiKey = secrets?.hasApiKey ?? existing?.hasApiKey ?? false
       const hasSensitiveHeader = headers.some((header) => header.sensitive && header.hasValue)
-      const preserveTest = existing?.test && profileSignature(existing) === inputSignature(normalized)
+      const preserveTest =
+        existing?.test && profileSignature(existing) === inputSignature(normalized) ? existing.test : undefined
       const profile = sanitizeProviderProfile({
         id,
         providerID: existing?.providerID ?? profileProviderID(id),

@@ -106,6 +106,9 @@ describe("createModelCenterService", () => {
       modelID: "coder",
     })
     expect(fake.profiles.get(profile.id)?.test).toEqual(draftReport)
+    expect(
+      await fake.service.save({ ...draft, id: profile.id, credentials: undefined }),
+    ).toMatchObject({ test: draftReport })
 
     expect(profile).toMatchObject({
       id: "profile-1",

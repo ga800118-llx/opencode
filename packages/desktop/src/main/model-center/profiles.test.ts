@@ -119,6 +119,15 @@ describe("createProfileRepository", () => {
     )
   })
 
+  test("preserves a capability report when saving an unchanged tested profile", () => {
+    const fake = fixture()
+    const secrets = { hasApiKey: true, sensitiveHeaders: ["X-Secret"] }
+    const profile = fake.repository.save(base, secrets)
+    fake.repository.recordTest(profile.id, report)
+
+    expect(fake.repository.save({ ...base, id: profile.id }, secrets).test).toEqual(report)
+  })
+
   test("removes profiles and repairs the selected default", () => {
     const fake = fixture()
     const profile = fake.repository.save(base)
