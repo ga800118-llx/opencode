@@ -399,6 +399,7 @@ export function createModelProfileFormController(options: {
           : models[0]?.id
         setState("models", models)
         setState("selectedModelID", selectedModelID)
+        setState("report", undefined)
         setState("discoveryFeedback", { type: "success", count: result.models.length })
         return result
       } catch (error) {

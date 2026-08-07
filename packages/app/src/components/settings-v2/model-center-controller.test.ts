@@ -144,6 +144,7 @@ describe("createModelProfileFormController", () => {
     ])
     expect(form.state.selectedModelID).toBe("coder")
     expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 2 })
+    expect(form.state.report).toBeUndefined()
   })
 
   test("clears stale legacy feedback before every discovery outcome", async () => {
@@ -230,6 +231,7 @@ describe("createModelProfileFormController", () => {
         { id: "obsolete", name: "Obsolete", source: "discovered" },
       ],
       defaultModelID: "obsolete",
+      test: { ...agentReport, modelID: "obsolete" },
     } satisfies ProductProviderProfile
     const { form } = fixture({
       profile: fallbackProfile,
@@ -243,6 +245,7 @@ describe("createModelProfileFormController", () => {
 
     expect(form.state.models.map((model) => model.id)).toEqual(["manual-coder", "new-coder"])
     expect(form.state.selectedModelID).toBe("manual-coder")
+    expect(form.state.report).toBeUndefined()
   })
 
   test("filters models by name or ID without changing discovery feedback", async () => {
