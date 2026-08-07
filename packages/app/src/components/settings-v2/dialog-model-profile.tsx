@@ -12,7 +12,7 @@ import type { ProductProviderKind, ProductProviderProfile } from "@/product/mode
 import { showToast } from "@/utils/toast"
 import { createModelProfileFormController, type ModelProfileOperations } from "./model-center-controller"
 import { ModelCapabilityStatus } from "./model-capability-status"
-import { modelDiscoveryPresentation } from "./model-discovery-presentation"
+import { createModelDiscoveryCoordinator, modelDiscoveryPresentation } from "./model-discovery-presentation"
 
 const KINDS: ProductProviderKind[] = ["openai-compatible", "ollama", "lm-studio", "custom-local"]
 
@@ -60,11 +60,12 @@ export const DialogModelProfile: Component<{
     setManualID("")
   }
 
-  const discover = async () => {
-    const result = await form.discover().catch(() => undefined)
-    if (!result) return
-    requestAnimationFrame(() => discoveryStatus?.scrollIntoView({ block: "nearest", behavior: "smooth" }))
-  }
+  const discover = createModelDiscoveryCoordinator({
+    discovering: () => form.state.discovering,
+    hasFeedback: () => form.state.discoveryFeedback !== undefined,
+    schedule: (callback) => requestAnimationFrame(callback),
+    scroll: () => discoveryStatus?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+  })
 
   const discoveryPresentation = () => modelDiscoveryPresentation(form.state.discovering, form.state.discoveryFeedback)
 
@@ -233,7 +234,7 @@ export const DialogModelProfile: Component<{
                 variant="neutral"
                 icon="reset"
                 disabled={form.state.discovering || busy()}
-                onClick={() => void discover()}
+                onClick={() => void discover(() => form.discover())}
               >
                 {form.state.discovering
                   ? language.t("settings.modelCenter.progress.discovering")
@@ -268,7 +269,8 @@ export const DialogModelProfile: Component<{
               {(status) => (
                 <div
                   ref={discoveryStatus}
-                  class="model-profile-feedback"
+                  class="model-profile-discovery-status"
+                  data-tone={status().tone}
                   role="status"
                   aria-live={status().live}
                   aria-atomic="true"

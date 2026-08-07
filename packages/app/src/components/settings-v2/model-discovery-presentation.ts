@@ -37,23 +37,53 @@ export function modelDiscoveryPresentation(
       readonly key: ModelDiscoveryCopyKey
       readonly params?: Readonly<{ count: number }>
       readonly live: "polite" | "assertive"
+      readonly tone: "progress" | "success" | "error"
     }
   | undefined {
-  if (discovering) return { key: "settings.modelCenter.discovery.progress", live: "polite" }
+  if (discovering) {
+    return { key: "settings.modelCenter.discovery.progress", live: "polite", tone: "progress" }
+  }
   if (!feedback) return
   if (feedback.type === "success") {
-    if (feedback.count === 0) return { key: "settings.modelCenter.discovery.empty", live: "polite" }
+    if (feedback.count === 0) {
+      return { key: "settings.modelCenter.discovery.empty", live: "polite", tone: "success" }
+    }
     return {
       key: "settings.modelCenter.discovery.success",
       params: { count: feedback.count },
       live: "polite",
+      tone: "success",
     }
   }
   if (feedback.type === "invalid-endpoint") {
-    return { key: "settings.modelCenter.discovery.invalidEndpoint", live: "assertive" }
+    return { key: "settings.modelCenter.discovery.invalidEndpoint", live: "assertive", tone: "error" }
   }
   if (feedback.type === "diagnostic") {
-    return { key: DIAGNOSTIC_KEYS[feedback.diagnostic.kind], live: "assertive" }
+    return { key: DIAGNOSTIC_KEYS[feedback.diagnostic.kind], live: "assertive", tone: "error" }
   }
-  return { key: "settings.modelCenter.discovery.unexpected", live: "assertive" }
+  return { key: "settings.modelCenter.discovery.unexpected", live: "assertive", tone: "error" }
+}
+
+export function createModelDiscoveryCoordinator(options: {
+  readonly discovering: () => boolean
+  readonly hasFeedback: () => boolean
+  readonly schedule: (callback: () => void) => void
+  readonly scroll: () => void
+}) {
+  let generation = 0
+  return async (discover: () => Promise<unknown>) => {
+    const current = ++generation
+    const pending = discover()
+    options.schedule(() => {
+      if (current !== generation || !options.discovering()) return
+      options.scroll()
+    })
+
+    await pending.catch(() => undefined)
+    if (current !== generation || !options.hasFeedback()) return
+    options.schedule(() => {
+      if (current !== generation || !options.hasFeedback()) return
+      options.scroll()
+    })
+  }
 }
