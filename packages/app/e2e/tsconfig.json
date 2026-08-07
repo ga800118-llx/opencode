@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
-    "types": ["node", "bun"]
+    "types": ["node", "bun", "vite/client"]
   },
   "include": [
     "./performance/timeline-stability/**/*.spec.ts",
@@ -12,8 +12,16 @@
     "./performance/unit/visual-stability.test.ts",
     "./reproduction/timeline-suspense/**/*.ts",
     "./reproduction/timeline-suspense/**/*.tsx",
+    "./fixtures/localized-prompt-menu/main.tsx",
+    "../src/components/prompt-input-v2-copy.ts",
+    "../src/i18n/en.ts",
+    "../src/i18n/zh.ts",
+    "../src/i18n/model-center-copy.ts",
+    "../src/i18n/workflow-copy.ts",
     "../src/pages/session/timeline/observe-element-offset.ts",
+    "./regression/localized-prompt-menu.spec.ts",
     "./regression/new-session-panel-corner.spec.ts",
+    "./regression/prompt-input-v2-command-draft.spec.ts",
     "./regression/session-timeline-context-resize.spec.ts",
     "./utils/**/*.ts"
   ]

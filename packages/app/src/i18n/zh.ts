@@ -104,7 +104,7 @@ export const dict = {
   "command.model.variant.cycle.description": "切换到下一个强度等级",
 
   "command.prompt.mode.shell": "Shell",
-  "command.prompt.mode.normal": "Prompt",
+  "command.prompt.mode.normal": "提示词",
 
   "command.permissions.autoaccept.enable": "自动接受权限",
   "command.permissions.autoaccept.disable": "停止自动接受权限",

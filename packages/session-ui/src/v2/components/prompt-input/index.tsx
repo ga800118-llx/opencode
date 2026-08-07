@@ -21,6 +21,7 @@ import type {
   PromptInputV2Suggestion,
 } from "./types"
 import type { PromptInputV2Interaction, PromptInputV2SelectControl } from "./interaction"
+import { resolvePromptInputV2Copy, type PromptInputV2Copy } from "./copy"
 import "./attachments.css"
 
 export type {
@@ -30,44 +31,9 @@ export type {
   PromptInputV2PersistedState,
   PromptInputV2Suggestion,
 } from "./types"
+export { resolvePromptInputV2Copy, type PromptInputV2Copy } from "./copy"
 
 export type PromptInputV2Mode = "normal" | "shell"
-
-export type PromptInputV2Copy = {
-  emptyResults: string
-  commandsSearchLabel: string
-  dropFiles: string
-  removeAttachment: string
-  promptLabel: string
-  addTitle: string
-  attach: string
-  commands: string
-  context: string
-  shell: string
-  chooseAgent: string
-  chooseModel: string
-  chooseVariant: string
-  send: string
-  stop: string
-}
-
-const DEFAULT_COPY: PromptInputV2Copy = {
-  emptyResults: "No matching items",
-  commandsSearchLabel: "Commands",
-  dropFiles: "Drop files to attach",
-  removeAttachment: "Remove attachment",
-  promptLabel: "Prompt",
-  addTitle: "Add images and files",
-  attach: "Images and files",
-  commands: "Commands",
-  context: "Context",
-  shell: "Shell command",
-  chooseAgent: "Choose agent",
-  chooseModel: "Choose model",
-  chooseVariant: "Choose model variant",
-  send: "Send",
-  stop: "Stop",
-}
 
 export type PromptInputV2Props = {
   controller: PromptInputV2Interaction
@@ -85,7 +51,7 @@ export type PromptInputV2Props = {
 export function PromptInputV2(props: PromptInputV2Props) {
   const state = props.controller.state
   const view = props.controller.view
-  const copy = createMemo(() => ({ ...DEFAULT_COPY, ...props.copy }))
+  const copy = createMemo(() => resolvePromptInputV2Copy(props.copy))
   let editor: HTMLDivElement | undefined
   let localInput = false
   const updateCursor = () => {
@@ -171,7 +137,8 @@ export function PromptInputV2(props: PromptInputV2Props) {
             attachments={props.controller.attachments()}
             comments={props.controller.comments()}
             activeCommentID={state.activeContextID}
-            removeLabel={copy().removeAttachment}
+            removeAttachmentLabel={copy().removeAttachment}
+            removeContextLabel={copy().removeContext}
             onAttachmentClick={props.controller.openAttachment}
             onAttachmentRemove={(attachment) => props.controller.removeAttachment(attachment.id)}
             onCommentClick={(comment) => props.controller.toggleContext(comment.key)}
@@ -189,7 +156,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             data-component="prompt-input"
             role="textbox"
             aria-multiline="true"
-            aria-label={copy().promptLabel}
+            aria-label={state.mode === "shell" ? copy().shellPromptLabel : copy().promptLabel}
             contenteditable={!props.disabled && !props.readOnly}
             autocapitalize={state.mode === "normal" ? "sentences" : "off"}
             autocorrect={state.mode === "normal" ? "on" : "off"}
@@ -409,7 +376,8 @@ export function PromptInputV2Attachments(props: {
   attachments: PromptInputV2Attachment[]
   comments?: PromptInputV2Comment[]
   activeCommentID?: string
-  removeLabel: string
+  removeAttachmentLabel: string
+  removeContextLabel: string
   onAttachmentClick?: (attachment: PromptInputV2Attachment) => void
   onAttachmentRemove: (attachment: PromptInputV2Attachment) => void
   onCommentClick?: (comment: PromptInputV2Comment) => void
@@ -443,7 +411,7 @@ export function PromptInputV2Attachments(props: {
                   type="button"
                   onClick={() => props.onCommentRemove?.(comment)}
                   class="absolute -top-1 -right-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label={props.removeLabel}
+                  aria-label={props.removeContextLabel}
                 >
                   <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
                 </button>
@@ -475,7 +443,7 @@ export function PromptInputV2Attachments(props: {
                   type="button"
                   onClick={() => props.onAttachmentRemove(attachment)}
                   class="absolute -top-1 -right-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label={props.removeLabel}
+                  aria-label={props.removeAttachmentLabel}
                 >
                   <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
                 </button>

@@ -82,7 +82,7 @@ export const dict = {
   "command.model.variant.cycle": "循環思考強度",
   "command.model.variant.cycle.description": "切換到下一個強度等級",
   "command.prompt.mode.shell": "Shell",
-  "command.prompt.mode.normal": "Prompt",
+  "command.prompt.mode.normal": "提示詞",
   "command.permissions.autoaccept.enable": "自動接受權限",
   "command.permissions.autoaccept.disable": "停止自動接受權限",
   "command.workspace.toggle": "切換工作區",
