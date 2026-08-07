@@ -214,8 +214,8 @@ The documentation artifacts are visibly identified exact-candidate English
 | Sidecar failure banner |      39 |          0 |          1 |           50 |
 | **Total**              | **369** |      **0** |     **13** |      **521** |
 
-All 10 retained `axe-*.json` files report success and zero violations;
-`axe-summary.json` contains the aggregate. The 13 incompletes are axe
+All 10 retained surface result files report success and zero violations;
+`axe-summary.json` contains their aggregate. The 13 incompletes are axe
 uncertainty, not violations: layered/short-content `color-contrast`, plus one
 existing modal `aria-hidden-focus` uncertainty on each General and Models
 surface. Packaged checks also recorded exactly one level-one heading on Home and
