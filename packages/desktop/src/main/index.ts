@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, safeStorage } from "electron"
+import { normalizeDesktopMenuLocale } from "@opencode-ai/app/desktop-menu"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -513,7 +514,7 @@ const main = Effect.gen(function* () {
   const windows = restoreMainWindows()
   if (windows.length) {
     createMenu({
-      locale: app.getLocale(),
+      locale: normalizeDesktopMenuLocale(app.getLocale()),
       appName: identity.name,
       trigger: (id) => {
         const win = getLastFocusedWindow()

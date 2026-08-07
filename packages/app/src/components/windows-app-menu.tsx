@@ -16,6 +16,8 @@ import {
   type DesktopMenuItem,
 } from "@/desktop-menu"
 
+const appName = "OpenCode"
+
 export function WindowsAppMenu(props: {
   command: ReturnType<typeof useCommand>
   platform: ReturnType<typeof usePlatform>
@@ -84,8 +86,8 @@ export function WindowsAppMenu(props: {
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="desktop-app-menu">
           <DropdownMenu.Group>
-            <DropdownMenu.GroupLabel class="desktop-app-menu-heading">OpenCode</DropdownMenu.GroupLabel>
-            {resolveWindowsDesktopMenu(language.locale()).map((menu) => (
+            <DropdownMenu.GroupLabel class="desktop-app-menu-heading">{appName}</DropdownMenu.GroupLabel>
+            {resolveWindowsDesktopMenu(language.locale(), appName).map((menu) => (
               <DesktopMenuSubmenu label={menu.label}>
                 {menu.items?.map((entry) =>
                   entry.type === "separator" ? (
@@ -108,10 +110,10 @@ export function WindowsAppMenu(props: {
   )
 }
 
-export function resolveWindowsDesktopMenu(locale: string) {
+export function resolveWindowsDesktopMenu(locale: string, appName: string) {
   return DESKTOP_MENU.filter((menu) => desktopMenuVisible(menu, "windows")).map((menu) => ({
     ...menu,
-    label: desktopMenuLabel(menu.label, locale, ""),
+    label: desktopMenuLabel(menu.label, locale, appName),
     items: menu.items
       ?.filter((entry) => desktopMenuVisible(entry, "windows"))
       .map((entry) =>
@@ -119,7 +121,7 @@ export function resolveWindowsDesktopMenu(locale: string) {
           ? entry
           : {
               ...entry,
-              label: desktopMenuLabel(entry.label, locale, ""),
+              label: desktopMenuLabel(entry.label, locale, appName),
             },
       ),
   }))

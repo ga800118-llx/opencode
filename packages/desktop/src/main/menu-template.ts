@@ -5,11 +5,12 @@ import {
   desktopMenuVisible,
   type DesktopMenuAction,
   type DesktopMenuEntry,
+  type DesktopMenuLocale,
   type DesktopMenuRole,
 } from "@opencode-ai/app/desktop-menu"
 
 type Input = {
-  locale: string
+  locale: DesktopMenuLocale
   appName: string
   updaterEnabled: boolean
   trigger: (id: string) => void
@@ -17,7 +18,17 @@ type Input = {
   openExternal: (href: string) => void
 }
 
-export function createDesktopMenuTemplate(input: Input) {
+export type DesktopMenuTemplateItem = {
+  type?: MenuItemConstructorOptions["type"]
+  label?: string
+  role?: MenuItemConstructorOptions["role"]
+  submenu?: DesktopMenuTemplateItem[]
+  accelerator?: MenuItemConstructorOptions["accelerator"]
+  enabled?: boolean
+  click?: () => void
+}
+
+export function createDesktopMenuTemplate(input: Input): DesktopMenuTemplateItem[] {
   return DESKTOP_MENU.filter((menu) => desktopMenuVisible(menu, "macos")).map((menu) => ({
     label: desktopMenuLabel(menu.label, input.locale, input.appName),
     role: menu.role ? nativeRole(menu.role) : undefined,
@@ -27,10 +38,10 @@ export function createDesktopMenuTemplate(input: Input) {
   }))
 }
 
-function nativeItem(entry: DesktopMenuEntry, input: Input): MenuItemConstructorOptions {
+function nativeItem(entry: DesktopMenuEntry, input: Input): DesktopMenuTemplateItem {
   if (entry.type === "separator") return { type: "separator" }
 
-  const item: MenuItemConstructorOptions = {
+  const item: DesktopMenuTemplateItem = {
     label: desktopMenuLabel(entry.label, input.locale, input.appName),
     accelerator: entry.accelerator?.macos,
     enabled: entry.enabled === "updater" ? input.updaterEnabled : undefined,

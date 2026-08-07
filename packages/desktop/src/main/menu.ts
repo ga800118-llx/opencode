@@ -1,11 +1,12 @@
 import { BrowserWindow, Menu, shell } from "electron"
+import type { DesktopMenuLocale } from "@opencode-ai/app/desktop-menu"
 
 import { UPDATER_ENABLED } from "./constants"
 import { runDesktopMenuAction } from "./desktop-menu-actions"
 import { createDesktopMenuTemplate } from "./menu-template"
 
 type Deps = {
-  locale: string
+  locale: DesktopMenuLocale
   appName: string
   trigger: (id: string) => void
   checkForUpdates: () => void

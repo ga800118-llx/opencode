@@ -46,6 +46,8 @@ export type DesktopMenuLabel =
   | "go.nextProject"
   | "window.minimize"
   | "window.maximize"
+  | "window.zoom"
+  | "window.bringAllToFront"
   | "help.documentation"
   | "help.supportForum"
   | "help.shareFeedback"
@@ -98,6 +100,8 @@ const copy = {
     "go.nextProject": "Next Project",
     "window.minimize": "Minimize",
     "window.maximize": "Maximize",
+    "window.zoom": "Zoom",
+    "window.bringAllToFront": "Bring All to Front",
     "help.documentation": "OpenCode Documentation",
     "help.supportForum": "Support Forum",
     "help.shareFeedback": "Share Feedback",
@@ -149,6 +153,8 @@ const copy = {
     "go.nextProject": "下一个项目",
     "window.minimize": "最小化",
     "window.maximize": "最大化",
+    "window.zoom": "缩放",
+    "window.bringAllToFront": "前置全部窗口",
     "help.documentation": "OpenCode 文档",
     "help.supportForum": "支持论坛",
     "help.shareFeedback": "分享反馈",
@@ -200,6 +206,8 @@ const copy = {
     "go.nextProject": "下一個專案",
     "window.minimize": "最小化",
     "window.maximize": "最大化",
+    "window.zoom": "縮放",
+    "window.bringAllToFront": "將全部視窗移到最前方",
     "help.documentation": "OpenCode 文件",
     "help.supportForum": "支援論壇",
     "help.shareFeedback": "分享意見",
@@ -208,7 +216,9 @@ const copy = {
 } satisfies Record<DesktopMenuLocale, Record<DesktopMenuLabel, string>>
 
 export function normalizeDesktopMenuLocale(value: string): DesktopMenuLocale {
-  if (value === "zh" || value === "zht") return value
+  const normalized = value.trim().toLowerCase().replaceAll("_", "-")
+  if (normalized === "zht" || /^zh-(?:hant|tw|hk|mo)(?:-|$)/.test(normalized)) return "zht"
+  if (normalized === "zh" || /^zh-(?:hans|cn|sg)(?:-|$)/.test(normalized)) return "zh"
   return "en"
 }
 

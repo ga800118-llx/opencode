@@ -3,7 +3,7 @@ import { DESKTOP_MENU, desktopMenuLabel, normalizeDesktopMenuLocale } from "./de
 
 describe("desktop menu", () => {
   test("resolves every desktop label in every supported locale", () => {
-    for (const locale of ["en", "zh", "zht"] as const) {
+    (["en", "zh", "zht"] as const).forEach((locale) => {
       expect(
         DESKTOP_MENU.flatMap((menu) => [
           menu.label,
@@ -13,7 +13,7 @@ describe("desktop menu", () => {
           return resolved.length > 0 && !resolved.includes("{appName}")
         }),
       ).toBe(true)
-    }
+    })
     expect(desktopMenuLabel("menu.file", "zh", "Agent Desktop Dev")).toBe("文件")
     expect(desktopMenuLabel("app.quit", "zh", "Agent Desktop Dev")).toBe("退出 Agent Desktop Dev")
   })
@@ -28,12 +28,30 @@ describe("desktop menu", () => {
     ]).toEqual([`About ${appName}`, `关于 ${appName}`, `關於 ${appName}`])
   })
 
-  test("normalizes native shell locales without accepting arbitrary values", () => {
-    expect(normalizeDesktopMenuLocale("zh")).toBe("zh")
-    expect(normalizeDesktopMenuLocale("zht")).toBe("zht")
-    expect(normalizeDesktopMenuLocale("en")).toBe("en")
-    expect(normalizeDesktopMenuLocale("ja")).toBe("en")
-    expect(normalizeDesktopMenuLocale("<script>")).toBe("en")
+  test.each([
+    ["zh", "zh"],
+    ["zh-CN", "zh"],
+    ["zh-SG", "zh"],
+    ["zh-Hans", "zh"],
+    ["zh-Hans-CN", "zh"],
+    ["ZH_cn", "zh"],
+    ["zh_HANS_sg", "zh"],
+    ["zht", "zht"],
+    ["ZHT", "zht"],
+    ["zh-TW", "zht"],
+    ["zh-HK", "zht"],
+    ["zh-MO", "zht"],
+    ["zh-Hant", "zht"],
+    ["zh-Hant-TW", "zht"],
+    ["ZH_tw", "zht"],
+    ["zh_HANT_hk", "zht"],
+    ["zh-Hant-CN", "zht"],
+    ["en", "en"],
+    ["ja", "en"],
+    ["zh-US", "en"],
+    ["<script>", "en"],
+  ] as const)("normalizes native shell locale %s to %s", (locale, expected) => {
+    expect(normalizeDesktopMenuLocale(locale)).toBe(expected)
   })
 
   test("exports logs through the desktop command registry", () => {

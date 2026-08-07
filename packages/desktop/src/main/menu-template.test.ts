@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import type { MenuItemConstructorOptions } from "electron"
 import { createDesktopMenuTemplate } from "./menu-template"
 
 describe("desktop menu template", () => {
@@ -37,6 +36,17 @@ describe("desktop menu template", () => {
       label: "全选",
       role: "selectAll",
     })
+    const window = template.find((item) => item.label === "窗口")
+    expect(
+      window?.submenu?.map((item) =>
+        item.type === "separator" ? { type: item.type } : { label: item.label, role: item.role },
+      ),
+    ).toEqual([
+      { label: "最小化", role: "minimize" },
+      { label: "缩放", role: "zoom" },
+      { type: "separator" },
+      { label: "前置全部窗口", role: "front" },
+    ])
   })
 
   test("preserves callbacks, accelerators, and updater state", () => {
@@ -58,9 +68,9 @@ describe("desktop menu template", () => {
     const help = template.find((item) => item.label === "帮助")
     const documentation = help?.submenu?.find((item) => item.label === "OpenCode 文档")
 
-    click(settings)
-    click(reload)
-    click(documentation)
+    settings?.click?.()
+    reload?.click?.()
+    documentation?.click?.()
 
     expect(commands).toEqual(["settings.open"])
     expect(actions).toEqual(["view.reload"])
@@ -69,7 +79,3 @@ describe("desktop menu template", () => {
     expect(updates?.enabled).toBe(true)
   })
 })
-
-function click(item: MenuItemConstructorOptions | undefined) {
-  item?.click?.(undefined as never, undefined, undefined as never)
-}

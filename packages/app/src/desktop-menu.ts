@@ -33,6 +33,8 @@ export type DesktopMenuRole =
   | "cut"
   | "hide"
   | "hideOthers"
+  | "front"
+  | "minimize"
   | "paste"
   | "quit"
   | "redo"
@@ -44,6 +46,7 @@ export type DesktopMenuRole =
   | "undo"
   | "unhide"
   | "windowMenu"
+  | "zoom"
   | "zoomIn"
   | "zoomOut"
 
@@ -217,10 +220,14 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     label: "menu.window",
     role: "windowMenu",
     items: [
-      { type: "item", label: "window.minimize", action: "window.minimize" },
-      { type: "item", label: "window.maximize", action: "window.toggleMaximize" },
-      { type: "separator" },
-      { type: "item", label: "file.closeWindow", action: "window.close" },
+      { type: "item", label: "window.minimize", role: "minimize", platforms: ["macos"] },
+      { type: "item", label: "window.zoom", role: "zoom", platforms: ["macos"] },
+      { type: "separator", platforms: ["macos"] },
+      { type: "item", label: "window.bringAllToFront", role: "front", platforms: ["macos"] },
+      { type: "item", label: "window.minimize", action: "window.minimize", platforms: ["windows"] },
+      { type: "item", label: "window.maximize", action: "window.toggleMaximize", platforms: ["windows"] },
+      { type: "separator", platforms: ["windows"] },
+      { type: "item", label: "file.closeWindow", action: "window.close", platforms: ["windows"] },
     ],
   },
   {
