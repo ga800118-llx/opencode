@@ -513,6 +513,8 @@ const main = Effect.gen(function* () {
   const windows = restoreMainWindows()
   if (windows.length) {
     createMenu({
+      locale: app.getLocale(),
+      appName: identity.name,
       trigger: (id) => {
         const win = getLastFocusedWindow()
         if (win) sendMenuCommand(win, id)

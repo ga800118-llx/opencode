@@ -2,15 +2,30 @@ import { describe, expect, test } from "bun:test"
 import { DESKTOP_MENU, desktopMenuLabel, normalizeDesktopMenuLocale } from "./desktop-menu"
 
 describe("desktop menu", () => {
-  test("resolves every desktop label in Simplified Chinese", () => {
-    const labels = DESKTOP_MENU.flatMap((menu) => [
-      menu.label,
-      ...(menu.items ?? []).flatMap((item) => (item.type === "item" ? [item.label] : [])),
-    ])
-
-    expect(labels.every((label) => desktopMenuLabel(label, "zh", "Agent Desktop Dev").length > 0)).toBe(true)
+  test("resolves every desktop label in every supported locale", () => {
+    for (const locale of ["en", "zh", "zht"] as const) {
+      expect(
+        DESKTOP_MENU.flatMap((menu) => [
+          menu.label,
+          ...(menu.items ?? []).flatMap((item) => (item.type === "item" ? [item.label] : [])),
+        ]).every((label) => {
+          const resolved = desktopMenuLabel(label, locale, "Agent Desktop Dev")
+          return resolved.length > 0 && !resolved.includes("{appName}")
+        }),
+      ).toBe(true)
+    }
     expect(desktopMenuLabel("menu.file", "zh", "Agent Desktop Dev")).toBe("文件")
     expect(desktopMenuLabel("app.quit", "zh", "Agent Desktop Dev")).toBe("退出 Agent Desktop Dev")
+  })
+
+  test("interpolates app names without interpreting replacement tokens", () => {
+    const appName = "$& $$ $` $'"
+
+    expect([
+      desktopMenuLabel("app.about", "en", appName),
+      desktopMenuLabel("app.about", "zh", appName),
+      desktopMenuLabel("app.about", "zht", appName),
+    ]).toEqual([`About ${appName}`, `关于 ${appName}`, `關於 ${appName}`])
   })
 
   test("normalizes native shell locales without accepting arbitrary values", () => {

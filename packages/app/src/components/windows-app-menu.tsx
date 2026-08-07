@@ -6,14 +6,22 @@ import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 
 import { useCommand } from "@/context/command"
-import { DESKTOP_MENU, desktopMenuVisible, type DesktopMenuAction, type DesktopMenuEntry } from "@/desktop-menu"
+import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
+import {
+  DESKTOP_MENU,
+  desktopMenuLabel,
+  desktopMenuVisible,
+  type DesktopMenuAction,
+  type DesktopMenuItem,
+} from "@/desktop-menu"
 
 export function WindowsAppMenu(props: {
   command: ReturnType<typeof useCommand>
   platform: ReturnType<typeof usePlatform>
   variant?: "legacy" | "v2"
 }) {
+  const language = useLanguage()
   let lastFocused: HTMLElement | undefined
 
   const rememberFocus = () => {
@@ -33,8 +41,7 @@ export function WindowsAppMenu(props: {
     if (action.startsWith("edit.") && lastFocused?.isConnected) lastFocused.focus({ preventScroll: true })
     void props.platform.runDesktopMenuAction?.(action)
   }
-  const runEntry = (entry: DesktopMenuEntry) => {
-    if (entry.type === "separator") return
+  const runEntry = (entry: Pick<DesktopMenuItem, "command" | "action" | "href">) => {
     if (entry.command) {
       runCommand(entry.command)
       return
@@ -78,22 +85,20 @@ export function WindowsAppMenu(props: {
         <DropdownMenu.Content class="desktop-app-menu">
           <DropdownMenu.Group>
             <DropdownMenu.GroupLabel class="desktop-app-menu-heading">OpenCode</DropdownMenu.GroupLabel>
-            {DESKTOP_MENU.filter((menu) => desktopMenuVisible(menu, "windows")).map((menu) => (
+            {resolveWindowsDesktopMenu(language.locale()).map((menu) => (
               <DesktopMenuSubmenu label={menu.label}>
-                {menu.items
-                  ?.filter((entry) => desktopMenuVisible(entry, "windows"))
-                  .map((entry) =>
-                    entry.type === "separator" ? (
-                      <DropdownMenu.Separator />
-                    ) : (
-                      <DesktopMenuItem
-                        label={entry.label ?? ""}
-                        keybind={entry.command ? props.command.keybind(entry.command) : entry.accelerator?.windows}
-                        disabled={entry.command ? commandDisabled(entry.command) : false}
-                        onSelect={() => runEntry(entry)}
-                      />
-                    ),
-                  )}
+                {menu.items?.map((entry) =>
+                  entry.type === "separator" ? (
+                    <DropdownMenu.Separator />
+                  ) : (
+                    <DesktopMenuItem
+                      label={entry.label}
+                      keybind={entry.command ? props.command.keybind(entry.command) : entry.accelerator?.windows}
+                      disabled={entry.command ? commandDisabled(entry.command) : false}
+                      onSelect={() => runEntry(entry)}
+                    />
+                  ),
+                )}
               </DesktopMenuSubmenu>
             ))}
           </DropdownMenu.Group>
@@ -101,6 +106,23 @@ export function WindowsAppMenu(props: {
       </DropdownMenu.Portal>
     </DropdownMenu>
   )
+}
+
+export function resolveWindowsDesktopMenu(locale: string) {
+  return DESKTOP_MENU.filter((menu) => desktopMenuVisible(menu, "windows")).map((menu) => ({
+    ...menu,
+    label: desktopMenuLabel(menu.label, locale, ""),
+    items: menu.items
+      ?.filter((entry) => desktopMenuVisible(entry, "windows"))
+      .map((entry) =>
+        entry.type === "separator"
+          ? entry
+          : {
+              ...entry,
+              label: desktopMenuLabel(entry.label, locale, ""),
+            },
+      ),
+  }))
 }
 
 function DesktopMenuSubmenu(props: { label: string; children: JSX.Element }) {

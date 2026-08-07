@@ -213,5 +213,5 @@ export function normalizeDesktopMenuLocale(value: string): DesktopMenuLocale {
 }
 
 export function desktopMenuLabel(label: DesktopMenuLabel, locale: string, appName: string) {
-  return copy[normalizeDesktopMenuLocale(locale)][label].replaceAll("{appName}", appName)
+  return copy[normalizeDesktopMenuLocale(locale)][label].replaceAll("{appName}", () => appName)
 }
