@@ -209,6 +209,65 @@ test("cleans replacement context and restores the current menu when menu install
   expect(disposed).toEqual(["zh", "en", "zh"])
 })
 
+test("aggregates replacement install, cleanup, and restore failures without committing locale", () => {
+  const installError = new Error("replacement menu failed")
+  const cleanupError = new Error("replacement cleanup failed")
+  const restoreError = new Error("current menu restore failed")
+  const contexts: DesktopMenuLocale[] = []
+  const menus: DesktopMenuLocale[] = []
+  const disposed: DesktopMenuLocale[] = []
+  let failuresEnabled = false
+  const controller = createNativeUiController({
+    initialLocale: "en",
+    installApplicationMenu: (locale) => {
+      menus.push(locale)
+      if (!failuresEnabled) return
+      if (locale === "zh") throw installError
+      throw restoreError
+    },
+    installContextMenu: (locale) => {
+      contexts.push(locale)
+      return () => {
+        disposed.push(locale)
+        if (failuresEnabled && locale === "zh") throw cleanupError
+      }
+    },
+  })
+
+  controller.start()
+  controller.enableApplicationMenu()
+  failuresEnabled = true
+  const failure = (() => {
+    try {
+      controller.setLocale("zh")
+    } catch (error) {
+      return error
+    }
+  })()
+
+  expect(failure).toBeInstanceOf(AggregateError)
+  if (!(failure instanceof AggregateError)) throw new Error("expected AggregateError")
+  expect(failure.errors).toHaveLength(3)
+  expect(failure.errors[0]).toBe(installError)
+  expect(failure.errors[1]).toBe(cleanupError)
+  expect(failure.errors[2]).toBe(restoreError)
+  expect(failure.message).toContain("zh")
+
+  controller.setLocale("en")
+  expect(contexts).toEqual(["en", "zh"])
+  expect(menus).toEqual(["en", "zh", "en"])
+  expect(disposed).toEqual(["zh"])
+
+  failuresEnabled = false
+  controller.setLocale("zh")
+  controller.setLocale("zh-CN")
+  controller.dispose()
+
+  expect(contexts).toEqual(["en", "zh", "zh"])
+  expect(menus).toEqual(["en", "zh", "en", "zh"])
+  expect(disposed).toEqual(["zh", "en", "zh"])
+})
+
 test("commits the replacement before calling an old disposer that fails", () => {
   const contexts: DesktopMenuLocale[] = []
   const disposed: DesktopMenuLocale[] = []
