@@ -82,6 +82,9 @@ type PlatformBase = {
   /** Set the default server URL to use on app startup (platform-specific) */
   setDefaultServer?(url: ServerConnection.Key | null): Promise<void> | void
 
+  /** Synchronize the application locale with native desktop UI. */
+  setApplicationLocale?(locale: string): Promise<void> | void
+
   /** Manage WSL sidecar servers (Electron on Windows only) */
   wslServers?: WslServersPlatform
 

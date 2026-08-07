@@ -289,6 +289,8 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
       await window.api.setDefaultServerUrl(url)
     },
 
+    setApplicationLocale: (locale) => window.api.setApplicationLocale(locale),
+
     wslServers: wslServersApi,
 
     getDisplayBackend: async () => {

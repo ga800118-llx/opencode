@@ -53,6 +53,7 @@ export type ElectronAPI = {
   consumeInitialDeepLinks: () => Promise<string[]>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
+  setApplicationLocale: (locale: string) => Promise<void>
   isFirstLaunchOnboardingPending: () => Promise<boolean>
   finishFirstLaunchOnboarding: (createDefaultProject: boolean) => Promise<string | null>
   isOldLayoutEligible: () => Promise<boolean>

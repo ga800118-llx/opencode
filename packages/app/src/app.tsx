@@ -235,6 +235,12 @@ function ResolvedDraftRoute(props: { draft: DraftTab }) {
 
 function UiI18nBridge(props: ParentProps) {
   const language = useLanguage()
+  const platform = usePlatform()
+
+  createEffect(() => {
+    void platform.setApplicationLocale?.(language.locale())
+  })
+
   return <I18nProvider value={{ locale: language.intl, t: language.t }}>{props.children}</I18nProvider>
 }
 

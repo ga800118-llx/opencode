@@ -3,6 +3,7 @@ import type { ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 import { PRODUCT_HOST_CHANNELS } from "../product/host"
 import { createProductHostPreloadAPI } from "./product-host"
+import { createApplicationLocaleSetter } from "./application-locale"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
 let updaterState: UpdaterState | undefined
@@ -82,6 +83,7 @@ const api: ElectronAPI = {
   consumeInitialDeepLinks: () => ipcRenderer.invoke("consume-initial-deep-links"),
   getDefaultServerUrl: () => ipcRenderer.invoke("get-default-server-url"),
   setDefaultServerUrl: (url) => ipcRenderer.invoke("set-default-server-url", url),
+  setApplicationLocale: createApplicationLocaleSetter((channel, locale) => ipcRenderer.invoke(channel, locale)),
   isFirstLaunchOnboardingPending: () => ipcRenderer.invoke("is-first-launch-onboarding-pending"),
   finishFirstLaunchOnboarding: (createDefaultProject) =>
     ipcRenderer.invoke("finish-first-launch-onboarding", createDefaultProject),

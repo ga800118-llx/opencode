@@ -7,7 +7,6 @@ import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, safeStorage } from "electron"
-import { normalizeDesktopMenuLocale } from "@opencode-ai/app/desktop-menu"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -28,18 +27,15 @@ import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import { createContextMenuLabels } from "./context-menu-labels"
+import { createNativeUiController } from "./native-ui-controller"
 import {
   finishFirstLaunchOnboarding,
   initializeOldLayoutEligibility,
   isFirstLaunchOnboardingPending,
   isOldLayoutEligible,
 } from "./onboarding"
-import {
-  getDefaultServerUrl,
-  preferAppEnv,
-  setDefaultServerUrl,
-  spawnLocalServer,
-} from "./server"
+import { getDefaultServerUrl, preferAppEnv, setDefaultServerUrl, spawnLocalServer } from "./server"
 import { createSidecarSupervisor, type SidecarSupervisor } from "./sidecar-supervisor"
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import { safeWebContentsURL } from "./window-state"
@@ -154,7 +150,6 @@ function ensureLoopbackNoProxy() {
 
 const main = Effect.gen(function* () {
   const identity = getRuntimeProductIdentity(CHANNEL, app.isPackaged)
-  contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
   // on macOS apps run in `/` which can cause issues with ripgrep
   try {
@@ -210,7 +205,13 @@ const main = Effect.gen(function* () {
     },
   )
   let stopModelCredentialProxy: () => Promise<void> = async () => undefined
+  let nativeUi: ReturnType<typeof createNativeUiController> | undefined
   const stopSidecars = async () => {
+    try {
+      nativeUi?.dispose()
+    } catch (error) {
+      logger.warn("failed to dispose native UI", error)
+    }
     await killSidecar()
     await stopModelCredentialProxy()
     wslServers.stopAll()
@@ -363,6 +364,31 @@ const main = Effect.gen(function* () {
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)
+  const nativeUiController = createNativeUiController({
+    initialLocale: app.getLocale(),
+    installApplicationMenu: (locale) =>
+      createMenu({
+        locale,
+        appName: identity.name,
+        trigger: (id) => {
+          const win = getLastFocusedWindow()
+          if (win) sendMenuCommand(win, id)
+        },
+        checkForUpdates: () => {
+          void showUpdaterDialog(updater, true)
+        },
+        relaunch,
+      }),
+    installContextMenu: (locale) =>
+      contextMenu({
+        labels: createContextMenuLabels(locale),
+        showSaveImageAs: true,
+        showLookUpSelection: false,
+        showSearchWithGoogle: false,
+      }),
+  })
+  nativeUi = nativeUiController
+  nativeUiController.start()
   registerIpcHandlers({
     getProductSidecarStatus: () => productSidecarStatus,
     subscribeProductSidecarStatus,
@@ -383,6 +409,7 @@ const main = Effect.gen(function* () {
     consumeInitialDeepLinks: () => pendingDeepLinks.splice(0),
     getDefaultServerUrl: () => getDefaultServerUrl(),
     setDefaultServerUrl: (url) => setDefaultServerUrl(url),
+    setApplicationLocale: (locale) => nativeUiController.setLocale(locale),
     isFirstLaunchOnboardingPending,
     finishFirstLaunchOnboarding,
     isOldLayoutEligible,
@@ -512,22 +539,7 @@ const main = Effect.gen(function* () {
   yield* Fiber.await(loadingTask)
 
   const windows = restoreMainWindows()
-  if (windows.length) {
-    createMenu({
-      locale: normalizeDesktopMenuLocale(app.getLocale()),
-      appName: identity.name,
-      trigger: (id) => {
-        const win = getLastFocusedWindow()
-        if (win) sendMenuCommand(win, id)
-      },
-      checkForUpdates: () => {
-        void showUpdaterDialog(updater, true)
-      },
-      relaunch: () => {
-        relaunch()
-      },
-    })
-  }
+  if (windows.length) nativeUiController.enableApplicationMenu()
 })
 
 Effect.runFork(main)

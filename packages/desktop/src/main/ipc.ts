@@ -20,6 +20,7 @@ import {
   type ProductCredentialCapabilities,
   type ProductSidecarStatus,
 } from "../product/host"
+import { registerApplicationLocaleIpc } from "./application-locale-ipc"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -40,6 +41,7 @@ type Deps = {
   consumeInitialDeepLinks: () => Promise<string[]> | string[]
   getDefaultServerUrl: () => Promise<string | null> | string | null
   setDefaultServerUrl: (url: string | null) => Promise<void> | void
+  setApplicationLocale: (locale: string) => Promise<void> | void
   isFirstLaunchOnboardingPending: () => Promise<boolean> | boolean
   finishFirstLaunchOnboarding: (createDefaultProject: boolean) => Promise<string | null> | string | null
   isOldLayoutEligible: () => Promise<boolean> | boolean
@@ -62,6 +64,10 @@ export function registerIpcHandlers(deps: Deps) {
     updaterSubscriptions.clear()
     sidecarSubscriptions.clear()
   })
+
+  registerApplicationLocaleIpc((channel, listener) => {
+    ipcMain.handle(channel, (_event: IpcMainInvokeEvent, locale: string) => listener(locale))
+  }, deps.setApplicationLocale)
 
   ipcMain.handle(PRODUCT_HOST_CHANNELS.sidecarGetStatus, async () =>
     sanitizeProductSidecarStatus(await deps.getProductSidecarStatus()),
