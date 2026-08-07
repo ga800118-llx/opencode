@@ -37,6 +37,7 @@ export const DialogModelProfile: Component<{
   const [manualID, setManualID] = createSignal("")
   const [advanced, setAdvanced] = createSignal(false)
   let advancedSection: HTMLElement | undefined
+  let discoverySection: HTMLElement | undefined
   let discoveryPoliteStatus: HTMLDivElement | undefined
   let discoveryErrorStatus: HTMLDivElement | undefined
 
@@ -67,7 +68,13 @@ export const DialogModelProfile: Component<{
     hasFeedback: () => form.state.discoveryFeedback !== undefined,
     schedule: (callback) => requestAnimationFrame(callback),
     scroll: () => {
-      const element = discoveryPresentation()?.tone === "error" ? discoveryErrorStatus : discoveryPoliteStatus
+      const status = discoveryPresentation()
+      const element =
+        status?.tone === "success"
+          ? (discoverySection?.querySelector<HTMLElement>(".model-profile-model-row") ?? discoveryPoliteStatus)
+          : status?.tone === "error"
+            ? discoveryErrorStatus
+            : discoveryPoliteStatus
       element?.scrollIntoView({ block: "nearest", behavior: "smooth" })
     },
   })
@@ -236,7 +243,7 @@ export const DialogModelProfile: Component<{
             </label>
           </div>
 
-          <section class="model-profile-models">
+          <section class="model-profile-models" ref={discoverySection}>
             <div class="model-profile-section-heading">
               <span>{language.t("settings.modelCenter.models.title")}</span>
               <ButtonV2
