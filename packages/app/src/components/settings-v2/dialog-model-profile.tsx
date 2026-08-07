@@ -12,6 +12,7 @@ import type { ProductProviderKind, ProductProviderProfile } from "@/product/mode
 import { showToast } from "@/utils/toast"
 import { createModelProfileFormController, type ModelProfileOperations } from "./model-center-controller"
 import { ModelCapabilityStatus } from "./model-capability-status"
+import { modelDiscoveryPresentation } from "./model-discovery-presentation"
 
 const KINDS: ProductProviderKind[] = ["openai-compatible", "ollama", "lm-studio", "custom-local"]
 
@@ -35,6 +36,7 @@ export const DialogModelProfile: Component<{
   const [manualID, setManualID] = createSignal("")
   const [advanced, setAdvanced] = createSignal(false)
   let advancedSection: HTMLElement | undefined
+  let discoveryStatus: HTMLDivElement | undefined
 
   const applyKind = (kind: ProductProviderKind) => {
     form.setKind(kind)
@@ -57,6 +59,14 @@ export const DialogModelProfile: Component<{
     form.addManualModel(manualID())
     setManualID("")
   }
+
+  const discover = async () => {
+    const result = await form.discover().catch(() => undefined)
+    if (!result) return
+    requestAnimationFrame(() => discoveryStatus?.scrollIntoView({ block: "nearest", behavior: "smooth" }))
+  }
+
+  const discoveryPresentation = () => modelDiscoveryPresentation(form.state.discovering, form.state.discoveryFeedback)
 
   const toggleAdvanced = () => {
     const next = !advanced()
@@ -223,7 +233,7 @@ export const DialogModelProfile: Component<{
                 variant="neutral"
                 icon="reset"
                 disabled={form.state.discovering || busy()}
-                onClick={() => void form.discover().catch(() => undefined)}
+                onClick={() => void discover()}
               >
                 {form.state.discovering
                   ? language.t("settings.modelCenter.progress.discovering")
@@ -254,41 +264,73 @@ export const DialogModelProfile: Component<{
                 onClick={addManual}
               />
             </div>
+            <Show when={discoveryPresentation()}>
+              {(status) => (
+                <div
+                  ref={discoveryStatus}
+                  class="model-profile-feedback"
+                  role="status"
+                  aria-live={status().live}
+                  aria-atomic="true"
+                >
+                  {language.t(status().key, status().params)}
+                </div>
+              )}
+            </Show>
             <Show
               when={form.state.models.length > 0}
               fallback={<div class="model-profile-empty">{language.t("settings.modelCenter.models.empty")}</div>}
             >
-              <div class="model-profile-model-list">
-                <For each={form.state.models}>
-                  {(model) => (
-                    <label class="model-profile-model-row">
-                      <input
-                        type="radio"
-                        name="profile-model"
-                        checked={form.state.selectedModelID === model.id}
-                        disabled={busy()}
-                        onChange={() => form.selectModel(model.id)}
-                      />
-                      <span>
-                        <strong>{model.name}</strong>
-                        <small>{model.id}</small>
-                      </span>
-                      <IconButtonV2
-                        type="button"
-                        size="small"
-                        variant="ghost-muted"
-                        aria-label={language.t("settings.modelCenter.models.remove", { model: model.name })}
-                        title={language.t("common.delete")}
-                        icon={<Icon name="close" />}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          form.removeModel(model.id)
-                        }}
-                      />
-                    </label>
-                  )}
-                </For>
-              </div>
+              <TextInputV2
+                type="search"
+                value={form.state.modelQuery}
+                placeholder={language.t("settings.modelCenter.discovery.search")}
+                aria-label={language.t("settings.modelCenter.discovery.search")}
+                disabled={busy()}
+                spellcheck={false}
+                autocorrect="off"
+                autocomplete="off"
+                autocapitalize="off"
+                onInput={(event) => form.setModelQuery(event.currentTarget.value)}
+              />
+              <Show
+                when={form.filteredModels().length > 0}
+                fallback={
+                  <div class="model-profile-empty">{language.t("settings.modelCenter.discovery.searchEmpty")}</div>
+                }
+              >
+                <div class="model-profile-model-list">
+                  <For each={form.filteredModels()}>
+                    {(model) => (
+                      <label class="model-profile-model-row">
+                        <input
+                          type="radio"
+                          name="profile-model"
+                          checked={form.state.selectedModelID === model.id}
+                          disabled={busy()}
+                          onChange={() => form.selectModel(model.id)}
+                        />
+                        <span>
+                          <strong>{model.name}</strong>
+                          <small>{model.id}</small>
+                        </span>
+                        <IconButtonV2
+                          type="button"
+                          size="small"
+                          variant="ghost-muted"
+                          aria-label={language.t("settings.modelCenter.models.remove", { model: model.name })}
+                          title={language.t("common.delete")}
+                          icon={<Icon name="close" />}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            form.removeModel(model.id)
+                          }}
+                        />
+                      </label>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
             <div class="model-profile-test-row" aria-busy={form.state.testing}>
               <div>
