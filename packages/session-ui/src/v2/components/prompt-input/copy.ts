@@ -18,6 +18,18 @@ export type PromptInputV2Copy = {
   stop: string
 }
 
+export type PromptInputV2AttachmentCopy =
+  | {
+      removeLabel: string
+      removeAttachmentLabel?: string
+      removeContextLabel?: string
+    }
+  | {
+      removeLabel?: string
+      removeAttachmentLabel: string
+      removeContextLabel: string
+    }
+
 const DEFAULT_COPY: PromptInputV2Copy = {
   emptyResults: "No matching items",
   commandsSearchLabel: "Commands",
@@ -63,5 +75,12 @@ export function resolvePromptInputV2Copy(copy?: Partial<PromptInputV2Copy>): Pro
     chooseVariant: value("chooseVariant"),
     send: value("send"),
     stop: value("stop"),
+  }
+}
+
+export function resolvePromptInputV2AttachmentCopy(copy: PromptInputV2AttachmentCopy) {
+  return {
+    removeAttachmentLabel: copy.removeAttachmentLabel ?? copy.removeLabel ?? DEFAULT_COPY.removeAttachment,
+    removeContextLabel: copy.removeContextLabel ?? copy.removeLabel ?? DEFAULT_COPY.removeContext,
   }
 }

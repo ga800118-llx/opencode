@@ -1,5 +1,26 @@
 import { describe, expect, test } from "bun:test"
-import { resolvePromptInputV2Copy } from "./copy"
+import { resolvePromptInputV2AttachmentCopy, resolvePromptInputV2Copy } from "./copy"
+
+describe("resolvePromptInputV2AttachmentCopy", () => {
+  test("uses the legacy remove label for both controls", () => {
+    expect(resolvePromptInputV2AttachmentCopy({ removeLabel: "Remove item" })).toEqual({
+      removeAttachmentLabel: "Remove item",
+      removeContextLabel: "Remove item",
+    })
+  })
+
+  test("keeps split attachment and context labels", () => {
+    expect(
+      resolvePromptInputV2AttachmentCopy({
+        removeAttachmentLabel: "Remove attachment",
+        removeContextLabel: "Remove context",
+      }),
+    ).toEqual({
+      removeAttachmentLabel: "Remove attachment",
+      removeContextLabel: "Remove context",
+    })
+  })
+})
 
 describe("resolvePromptInputV2Copy", () => {
   test("falls back when a partial copy explicitly contains undefined", () => {
