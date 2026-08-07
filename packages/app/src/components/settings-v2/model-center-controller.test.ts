@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test"
 import type {
   ProductCapabilityReport,
   ProductLocalProviderCandidate,
+  ProductModelDiagnostic,
   ProductModelDiscoveryResult,
   ProductProviderProfile,
   ProductProviderProfileInput,
 } from "@/product/model-center"
-import { createModelProfileFormController } from "./model-center-controller"
+import { createModelProfileFormController, type ModelProfileOperations } from "./model-center-controller"
 
 const agentReport = {
   modelID: "coder",
@@ -43,7 +44,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function fixture(input: { profile?: ProductProviderProfile } = {}) {
+function fixture(input: { profile?: ProductProviderProfile; discover?: ModelProfileOperations["discover"] } = {}) {
   const saves: ProductProviderProfileInput[] = []
   const defaults: Array<{ profileID: string; modelID: string }> = []
   let saveResolve: (() => void) | undefined
@@ -51,7 +52,7 @@ function fixture(input: { profile?: ProductProviderProfile } = {}) {
   const form = createModelProfileFormController({
     profile: input.profile,
     operations: {
-      discover: async () => ({ models: [], requestID: "req-discover" }),
+      discover: input.discover ?? (async () => ({ models: [], requestID: "req-discover" })),
       test: async () => agentReport,
       detectLocal: async () => [],
       save: async (value) => {
@@ -121,6 +122,124 @@ describe("createModelProfileFormController", () => {
     expect(JSON.stringify(form.state)).not.toContain("replacement-key")
   })
 
+  test("records successful discovery feedback while reconciling manual models", async () => {
+    const { form } = fixture({
+      profile,
+      discover: async () => ({
+        models: [
+          { id: "coder", name: "Discovered coder", source: "discovered" },
+          { id: "reasoner", name: "Reasoner", source: "discovered" },
+        ],
+        requestID: "req-success",
+      }),
+    })
+
+    await form.discover()
+
+    expect(form.state.models).toEqual([
+      { id: "coder", name: "Coder", source: "manual" },
+      { id: "reasoner", name: "Reasoner", source: "discovered" },
+    ])
+    expect(form.state.selectedModelID).toBe("coder")
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 2 })
+  })
+
+  test("filters models by name or ID without changing discovery feedback", async () => {
+    const searchableProfile = {
+      ...profile,
+      models: [
+        { id: "coder", name: "Code Pro", source: "manual" },
+        { id: "reasoner-v2", name: "Thinker", source: "manual" },
+      ],
+    } satisfies ProductProviderProfile
+    const { form } = fixture({ profile: searchableProfile })
+    await form.discover()
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 0 })
+
+    form.setModelQuery("  cOdE pRo  ")
+    expect(form.filteredModels().map((model) => model.id)).toEqual(["coder"])
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 0 })
+
+    form.setModelQuery("REASONER-V2")
+    expect(form.filteredModels().map((model) => model.id)).toEqual(["reasoner-v2"])
+
+    form.setModelQuery("   ")
+    expect(form.filteredModels().map((model) => model.id)).toEqual(["coder", "reasoner-v2"])
+  })
+
+  test("preserves the complete model transaction when discovery returns a diagnostic", async () => {
+    const report = { ...agentReport, modelID: "reasoner" } satisfies ProductCapabilityReport
+    const diagnostic = {
+      kind: "authentication",
+      message: "Authentication failed.",
+      requestID: "req-diagnostic",
+      status: 401,
+    } satisfies ProductModelDiagnostic
+    const diagnosticProfile = {
+      ...profile,
+      models: [
+        { id: "coder", name: "Coder", source: "manual" },
+        { id: "reasoner", name: "Reasoner", source: "discovered" },
+      ],
+      defaultModelID: "reasoner",
+      test: report,
+    } satisfies ProductProviderProfile
+    const { form } = fixture({
+      profile: diagnosticProfile,
+      discover: async () => ({
+        models: [{ id: "replacement", name: "Replacement", source: "discovered" }],
+        requestID: "req-diagnostic",
+        diagnostic,
+      }),
+    })
+
+    await form.discover()
+
+    expect(form.state.models).toEqual(diagnosticProfile.models)
+    expect(form.state.selectedModelID).toBe("reasoner")
+    expect(form.state.report).toEqual(report)
+    expect(form.state.discoveryFeedback).toEqual({ type: "diagnostic", diagnostic })
+  })
+
+  test("rejects incomplete, non-HTTP, and credential-bearing discovery endpoints", async () => {
+    let calls = 0
+    const { form } = fixture({
+      discover: async () => {
+        calls += 1
+        return { models: [], requestID: "unexpected-call" }
+      },
+    })
+
+    for (const baseURL of [
+      "models.example.test/v1",
+      "ftp://models.example.test/v1",
+      "https://user:secret@models.example.test/v1",
+    ]) {
+      form.setField("baseURL", baseURL)
+      await expect(form.discover()).resolves.toBeUndefined()
+      expect(form.state.discoveryFeedback).toEqual({ type: "invalid-endpoint" })
+      expect(form.state.discovering).toBe(false)
+    }
+    expect(calls).toBe(0)
+  })
+
+  test("clears discovery feedback for provider inputs but not model search", async () => {
+    const { form } = fixture()
+    await form.discover()
+
+    form.setModelQuery("coder")
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 0 })
+
+    form.setApiKey("sk-private")
+    expect(form.state.discoveryFeedback).toBeUndefined()
+    await form.discover()
+    form.setField("baseURL", "https://other.example.test/v1")
+    expect(form.state.discoveryFeedback).toBeUndefined()
+    await form.discover()
+    form.setKind("ollama")
+    expect(form.state.discoveryFeedback).toBeUndefined()
+  })
+
   test("merges discovery with manual models and ignores a stale response", async () => {
     const first = deferred<ProductModelDiscoveryResult>()
     const second = deferred<ProductModelDiscoveryResult>()
@@ -147,14 +266,33 @@ describe("createModelProfileFormController", () => {
     })
     await newRequest
     first.resolve({
-      models: [{ id: "old-coder", name: "Old coder", source: "discovered" }],
+      models: [
+        { id: "old-coder", name: "Old coder", source: "discovered" },
+        { id: "old-reasoner", name: "Old reasoner", source: "discovered" },
+      ],
       requestID: "old",
     })
     await oldRequest
 
     expect(form.state.models.map((model) => model.id)).toEqual(["manual-coder", "new-coder"])
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 1 })
     form.removeModel("manual-coder")
     expect(form.state.models.map((model) => model.id)).toEqual(["new-coder"])
+  })
+
+  test("records unexpected discovery failures without exposing credentials", async () => {
+    const { form } = fixture({
+      discover: async () => {
+        throw new Error("failed with sk-private")
+      },
+    })
+    form.setApiKey("sk-private")
+
+    await expect(form.discover()).rejects.toThrow("failed with [redacted]")
+
+    expect(form.state.discoveryFeedback).toEqual({ type: "unexpected" })
+    expect(form.state.error).toBe("failed with [redacted]")
+    expect(JSON.stringify(form.state)).not.toContain("sk-private")
   })
 
   test("tests capabilities and only exposes an agent-capable model as a default", async () => {

@@ -2,6 +2,7 @@ import {
   normalizeProviderProfileInput,
   type ProductCapabilityReport,
   type ProductLocalProviderCandidate,
+  type ProductModelDiagnostic,
   type ProductModelCenterAPI,
   type ProductProviderHeader,
   type ProductProviderKind,
@@ -15,6 +16,12 @@ export type ModelProfileOperations = Pick<
   ProductModelCenterAPI,
   "discover" | "test" | "detectLocal" | "save" | "remove" | "selectDefault"
 >
+
+export type ModelDiscoveryFeedback =
+  | { readonly type: "invalid-endpoint" }
+  | { readonly type: "success"; readonly count: number }
+  | { readonly type: "diagnostic"; readonly diagnostic: ProductModelDiagnostic }
+  | { readonly type: "unexpected" }
 
 type HeaderDraft = {
   name: string
@@ -33,6 +40,7 @@ type FormState = {
   apiKeyPresent: boolean
   headers: HeaderDraft[]
   models: ProductProviderModel[]
+  modelQuery: string
   selectedModelID?: string
   settings: {
     timeoutMs: number
@@ -51,6 +59,7 @@ type FormState = {
   deleteConfirmation: boolean
   error?: string
   diagnostic?: string
+  discoveryFeedback?: ModelDiscoveryFeedback
 }
 
 const KIND_DEFAULTS: Record<ProductProviderKind, { name: string; baseURL: string }> = {
@@ -97,6 +106,7 @@ export function createModelProfileFormController(options: {
         hasValue: header.hasValue,
       })) ?? [],
     models: initial?.models.map((model) => ({ ...model })) ?? [],
+    modelQuery: "",
     ...(initial?.defaultModelID ? { selectedModelID: initial.defaultModelID } : {}),
     settings: {
       timeoutMs: initial?.settings.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs,
@@ -118,6 +128,7 @@ export function createModelProfileFormController(options: {
   const clearFeedback = () => {
     setState("error", undefined)
     setState("diagnostic", undefined)
+    setState("discoveryFeedback", undefined)
   }
 
   const input = (): ProductProviderProfileInput => {
@@ -177,6 +188,7 @@ export function createModelProfileFormController(options: {
       state.headers[index]?.sensitive ? (secretHeaders.get(index) ?? "") : (state.headers[index]?.value ?? ""),
     setKind(kind: ProductProviderKind) {
       const defaults = KIND_DEFAULTS[kind]
+      discoveryGeneration += 1
       apiKey = ""
       secretHeaders.clear()
       setState({
@@ -189,11 +201,17 @@ export function createModelProfileFormController(options: {
         models: [],
         selectedModelID: undefined,
         report: undefined,
+        discovering: false,
         error: undefined,
         diagnostic: undefined,
+        discoveryFeedback: undefined,
       })
     },
     setField(field: "name" | "baseURL", value: string) {
+      if (field === "baseURL") {
+        discoveryGeneration += 1
+        setState("discovering", false)
+      }
       setState(field, value)
       clearFeedback()
     },
@@ -206,7 +224,9 @@ export function createModelProfileFormController(options: {
       clearFeedback()
     },
     setApiKey(value: string) {
+      discoveryGeneration += 1
       apiKey = value
+      setState("discovering", false)
       setState("apiKeyPresent", Boolean(value) || Boolean(initial?.hasApiKey))
       clearFeedback()
     },
@@ -288,8 +308,20 @@ export function createModelProfileFormController(options: {
       setState("selectedModelID", modelID)
       clearFeedback()
     },
+    setModelQuery(value: string) {
+      setState("modelQuery", value)
+    },
+    filteredModels() {
+      const query = state.modelQuery.trim().toLowerCase()
+      if (!query) return state.models
+      return state.models.filter(
+        (model) => model.name.toLowerCase().includes(query) || model.id.toLowerCase().includes(query),
+      )
+    },
     applyLocalCandidate(candidate: ProductLocalProviderCandidate) {
+      discoveryGeneration += 1
       detectionGeneration += 1
+      setState("discovering", false)
       setState("kind", candidate.kind)
       setState("name", candidate.name)
       setState("baseURL", candidate.baseURL)
@@ -322,19 +354,42 @@ export function createModelProfileFormController(options: {
     },
     async discover() {
       const generation = ++discoveryGeneration
+      const baseURL = state.baseURL.trim()
+      const endpoint = URL.canParse(baseURL) ? new URL(baseURL) : undefined
+      if (
+        !endpoint ||
+        (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
+        endpoint.username ||
+        endpoint.password
+      ) {
+        setState("discovering", false)
+        clearFeedback()
+        setState("discoveryFeedback", { type: "invalid-endpoint" })
+        return
+      }
       setState("discovering", true)
       clearFeedback()
       try {
         const result = await options.operations.discover({ draft: input() })
         if (generation !== discoveryGeneration) return result
+        if (result.diagnostic) {
+          setState("diagnostic", result.diagnostic.message)
+          setState("discoveryFeedback", { type: "diagnostic", diagnostic: result.diagnostic })
+          return result
+        }
         const manual = state.models.filter((model) => model.source === "manual")
         const manualIDs = new Set(manual.map((model) => model.id))
-        setState("models", [...manual, ...result.models.filter((model) => !manualIDs.has(model.id))])
-        if (!state.selectedModelID) setState("selectedModelID", state.models[0]?.id)
-        setState("diagnostic", result.diagnostic?.message)
+        const models = [...manual, ...result.models.filter((model) => !manualIDs.has(model.id))]
+        const selectedModelID = models.some((model) => model.id === state.selectedModelID)
+          ? state.selectedModelID
+          : models[0]?.id
+        setState("models", models)
+        setState("selectedModelID", selectedModelID)
+        setState("discoveryFeedback", { type: "success", count: result.models.length })
         return result
       } catch (error) {
         if (generation !== discoveryGeneration) return undefined
+        setState("discoveryFeedback", { type: "unexpected" })
         throw recordError(error)
       } finally {
         if (generation === discoveryGeneration) setState("discovering", false)
