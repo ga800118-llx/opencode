@@ -1,6 +1,6 @@
 # Mac Agent App Phase 0-3 Design
 
-**Status:** Approved for implementation
+**Status:** Implemented and verified through Phase 3
 
 **Date:** 2026-08-01
 
@@ -291,3 +291,10 @@ Each plan is written only after its dependency phase exposes the actual source p
 ## 14. Completion Definition
 
 The goal is complete only when all Phase 0-3 gates are proven against the current worktree and a running desktop build. Documentation, mockups, or isolated component tests alone do not prove completion. Phase 3 evidence must include automated test results, the feature-parity audit, and a manual end-to-end run using cloud, private, and local model paths.
+
+Completion evidence is recorded in
+`docs/product/phase-3/verification.md` and
+`docs/product/baseline/feature-parity.md`. The final unsigned macOS arm64
+candidate was built from product-source commit
+`d19acc112e213088ac8c6bdd84727e797a857de7` and exercised cloud, private,
+local, sidecar-crash recovery, and long-running task interruption paths.

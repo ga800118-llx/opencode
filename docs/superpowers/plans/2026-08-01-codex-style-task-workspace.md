@@ -521,3 +521,9 @@ git commit -m "docs: complete phase 3 task workspace"
 
 Expected: Phase 3 gate is fully evidenced, no task checkbox remains open, and
 the worktree contains only user-owned unrelated files.
+
+Final requalification on 2026-08-07 found and fixed the unchanged-save path for
+a tested model profile, rebuilt the candidate from
+`d19acc112e213088ac8c6bdd84727e797a857de7`, and repeated affected/full gates.
+The exact final package then completed cloud, authenticated private, local,
+relaunch, sidecar-crash recovery, and long-running interruption acceptance.
