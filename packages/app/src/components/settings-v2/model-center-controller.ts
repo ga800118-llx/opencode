@@ -354,6 +354,7 @@ export function createModelProfileFormController(options: {
     },
     async discover() {
       const generation = ++discoveryGeneration
+      clearFeedback()
       const baseURL = state.baseURL.trim()
       const endpoint = /^https?:\/\/[^/?#]+/i.test(baseURL) && URL.canParse(baseURL) ? new URL(baseURL) : undefined
       if (
@@ -368,7 +369,6 @@ export function createModelProfileFormController(options: {
         return
       }
       setState("discovering", true)
-      setState("discoveryFeedback", undefined)
       try {
         const result = await options.operations.discover({ draft: input() })
         if (generation !== discoveryGeneration) return result

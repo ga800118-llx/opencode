@@ -144,6 +144,82 @@ describe("createModelProfileFormController", () => {
     expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 2 })
   })
 
+  test("clears stale legacy feedback before every discovery outcome", async () => {
+    const diagnostic = {
+      kind: "authentication",
+      message: "Authentication failed.",
+      requestID: "req-diagnostic",
+      status: 401,
+    } satisfies ProductModelDiagnostic
+    const reports = [
+      deferred<ProductCapabilityReport>(),
+      deferred<ProductCapabilityReport>(),
+      deferred<ProductCapabilityReport>(),
+    ]
+    let discovery = 0
+    let test = 0
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => {
+          discovery += 1
+          if (discovery === 1) {
+            return {
+              models: [{ id: "coder", name: "Coder", source: "discovered" }],
+              requestID: "req-success",
+            }
+          }
+          return { models: [], requestID: "req-diagnostic", diagnostic }
+        },
+        test: () => reports[test++]!.promise,
+        detectLocal: async () => [],
+        save: async () => {
+          throw new Error("save failed")
+        },
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+    const report = { ...agentReport, diagnostic } satisfies ProductCapabilityReport
+
+    const successTest = form.test()
+    await expect(form.save()).rejects.toThrow("save failed")
+    reports[0].resolve(report)
+    await successTest
+    expect(form.state.error).toBe("save failed")
+    expect(form.state.diagnostic).toBe("Authentication failed.")
+
+    await form.discover()
+    expect(form.state.error).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
+    expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 1 })
+
+    const diagnosticTest = form.test()
+    await expect(form.save()).rejects.toThrow("save failed")
+    reports[1].resolve(report)
+    await diagnosticTest
+    expect(form.state.error).toBe("save failed")
+    expect(form.state.diagnostic).toBe("Authentication failed.")
+
+    await form.discover()
+    expect(form.state.error).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
+    expect(form.state.discoveryFeedback).toEqual({ type: "diagnostic", diagnostic })
+
+    const invalidEndpointTest = form.test()
+    form.setField("baseURL", "https:models.example.test/v1")
+    await expect(form.save()).rejects.toThrow("save failed")
+    reports[2].resolve(report)
+    await invalidEndpointTest
+    expect(form.state.error).toBe("save failed")
+    expect(form.state.diagnostic).toBe("Authentication failed.")
+
+    await form.discover()
+    expect(form.state.error).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
+    expect(form.state.discoveryFeedback).toEqual({ type: "invalid-endpoint" })
+  })
+
   test("selects the first reconciled model when discovery removes the previous selection", async () => {
     const fallbackProfile = {
       ...profile,
