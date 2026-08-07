@@ -38,10 +38,12 @@ const profile = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
     resolve = done
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 function fixture(input: { profile?: ProductProviderProfile; discover?: ModelProfileOperations["discover"] } = {}) {
@@ -208,10 +210,10 @@ describe("createModelProfileFormController", () => {
 
     const invalidEndpointTest = form.test()
     form.setField("baseURL", "https:models.example.test/v1")
-    await expect(form.save()).rejects.toThrow("save failed")
+    await expect(form.save()).rejects.toThrow("A valid HTTP or HTTPS endpoint is required.")
     reports[2].resolve(report)
     await invalidEndpointTest
-    expect(form.state.error).toBe("save failed")
+    expect(form.state.error).toBe("A valid HTTP or HTTPS endpoint is required.")
     expect(form.state.diagnostic).toBe("Authentication failed.")
 
     await form.discover()
@@ -264,6 +266,42 @@ describe("createModelProfileFormController", () => {
 
     form.setModelQuery("   ")
     expect(form.filteredModels().map((model) => model.id)).toEqual(["coder", "reasoner-v2"])
+    const filtered = form.filteredModels()
+    expect(filtered).not.toBe(form.state.models)
+    filtered.splice(0, filtered.length)
+    expect(form.state.models.map((model) => model.id)).toEqual(["coder", "reasoner-v2"])
+  })
+
+  test("preserves completed discovery feedback for non-probe edits and workflows", async () => {
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => ({ models: [], requestID: "req-success" }),
+        test: async () => agentReport,
+        detectLocal: async () => [],
+        save: async () => profile,
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+    await form.discover()
+    const feedback = { type: "success", count: 0 } as const
+
+    form.setField("name", "Renamed profile")
+    form.setSetting("contextLimit", 64_000)
+    form.setSetting("outputLimit", 8_000)
+    expect(form.state.discoveryFeedback).toEqual(feedback)
+
+    form.addManualModel("extra", "Extra")
+    form.selectModel("extra")
+    form.removeModel("extra")
+    expect(form.state.discoveryFeedback).toEqual(feedback)
+
+    await form.test()
+    await form.save()
+    form.requestDelete()
+    await form.confirmDelete()
+    expect(form.state.discoveryFeedback).toEqual(feedback)
   })
 
   test("preserves the complete model transaction when discovery returns a diagnostic", async () => {
@@ -331,6 +369,32 @@ describe("createModelProfileFormController", () => {
     expect(calls).toBe(0)
   })
 
+  test("rejects shorthand discovery URLs consistently from input and save", async () => {
+    let saves = 0
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => ({ models: [], requestID: "req-discover" }),
+        test: async () => agentReport,
+        detectLocal: async () => [],
+        save: async () => {
+          saves += 1
+          return profile
+        },
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+
+    for (const baseURL of ["https:models.example.test/v1", "https:/models.example.test/v1"]) {
+      form.setField("baseURL", baseURL)
+      expect(() => form.input()).toThrow("A valid HTTP or HTTPS endpoint is required.")
+      expect(form.canSave()).toBe(false)
+      await expect(form.save()).rejects.toThrow("A valid HTTP or HTTPS endpoint is required.")
+    }
+    expect(saves).toBe(0)
+  })
+
   test("clears discovery feedback for provider inputs but not model search", async () => {
     const { form } = fixture()
     await form.discover()
@@ -348,53 +412,64 @@ describe("createModelProfileFormController", () => {
     expect(form.state.discoveryFeedback).toBeUndefined()
   })
 
-  test("invalidates in-flight discovery when provider inputs change", async () => {
-    const requests = [
-      deferred<ProductModelDiscoveryResult>(),
-      deferred<ProductModelDiscoveryResult>(),
-      deferred<ProductModelDiscoveryResult>(),
-    ]
+  test("invalidates in-flight discovery when probe inputs change", async () => {
+    const requests = Array.from({ length: 8 }, () => deferred<ProductModelDiscoveryResult>())
     let request = 0
     const { form } = fixture({
       profile,
       discover: () => requests[request++]!.promise,
     })
 
-    const baseURLRequest = form.discover()
-    expect(form.state.discovering).toBe(true)
-    form.setField("baseURL", "https://other.example.test/v1")
-    expect(form.state.discovering).toBe(false)
-    requests[0].resolve({
-      models: [{ id: "stale-base-url", name: "Stale base URL", source: "discovered" }],
-      requestID: "stale-base-url",
+    const expectInvalidation = async (name: string, mutate: () => void, expectedModels = ["coder"]) => {
+      const index = request
+      const pending = form.discover()
+      expect(form.state.discovering).toBe(true)
+      mutate()
+      expect(form.state.discovering).toBe(false)
+      requests[index]!.resolve({
+        models: [{ id: `stale-${name}`, name: `Stale ${name}`, source: "discovered" }],
+        requestID: `stale-${name}`,
+      })
+      expect(await pending).toBeUndefined()
+      expect(form.state.models.map((model) => model.id)).toEqual(expectedModels)
+      expect(form.state.discoveryFeedback).toBeUndefined()
+    }
+
+    await expectInvalidation("base-url", () => form.setField("baseURL", "https://other.example.test/v1"))
+    await expectInvalidation("api-key", () => form.setApiKey("replacement-key"))
+    await expectInvalidation("timeout", () => form.setSetting("timeoutMs", 45_000))
+    await expectInvalidation("added-header", () => form.addHeader({ name: "X-Extra", value: "one" }))
+    await expectInvalidation("changed-header", () => form.setHeader(2, { value: "two" }))
+    await expectInvalidation("removed-header", () => form.removeHeader(2))
+    await expectInvalidation("proxy", () => form.setProxyURL("https://proxy.example.test"))
+    form.setProxyURL("")
+    await expectInvalidation("kind", () => form.setKind("ollama"), [])
+  })
+
+  test("contains rejected discovery errors when a sensitive header changes in flight", async () => {
+    const requests = [deferred<ProductModelDiscoveryResult>(), deferred<ProductModelDiscoveryResult>()]
+    let request = 0
+    const { form } = fixture({
+      profile,
+      discover: () => requests[request++]!.promise,
     })
-    await baseURLRequest
+    form.setHeader(1, { value: "old-header-secret" })
+
+    const stale = form.discover()
+    form.setHeader(1, { value: "new-header-secret" })
+    requests[0].reject(new Error("failed with old-header-secret"))
+    await expect(stale).resolves.toBeUndefined()
     expect(form.state.models.map((model) => model.id)).toEqual(["coder"])
     expect(form.state.discoveryFeedback).toBeUndefined()
-
-    const apiKeyRequest = form.discover()
-    expect(form.state.discovering).toBe(true)
-    form.setApiKey("replacement-key")
     expect(form.state.discovering).toBe(false)
-    requests[1].resolve({
-      models: [{ id: "stale-api-key", name: "Stale API key", source: "discovered" }],
-      requestID: "stale-api-key",
-    })
-    await apiKeyRequest
-    expect(form.state.models.map((model) => model.id)).toEqual(["coder"])
-    expect(form.state.discoveryFeedback).toBeUndefined()
 
-    const kindRequest = form.discover()
-    expect(form.state.discovering).toBe(true)
-    form.setKind("ollama")
-    expect(form.state.discovering).toBe(false)
-    requests[2].resolve({
-      models: [{ id: "stale-kind", name: "Stale kind", source: "discovered" }],
-      requestID: "stale-kind",
-    })
-    await kindRequest
-    expect(form.state.models).toEqual([])
-    expect(form.state.discoveryFeedback).toBeUndefined()
+    const current = form.discover()
+    requests[1].reject(new Error("failed with new-header-secret"))
+    await expect(current).rejects.toThrow("failed with [redacted]")
+    expect(form.state.discoveryFeedback).toEqual({ type: "unexpected" })
+    expect(form.headerValue(1)).toBe("new-header-secret")
+    expect(JSON.stringify(form.state)).not.toContain("old-header-secret")
+    expect(JSON.stringify(form.state)).not.toContain("new-header-secret")
   })
 
   test("merges discovery with manual models and ignores a stale response", async () => {
@@ -429,7 +504,7 @@ describe("createModelProfileFormController", () => {
       ],
       requestID: "old",
     })
-    await oldRequest
+    expect(await oldRequest).toBeUndefined()
 
     expect(form.state.models.map((model) => model.id)).toEqual(["manual-coder", "new-coder"])
     expect(form.state.discoveryFeedback).toEqual({ type: "success", count: 1 })

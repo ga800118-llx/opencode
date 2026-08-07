@@ -77,6 +77,20 @@ const DEFAULT_SETTINGS = {
   allowInsecureTls: false as const,
 }
 
+const INVALID_ENDPOINT_MESSAGE = "A valid HTTP or HTTPS endpoint is required."
+
+function isCompleteEndpoint(value: string) {
+  const input = value.trim()
+  if (!/^https?:\/\/[^/?#]+/i.test(input) || !URL.canParse(input)) return false
+  const endpoint = new URL(input)
+  return (
+    (endpoint.protocol === "http:" || endpoint.protocol === "https:") &&
+    Boolean(endpoint.hostname) &&
+    !endpoint.username &&
+    !endpoint.password
+  )
+}
+
 export function createModelProfileFormController(options: {
   readonly operations: ModelProfileOperations
   readonly profile?: ProductProviderProfile
@@ -125,13 +139,23 @@ export function createModelProfileFormController(options: {
     deleteConfirmation: false,
   })
 
-  const clearFeedback = () => {
+  const clearLegacyFeedback = () => {
     setState("error", undefined)
     setState("diagnostic", undefined)
+  }
+
+  const clearDiscoveryFeedback = () => {
     setState("discoveryFeedback", undefined)
   }
 
+  const invalidateDiscovery = () => {
+    discoveryGeneration += 1
+    setState("discovering", false)
+    clearDiscoveryFeedback()
+  }
+
   const input = (): ProductProviderProfileInput => {
+    if (!isCompleteEndpoint(state.baseURL)) throw new Error(INVALID_ENDPOINT_MESSAGE)
     const headers: ProductProviderHeader[] = state.headers.flatMap<ProductProviderHeader>((header, index) => {
       if (!header.name.trim()) return []
       if (header.sensitive) {
@@ -188,7 +212,7 @@ export function createModelProfileFormController(options: {
       state.headers[index]?.sensitive ? (secretHeaders.get(index) ?? "") : (state.headers[index]?.value ?? ""),
     setKind(kind: ProductProviderKind) {
       const defaults = KIND_DEFAULTS[kind]
-      discoveryGeneration += 1
+      invalidateDiscovery()
       apiKey = ""
       secretHeaders.clear()
       setState({
@@ -201,38 +225,34 @@ export function createModelProfileFormController(options: {
         models: [],
         selectedModelID: undefined,
         report: undefined,
-        discovering: false,
-        error: undefined,
-        diagnostic: undefined,
-        discoveryFeedback: undefined,
       })
+      clearLegacyFeedback()
     },
     setField(field: "name" | "baseURL", value: string) {
-      if (field === "baseURL") {
-        discoveryGeneration += 1
-        setState("discovering", false)
-      }
+      if (field === "baseURL") invalidateDiscovery()
       setState(field, value)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     setSetting(field: "timeoutMs" | "contextLimit" | "outputLimit", value: number) {
+      if (field === "timeoutMs") invalidateDiscovery()
       setState("settings", field, value)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     setProxyURL(value: string) {
+      invalidateDiscovery()
       setState("settings", "proxyURL", value)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     setApiKey(value: string) {
-      discoveryGeneration += 1
+      invalidateDiscovery()
       apiKey = value
-      setState("discovering", false)
       setState("apiKeyPresent", Boolean(value) || Boolean(initial?.hasApiKey))
-      clearFeedback()
+      clearLegacyFeedback()
     },
     addHeader(header: { name?: string; value?: string; sensitive?: boolean } = {}) {
       const index = state.headers.length
       const sensitive = header.sensitive === true
+      invalidateDiscovery()
       if (sensitive && header.value !== undefined) secretHeaders.set(index, header.value)
       setState(
         "headers",
@@ -245,13 +265,14 @@ export function createModelProfileFormController(options: {
           })
         }),
       )
-      clearFeedback()
+      clearLegacyFeedback()
     },
     setHeader(index: number, patch: Partial<Pick<HeaderDraft, "name" | "value" | "sensitive">>) {
       const current = state.headers[index]
       if (!current) return
       const sensitive = patch.sensitive ?? current.sensitive
       const nextValue = patch.value ?? controller.headerValue(index)
+      invalidateDiscovery()
       if (sensitive) secretHeaders.set(index, nextValue)
       else secretHeaders.delete(index)
       setState("headers", index, {
@@ -261,10 +282,11 @@ export function createModelProfileFormController(options: {
         sensitive,
         hasValue: sensitive ? Boolean(nextValue) || current.hasValue : Boolean(nextValue),
       })
-      clearFeedback()
+      clearLegacyFeedback()
     },
     removeHeader(index: number) {
       const values = state.headers.map((_, current) => controller.headerValue(current))
+      invalidateDiscovery()
       setState(
         "headers",
         produce((rows) => {
@@ -277,7 +299,7 @@ export function createModelProfileFormController(options: {
         const value = values[current >= index ? current + 1 : current]
         if (value) secretHeaders.set(current, value)
       })
-      clearFeedback()
+      clearLegacyFeedback()
     },
     addManualModel(id: string, name = id) {
       const modelID = id.trim()
@@ -289,7 +311,7 @@ export function createModelProfileFormController(options: {
         }),
       )
       if (!state.selectedModelID) setState("selectedModelID", modelID)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     removeModel(modelID: string) {
       setState(
@@ -301,27 +323,26 @@ export function createModelProfileFormController(options: {
       )
       if (state.selectedModelID === modelID) setState("selectedModelID", state.models[0]?.id)
       if (state.report?.modelID === modelID) setState("report", undefined)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     selectModel(modelID: string) {
       if (!state.models.some((model) => model.id === modelID)) return
       setState("selectedModelID", modelID)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     setModelQuery(value: string) {
       setState("modelQuery", value)
     },
     filteredModels() {
       const query = state.modelQuery.trim().toLowerCase()
-      if (!query) return state.models
+      if (!query) return [...state.models]
       return state.models.filter(
         (model) => model.name.toLowerCase().includes(query) || model.id.toLowerCase().includes(query),
       )
     },
     applyLocalCandidate(candidate: ProductLocalProviderCandidate) {
-      discoveryGeneration += 1
+      invalidateDiscovery()
       detectionGeneration += 1
-      setState("discovering", false)
       setState("kind", candidate.kind)
       setState("name", candidate.name)
       setState("baseURL", candidate.baseURL)
@@ -331,12 +352,12 @@ export function createModelProfileFormController(options: {
       )
       setState("selectedModelID", candidate.models[0]?.id)
       setState("report", undefined)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     async detectLocal() {
       const generation = ++detectionGeneration
       setState("detecting", true)
-      clearFeedback()
+      clearLegacyFeedback()
       try {
         const result = await options.operations.detectLocal()
         if (generation !== detectionGeneration) return []
@@ -354,24 +375,18 @@ export function createModelProfileFormController(options: {
     },
     async discover() {
       const generation = ++discoveryGeneration
-      clearFeedback()
-      const baseURL = state.baseURL.trim()
-      const endpoint = /^https?:\/\/[^/?#]+/i.test(baseURL) && URL.canParse(baseURL) ? new URL(baseURL) : undefined
-      if (
-        !endpoint ||
-        (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
-        !endpoint.hostname ||
-        endpoint.username ||
-        endpoint.password
-      ) {
+      clearLegacyFeedback()
+      clearDiscoveryFeedback()
+      if (!isCompleteEndpoint(state.baseURL)) {
         setState("discovering", false)
         setState("discoveryFeedback", { type: "invalid-endpoint" })
         return
       }
       setState("discovering", true)
+      const secrets = credentialValues()
       try {
         const result = await options.operations.discover({ draft: input() })
-        if (generation !== discoveryGeneration) return result
+        if (generation !== discoveryGeneration) return undefined
         if (result.diagnostic) {
           setState("discoveryFeedback", { type: "diagnostic", diagnostic: result.diagnostic })
           return result
@@ -389,7 +404,7 @@ export function createModelProfileFormController(options: {
       } catch (error) {
         if (generation !== discoveryGeneration) return undefined
         setState("discoveryFeedback", { type: "unexpected" })
-        throw redactedError(error)
+        throw redactedError(error, secrets)
       } finally {
         if (generation === discoveryGeneration) setState("discovering", false)
       }
@@ -399,7 +414,7 @@ export function createModelProfileFormController(options: {
       if (!modelID) throw recordError(new Error("Choose a model before testing."))
       const generation = ++testGeneration
       setState("testing", true)
-      clearFeedback()
+      clearLegacyFeedback()
       try {
         const result = await options.operations.test({ draft: input(), modelID })
         if (generation !== testGeneration) return result
@@ -439,7 +454,7 @@ export function createModelProfileFormController(options: {
       if (!controller.canSelectDefault() || !state.profileID || !state.selectedModelID) {
         throw recordError(new Error("Only an agent-capable tested model can be the default."))
       }
-      clearFeedback()
+      clearLegacyFeedback()
       try {
         return await options.operations.selectDefault({ profileID: state.profileID, modelID: state.selectedModelID })
       } catch (error) {
@@ -457,7 +472,7 @@ export function createModelProfileFormController(options: {
         return Promise.reject(recordError(error))
       }
       setState("saving", true)
-      clearFeedback()
+      clearLegacyFeedback()
       savePromise = options.operations
         .save(value)
         .catch((error) => {
@@ -472,7 +487,7 @@ export function createModelProfileFormController(options: {
     requestDelete() {
       if (!state.profileID) return
       setState("deleteConfirmation", true)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     cancelDelete() {
       if (state.deleting) return
@@ -483,7 +498,7 @@ export function createModelProfileFormController(options: {
       if (!state.profileID || !state.deleteConfirmation)
         return Promise.reject(new Error("Confirm profile deletion first."))
       setState("deleting", true)
-      clearFeedback()
+      clearLegacyFeedback()
       deletePromise = options.operations
         .remove(state.profileID)
         .catch((error) => {
@@ -497,13 +512,12 @@ export function createModelProfileFormController(options: {
       return deletePromise
     },
     cancel() {
-      discoveryGeneration += 1
+      invalidateDiscovery()
       testGeneration += 1
       detectionGeneration += 1
-      setState("discovering", false)
       setState("testing", false)
       setState("detecting", false)
-      clearFeedback()
+      clearLegacyFeedback()
     },
     input,
   }
@@ -514,12 +528,15 @@ export function createModelProfileFormController(options: {
     return safe
   }
 
-  function redactedError(error: unknown) {
-    return new Error(redact(error instanceof Error ? error.message : String(error)))
+  function redactedError(error: unknown, secrets = credentialValues()) {
+    return new Error(redact(error instanceof Error ? error.message : String(error), secrets))
   }
 
-  function redact(message: string) {
-    const secrets = [apiKey, ...secretHeaders.values()].filter((value) => value.length > 0)
+  function credentialValues() {
+    return [apiKey, ...secretHeaders.values()].filter((value) => value.length > 0)
+  }
+
+  function redact(message: string, secrets: string[]) {
     return secrets.reduce((safe, secret) => safe.split(secret).join("[redacted]"), message)
   }
 
