@@ -652,7 +652,7 @@
 
 [data-component="dialog-v2"][data-size="large"] > [data-slot="dialog-container"].model-profile-dialog-container {
   width: min(640px, calc(100vw - 32px));
-  height: min(480px, calc(100vh - 32px));
+  height: min(680px, calc(100vh - 32px));
   min-height: 0;
 }
 
