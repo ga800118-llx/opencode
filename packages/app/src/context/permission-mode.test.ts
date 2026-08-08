@@ -73,6 +73,17 @@ describe("V2 permission mode state", () => {
     expect(harness.switches).toEqual([])
   })
 
+  test("waits for the shared V2 capability result", async () => {
+    const capability = Promise.withResolvers<boolean>()
+    const harness = setup({ supportsPermissionModes: false, permissionModeCapability: capability.promise })
+
+    expect(harness.state.supportsModes()).toBe(false)
+    const result = harness.state.supportsModesAsync()
+    capability.resolve(true)
+
+    expect(await result).toBe(true)
+  })
+
   test("updates the current task only after the API succeeds", async () => {
     const gate = Promise.withResolvers<void>()
     const harness = setup({ permissionMode: "standard", switchMode: () => gate.promise })
@@ -211,6 +222,7 @@ function currentPermission(request: PermissionRequest) {
 function setup(input: {
   protocol?: "v1" | "v2"
   supportsPermissionModes?: boolean
+  permissionModeCapability?: Promise<boolean>
   permissionMode?: Permission.Mode
   pending?: PermissionRequest[]
   switchMode?: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
@@ -244,6 +256,8 @@ function setup(input: {
     scope: `permission-mode-test-${scope++}`,
     protocol: Promise.resolve(input.protocol ?? "v2"),
     protocolKind: () => input.protocol ?? "v2",
+    permissionModeCapability:
+      input.permissionModeCapability ?? Promise.resolve(input.supportsPermissionModes ?? true),
     supportsPermissionModes: () => input.supportsPermissionModes ?? true,
     api: {
       session: {

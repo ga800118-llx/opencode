@@ -179,6 +179,7 @@ type ServerSDKBase = {
   scope: ServerScope
   protocol: Promise<ServerProtocol>
   protocolKind: Accessor<ServerProtocol | undefined>
+  permissionModeCapability: Promise<boolean>
   supportsPermissionModes: Accessor<boolean>
   url: string
   client: ReturnType<typeof createSdkForServer>
@@ -220,8 +221,13 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     () => protocol,
     (value) => value,
   )
-  const [permissionModeCapability] = createResource(
-    () => detectPermissionModeCapability(server.http, platform.fetch ?? globalThis.fetch, protocol),
+  const permissionModeCapability = detectPermissionModeCapability(
+    server.http,
+    platform.fetch ?? globalThis.fetch,
+    protocol,
+  )
+  const [permissionModeCapabilityState] = createResource(
+    () => permissionModeCapability,
     (value) => value,
   )
   const emitter = createGlobalEmitter<{
@@ -367,7 +373,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     scope,
     protocol,
     protocolKind,
-    supportsPermissionModes: () => permissionModeCapability() === true,
+    permissionModeCapability,
+    supportsPermissionModes: () => permissionModeCapabilityState() === true,
     url: server.http.url,
     client: sdk,
     api,

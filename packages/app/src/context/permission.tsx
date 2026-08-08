@@ -202,6 +202,9 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       supportsModes() {
         return selected().supportsModes()
       },
+      supportsModesAsync() {
+        return selected().supportsModesAsync()
+      },
       autoResponds(permission: PermissionRequest, directory?: string) {
         return selected().autoResponds(permission, directory)
       },
@@ -347,6 +350,11 @@ export function createServerPermissionState(
 
   function supportsModes() {
     return input.sdk.protocolKind() === "v2" && input.sdk.supportsPermissionModes()
+  }
+
+  async function supportsModesAsync() {
+    if ((await input.sdk.protocol) !== "v2") return false
+    return input.sdk.permissionModeCapability
   }
 
   function projectMode(directory: string) {
@@ -585,6 +593,7 @@ export function createServerPermissionState(
       setStore("autoConfirmed", directoryAcceptKey(directory), true)
     },
     supportsModes,
+    supportsModesAsync,
     autoResponds(permission: PermissionRequest, directory?: string) {
       if (meta.disposed) return false
       return shouldAutoRespond(permission, directory)

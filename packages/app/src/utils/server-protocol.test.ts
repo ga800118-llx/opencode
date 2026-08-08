@@ -110,8 +110,10 @@ describe("detectPermissionModeCapability", () => {
   test("rejects missing or malformed OpenAPI documents", async () => {
     const missing = mockFetch(() => Promise.resolve(json({}, 404)))
     const malformed = mockFetch(() => Promise.resolve(json({ paths: [] })))
+    const failed = mockFetch(() => Promise.reject(new Error("offline")))
 
     expect(await detectPermissionModeCapability(server, missing, "v2")).toBe(false)
     expect(await detectPermissionModeCapability(server, malformed, "v2")).toBe(false)
+    expect(await detectPermissionModeCapability(server, failed, "v2")).toBe(false)
   })
 })

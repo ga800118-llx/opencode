@@ -371,11 +371,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.onNewSessionWorktreeReset?.()
     }
 
-    const supportsPermissionModes = permissionState.supportsModes()
-    const shouldAutoAccept = isNewSession && !supportsPermissionModes && input.autoAccept()
-
     let session = input.info()
     if (!session && isNewSession) {
+      const supportsPermissionModes = await permissionState.supportsModesAsync()
+      const shouldAutoAccept = !supportsPermissionModes && input.autoAccept()
       const created = await taskAdapter()
         .create({
           directory: sessionDirectory,

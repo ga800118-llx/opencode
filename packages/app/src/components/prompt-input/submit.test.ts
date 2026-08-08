@@ -51,6 +51,8 @@ let selected = "/repo/worktree-a"
 let variant: string | undefined
 let permissionServer = "server-a"
 let supportsPermissionModes = false
+let permissionModeCapability: Promise<boolean> | undefined
+let permissionModeCapabilityCalls = 0
 let projectPermissionModes: Record<string, Permission.Mode> = {}
 let createSessionGate: Promise<void> | undefined
 
@@ -200,6 +202,10 @@ beforeAll(async () => {
       supportsModes() {
         return supportsPermissionModes
       },
+      supportsModesAsync() {
+        permissionModeCapabilityCalls++
+        return permissionModeCapability ?? Promise.resolve(supportsPermissionModes)
+      },
       enableAutoAccept(sessionID: string, directory: string) {
         enabledAutoAccept.push({ server, sessionID, directory })
       },
@@ -345,6 +351,8 @@ beforeEach(() => {
   variant = undefined
   permissionServer = "server-a"
   supportsPermissionModes = false
+  permissionModeCapability = undefined
+  permissionModeCapabilityCalls = 0
   projectPermissionModes = {}
   createSessionGate = undefined
   serverSessionSyncs = 0
@@ -499,6 +507,77 @@ describe("prompt submit worktree selection", () => {
     expect(enabledAutoAccept).toEqual([])
   })
 
+  test("waits for a pending capability before creating with the project mode", async () => {
+    const capability = Promise.withResolvers<boolean>()
+    permissionModeCapability = capability.promise
+    projectPermissionModes["/repo/worktree-a"] = "auto"
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => true,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(0)
+    expect(sessionCreateInputs).toEqual([])
+
+    capability.resolve(true)
+    await result
+
+    expect(permissionModeCapabilityCalls).toBe(1)
+    expect(sessionCreateInputs[0]).toMatchObject({ permissionMode: "auto" })
+    expect(enabledAutoAccept).toEqual([])
+  })
+
+  test("falls back to legacy auto-accept after a pending unsupported result", async () => {
+    const capability = Promise.withResolvers<boolean>()
+    permissionModeCapability = capability.promise
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => true,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(0)
+    expect(sessionCreateInputs).toEqual([])
+
+    capability.resolve(false)
+    await result
+
+    expect(permissionModeCapabilityCalls).toBe(1)
+    expect("permissionMode" in sessionCreateInputs[0]!).toBe(false)
+    expect(enabledAutoAccept).toEqual([{ server: "server-a", sessionID: "session-1", directory: "/repo/worktree-a" }])
+  })
+
   test("promotes drafts using the selected project's server", async () => {
     search = { draftId: "draft-1" }
     const submit = createPromptSubmit({
@@ -569,6 +648,7 @@ describe("prompt submit worktree selection", () => {
     })
     expect(promptInputs[0]?.messageID).toStartWith("msg_")
     expect(promptInputs[0]?.parts).toEqual([{ id: expect.stringMatching(/^prt_/), type: "text", text: "ls" }])
+    expect(permissionModeCapabilityCalls).toBe(0)
     expect(directSessionCalls).toBe(0)
   })
 
