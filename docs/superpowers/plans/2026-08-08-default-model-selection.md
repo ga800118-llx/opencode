@@ -234,3 +234,69 @@ git status --short
 ```
 
 Expected: no whitespace errors and only the intended source, test, copy, and plan files are modified, excluding the pre-existing untracked `.superpowers/` directory.
+
+### Task 5: Remove The Desktop Host Capability Gate
+
+**Files:**
+- Modify: `packages/desktop/src/main/model-center/service.test.ts`
+- Modify: `packages/desktop/src/main/model-center/service.ts`
+
+- [ ] **Step 1: Replace the desktop rejection expectation**
+
+Change the service coverage to prove both an untested model and a `chat-only` tested model can be selected as defaults:
+
+```ts
+test("allows untested and non-agent-capable models as defaults", async () => {
+  const untested = fixture()
+  const untestedProfile = await untested.service.save(draft)
+  expect(await untested.service.selectDefault({ profileID: untestedProfile.id, modelID: "coder" })).toMatchObject({
+    defaultModelID: "coder",
+  })
+
+  const partial = fixture({ classification: "chat-only" })
+  const partialProfile = await partial.service.save(draft)
+  await partial.service.test({ profileID: partialProfile.id, modelID: "coder" })
+  expect(await partial.service.selectDefault({ profileID: partialProfile.id, modelID: "coder" })).toMatchObject({
+    defaultModelID: "coder",
+  })
+})
+```
+
+Keep credential rollback coverage as a separate test.
+
+- [ ] **Step 2: Run the focused desktop test and verify it fails**
+
+Run from `packages/desktop`:
+
+```bash
+bun test ./src/main/model-center/service.test.ts
+```
+
+Expected: untested and `chat-only` default selection fail with the old agent-capability requirement.
+
+- [ ] **Step 3: Remove the desktop capability check**
+
+Keep profile existence validation and delegate model ownership validation to `profiles.selectDefault`:
+
+```ts
+async selectDefault(input) {
+  const profile = options.profiles.get(input.profileID)
+  if (!profile) throw new Error("The model profile does not exist.")
+  return present(options.profiles.selectDefault(input))
+},
+```
+
+- [ ] **Step 4: Run desktop verification**
+
+Run from `packages/desktop`:
+
+```bash
+bun test ./src/main/model-center/service.test.ts
+bun typecheck
+```
+
+Expected: the focused service tests and desktop typecheck pass.
+
+- [ ] **Step 5: Repeat the desktop interaction check**
+
+Restart the desktop development process so the Electron main process loads the service change. Open **Settings > Models**, edit the private endpoint, select `DeepSeek V4 Pro`, click **Make default**, and verify the success toast appears with no diagnostic feedback.
