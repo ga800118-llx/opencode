@@ -122,6 +122,7 @@ type SkillLayerInput = {
   projectRoot: string
   filesystem?: FSUtil.Interface
   safeMove?: SkillSafeMove.Interface
+  flock?: EffectFlock.Interface
 }
 
 function skillLayer(input: SkillLayerInput) {
@@ -140,6 +141,7 @@ function skillLayer(input: SkillLayerInput) {
         ),
       ],
       ...(input.filesystem ? ([[FSUtil.node, Layer.succeed(FSUtil.Service, input.filesystem)]] as const) : []),
+      ...(input.flock ? ([[EffectFlock.node, Layer.succeed(EffectFlock.Service, input.flock)]] as const) : []),
       [SkillSafeMove.node, Layer.succeed(SkillSafeMove.Service, input.safeMove ?? portableSafeMove)],
     ]),
   )
@@ -432,6 +434,50 @@ describe("SkillV2", () => {
           expect(
             yield* management([entry], { global: new Set(), project: new Set() }, fsService, unsupported),
           ).toMatchObject([{ deletable: false, deleteBlocked: "unsafe" }])
+        }),
+      ),
+    ),
+  )
+
+  it.live("treats a throwing capability probe as stable unsupported", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const context = yield* Layer.build(stateDependencies(path.join(tmp.path, "state")))
+          const fsService = Context.get(context, FSUtil.Service)
+          const sourceRoot = path.join(tmp.path, "skills")
+          yield* Effect.promise(() => fs.mkdir(path.join(sourceRoot, "local"), { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "local", "Local"))
+          const entry: Installed = {
+            source: SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(sourceRoot),
+              origin: { type: "config-directory", scope: "global", value: sourceRoot },
+            }),
+            info: SkillV2.Info.make({
+              name: "local",
+              location: AbsolutePath.make(path.join(sourceRoot, "local", "SKILL.md")),
+              content: "local",
+            }),
+          }
+          const probes = { value: 0 }
+          const throwing = SkillSafeMove.make({
+            probeLibrary: async () => {
+              probes.value++
+              throw new Error("probe failed")
+            },
+          })
+
+          for (const _ of [0, 1]) {
+            expect(yield* throwing.available()).toBe(false)
+            expect(
+              yield* management([entry], { global: new Set(), project: new Set() }, fsService, throwing),
+            ).toMatchObject([{ deletable: false, deleteBlocked: "unsafe" }])
+          }
+          expect(probes.value).toBe(1)
         }),
       ),
     ),
@@ -1040,14 +1086,25 @@ describe("SkillV2", () => {
             path.join(state, "skills", "global.json"),
             entry,
           ).pipe(Effect.flip)
-          expect(error).toBeInstanceOf(SkillV2.UnsafePathError)
-          expect(yield* Effect.promise(() => fs.readFile(path.join(original, "SKILL.md"), "utf8"))).toBe("replacement")
+          expect(error).toMatchObject({ operation: "delete" })
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(original).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
           expect(yield* Effect.promise(() => fs.readFile(path.join(displaced, "SKILL.md"), "utf8"))).toContain(
             "Captured original",
           )
-          expect(yield* Effect.promise(() => fs.readdir(path.join(state, "skills", "trash")).catch(() => []))).toEqual(
-            [],
-          )
+          const records = yield* Effect.promise(() => fs.readdir(path.join(state, "skills", "trash")))
+          expect(records).toHaveLength(1)
+          expect(
+            yield* Effect.promise(() =>
+              fs.readFile(path.join(state, "skills", "trash", records[0], "payload", "SKILL.md"), "utf8"),
+            ),
+          ).toBe("replacement")
         }),
       ),
     ),
@@ -1130,6 +1187,161 @@ describe("SkillV2", () => {
     ),
   )
 
+  it.live("does not move a replacement final record during identity compensation", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const liveSafeMove = Context.get(context, SkillSafeMove.Service)
+          if (!(yield* liveSafeMove.available())) return
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "final-race")
+          const trash = path.join(state, "skills", "trash")
+          const displaced = path.join(trash, "displaced-final")
+          const replacement = { path: "" }
+          yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "final-race", "Original final payload"))
+          const entry: Installed = {
+            source: SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(sourceRoot),
+              origin: { type: "config-directory", scope: "global", value: sourceRoot },
+            }),
+            info: SkillV2.Info.make({
+              name: "final-race",
+              location: AbsolutePath.make(path.join(target, "SKILL.md")),
+              content: "Original final payload",
+            }),
+          }
+          const safeMove = SkillSafeMove.make({
+            afterFinalRename: Effect.promise(async () => {
+              const name = (await fs.readdir(trash)).find((item) => !item.endsWith(".staging"))
+              if (!name) throw new Error("final record was not created")
+              replacement.path = path.join(trash, name)
+              await fs.rename(replacement.path, displaced)
+              await fs.mkdir(replacement.path)
+              await fs.writeFile(path.join(replacement.path, "marker"), "replacement")
+            }),
+          })
+
+          const error = yield* remove(
+            fsService,
+            safeMove,
+            flock,
+            Global.make({ state }),
+            path.join(state, "skills", "global.json"),
+            entry,
+          ).pipe(Effect.flip)
+          expect(error).toBeInstanceOf(SkillV2.UnsafePathError)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(target, "SKILL.md"), "utf8"))).toContain(
+            "Original final payload",
+          )
+          expect(yield* Effect.promise(() => fs.readFile(path.join(replacement.path, "marker"), "utf8"))).toBe(
+            "replacement",
+          )
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(path.join(displaced, "payload")).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
+        }),
+      ),
+    ),
+  )
+
+  it.live("does not restore a replacement payload to the skill path", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "payload-race")
+          const trash = path.join(state, "skills", "trash")
+          const file = path.join(state, "skills", "global.json")
+          const record = { path: "" }
+          yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "payload-race", "Original rollback payload"))
+          const entry: Installed = {
+            source: SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(sourceRoot),
+              origin: { type: "config-directory", scope: "global", value: sourceRoot },
+            }),
+            info: SkillV2.Info.make({
+              name: "payload-race",
+              location: AbsolutePath.make(path.join(target, "SKILL.md")),
+              content: "Original rollback payload",
+            }),
+          }
+          yield* updateState(fsService, flock, file, id(entry), false)
+          const safeMove = SkillSafeMove.make({
+            beforeRollback: Effect.promise(async () => {
+              const name = (await fs.readdir(trash)).find((item) => !item.endsWith(".staging"))
+              if (!name) throw new Error("final record was not created")
+              record.path = path.join(trash, name)
+              await fs.rename(path.join(record.path, "payload"), path.join(record.path, "original-payload"))
+              await fs.mkdir(path.join(record.path, "payload"))
+              await fs.writeFile(path.join(record.path, "payload", "SKILL.md"), "replacement")
+            }),
+          })
+          const stateWrite = { failed: false }
+          const failure = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "rename",
+            pathOrDescriptor: file,
+          })
+          const filesystem = FSUtil.Service.of({
+            ...fsService,
+            rename: (from, to) => {
+              if (to !== file || stateWrite.failed) return fsService.rename(from, to)
+              stateWrite.failed = true
+              return Effect.fail(failure)
+            },
+          })
+
+          const error = yield* remove(filesystem, safeMove, flock, Global.make({ state }), file, entry).pipe(
+            Effect.flip,
+          )
+          expect(error).toMatchObject({ operation: "delete" })
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(target).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(record.path, "payload", "SKILL.md"), "utf8"))).toBe(
+            "replacement",
+          )
+          expect(
+            yield* Effect.promise(() => fs.readFile(path.join(record.path, "original-payload", "SKILL.md"), "utf8")),
+          ).toContain("Original rollback payload")
+          expect(JSON.parse(yield* Effect.promise(() => fs.readFile(file, "utf8")))).toEqual({
+            version: 1,
+            disabled: [id(entry)],
+          })
+        }),
+      ),
+    ),
+  )
+
   it.live("rejects a replaced staging record and retains the displaced payload", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -1188,20 +1400,139 @@ describe("SkillV2", () => {
           expect(
             yield* Effect.promise(() => fs.readFile(path.join(displaced, "payload", "SKILL.md"), "utf8")),
           ).toContain("Original staging payload")
-          expect(yield* Effect.promise(() => fs.readFile(path.join(staged.path, "metadata.json"), "utf8"))).toBe(
+          const replacement = staged.path.slice(0, -".staging".length)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(replacement, "metadata.json"), "utf8"))).toBe(
             '{"replacement":true}\n',
           )
           expect(
             yield* Effect.promise(() =>
-              fs.stat(path.join(staged.path, "payload")).then(
+              fs.stat(path.join(replacement, "payload")).then(
                 () => true,
                 () => false,
               ),
             ),
           ).toBe(false)
-          expect((yield* Effect.promise(() => fs.readdir(trash))).filter((item) => !item.endsWith(".staging"))).toEqual(
-            ["displaced-staging"],
+          expect(
+            (yield* Effect.promise(() => fs.readdir(trash))).filter((item) => !item.endsWith(".staging")),
+          ).toHaveLength(2)
+        }),
+      ),
+    ),
+  )
+
+  it.live("cleans owned provisional staging after open or stat failure", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const liveSafeMove = Context.get(context, SkillSafeMove.Service)
+          if (!(yield* liveSafeMove.available())) return
+          const trash = path.join(state, "skills", "trash")
+          const cases = [
+            { name: "open", hooks: { beforeStagingOpen: Effect.die("injected openAt failure") } },
+            { name: "stat", hooks: { beforeStagingStat: Effect.die("injected fstat failure") } },
+          ]
+
+          for (const item of cases) {
+            const sourceRoot = path.join(tmp.path, item.name, "skills")
+            const target = path.join(sourceRoot, item.name)
+            yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+            yield* Effect.promise(() => write(sourceRoot, item.name, item.name))
+            const entry: Installed = {
+              source: SkillV2.DirectorySource.make({
+                type: "directory",
+                path: AbsolutePath.make(sourceRoot),
+                origin: { type: "config-directory", scope: "global", value: sourceRoot },
+              }),
+              info: SkillV2.Info.make({
+                name: item.name,
+                location: AbsolutePath.make(path.join(target, "SKILL.md")),
+                content: item.name,
+              }),
+            }
+
+            expect(
+              yield* remove(
+                fsService,
+                SkillSafeMove.make(item.hooks),
+                flock,
+                Global.make({ state }),
+                path.join(state, "skills", `${item.name}.json`),
+                entry,
+              ).pipe(Effect.flip),
+            ).toMatchObject({ operation: "delete" })
+            expect(yield* Effect.promise(() => fs.stat(target).then(() => true))).toBe(true)
+            expect(yield* Effect.promise(() => fs.readdir(trash).catch(() => []))).toEqual([])
+          }
+        }),
+      ),
+    ),
+  )
+
+  it.live("does not clean a replacement provisional staging directory", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const liveSafeMove = Context.get(context, SkillSafeMove.Service)
+          if (!(yield* liveSafeMove.available())) return
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "provisional")
+          const trash = path.join(state, "skills", "trash")
+          const replacement = { path: "" }
+          const displaced = path.join(trash, "displaced-provisional")
+          yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "provisional", "Provisional"))
+          const entry: Installed = {
+            source: SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(sourceRoot),
+              origin: { type: "config-directory", scope: "global", value: sourceRoot },
+            }),
+            info: SkillV2.Info.make({
+              name: "provisional",
+              location: AbsolutePath.make(path.join(target, "SKILL.md")),
+              content: "Provisional",
+            }),
+          }
+          const safeMove = SkillSafeMove.make({
+            beforeStagingOpen: Effect.promise(async () => {
+              const name = (await fs.readdir(trash)).find((item) => item.endsWith(".staging"))
+              if (!name) throw new Error("provisional staging was not created")
+              replacement.path = path.join(trash, name)
+              await fs.rename(replacement.path, displaced)
+              await fs.mkdir(replacement.path)
+              await fs.writeFile(path.join(replacement.path, "marker"), "replacement")
+            }),
+          })
+
+          expect(
+            yield* remove(
+              fsService,
+              safeMove,
+              flock,
+              Global.make({ state }),
+              path.join(state, "skills", "global.json"),
+              entry,
+            ).pipe(Effect.flip),
+          ).toBeInstanceOf(SkillV2.UnsafePathError)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(replacement.path, "marker"), "utf8"))).toBe(
+            "replacement",
           )
+          expect(yield* Effect.promise(() => fs.stat(displaced).then(() => true))).toBe(true)
+          expect(yield* Effect.promise(() => fs.stat(target).then(() => true))).toBe(true)
         }),
       ),
     ),
@@ -1607,6 +1938,83 @@ describe("SkillV2", () => {
           expect(
             (yield* runSkill(input, sources)).management.map((item) => ({ name: item.name, status: item.status })),
           ).toEqual([{ name: "keep", status: "disabled" }])
+        }),
+      ),
+    ),
+  )
+
+  it.live("rejects a stale enable toggle after a concurrent removal", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("remove-toggle-race"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const context = yield* Layer.build(stateDependencies(input.state))
+          const flock = Context.get(context, EffectFlock.Service)
+          const removeLocked = yield* Deferred.make<void>()
+          const continueRemove = yield* Deferred.make<void>()
+          const toggleLocked = yield* Deferred.make<void>()
+          const safeMove = SkillSafeMove.Service.of({
+            ...portableSafeMove,
+            prepare: (prepareInput) =>
+              portableSafeMove.prepare(prepareInput).pipe(
+                Effect.map((handle) => ({
+                  ...handle,
+                  stage: (metadata: string) =>
+                    Deferred.succeed(removeLocked, undefined).pipe(
+                      Effect.andThen(Deferred.await(continueRemove)),
+                      Effect.andThen(handle.stage(metadata)),
+                    ),
+                })),
+              ),
+          })
+          const observedFlock = EffectFlock.Service.of({
+            ...flock,
+            withLock: Function.dual(
+              (args) => Effect.isEffect(args[0]),
+              <A, E, R>(body: Effect.Effect<A, E, R>, key: string, dir?: string) =>
+                Deferred.succeed(toggleLocked, undefined).pipe(Effect.andThen(flock.withLock(body, key, dir))),
+            ),
+          })
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "shared")
+          yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "shared", "Shared skill"))
+          const source = SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make(sourceRoot),
+            origin: { type: "config-directory", scope: "project", value: sourceRoot },
+          })
+          const first = yield* buildSkill({ ...input, safeMove })
+          const second = yield* buildSkill({ ...input, flock: observedFlock })
+          yield* register(first, [source])
+          yield* register(second, [source])
+          const installed = (yield* first.management.list())[0]
+
+          const removal = yield* first.management.remove(installed.id).pipe(Effect.exit, Effect.forkScoped)
+          yield* Deferred.await(removeLocked)
+          const toggle = yield* second.management.setEnabled(installed.id, false).pipe(Effect.exit, Effect.forkScoped)
+          yield* Deferred.await(toggleLocked)
+          yield* Deferred.succeed(continueRemove, undefined)
+          const [removalExit, toggleExit] = yield* Effect.all([Fiber.join(removal), Fiber.join(toggle)])
+
+          expect(Exit.isSuccess(removalExit)).toBe(true)
+          expect(Exit.isFailure(toggleExit)).toBe(true)
+          expect(Exit.isFailure(toggleExit) ? Cause.squash(toggleExit.cause) : undefined).toBeInstanceOf(
+            SkillV2.NotFoundError,
+          )
+          yield* Effect.promise(() => fs.mkdir(target))
+          yield* Effect.promise(() => write(sourceRoot, "shared", "Reinstalled skill"))
+          expect((yield* second.management.list()).map((item) => ({ id: item.id, status: item.status }))).toEqual([
+            { id: installed.id, status: "active" },
+          ])
         }),
       ),
     ),

@@ -95,18 +95,37 @@ export function updateState(
     flock,
     file,
     "write",
-    Effect.gen(function* () {
-      const disabled = yield* readStateForMutation(fs, file)
-      if (enabled) disabled.delete(installationID)
-      if (!enabled) disabled.add(installationID)
-      yield* writeStateForMutation(fs, file, disabled, "write")
-    }).pipe(
+    updateStateUnlocked(fs, file, installationID, enabled).pipe(
       Effect.mapError((cause) =>
         cause instanceof OperationError && cause.operation === "write"
           ? cause
           : new OperationError({ operation: "write", cause }),
       ),
     ),
+  )
+}
+
+export function updateStateIfInstalled(
+  fs: FSUtil.Interface,
+  flock: EffectFlock.Interface,
+  file: string,
+  installationID: Skill.ManagementID,
+  enabled: boolean,
+  expectedScope: "global" | "project",
+  refresh: () => Effect.Effect<Installed[]>,
+) {
+  return withStateLock(
+    flock,
+    file,
+    "write",
+    Effect.gen(function* () {
+      const installation = (yield* refresh()).find((entry) => id(entry) === installationID)
+      if (!installation || scope(installation.source) !== expectedScope) {
+        return yield* new NotFoundError({ id: installationID })
+      }
+      yield* updateStateUnlocked(fs, file, installationID, enabled)
+      return undefined
+    }),
   )
 }
 
@@ -339,6 +358,21 @@ function readStateForMutation(fs: FSUtil.Interface, file: string) {
   return readStateRecord(fs, file).pipe(Effect.map((state) => state.disabled))
 }
 
+function updateStateUnlocked(fs: FSUtil.Interface, file: string, installationID: Skill.ManagementID, enabled: boolean) {
+  return Effect.gen(function* () {
+    const disabled = yield* readStateForMutation(fs, file)
+    if (enabled) disabled.delete(installationID)
+    if (!enabled) disabled.add(installationID)
+    yield* writeStateForMutation(fs, file, disabled, "write")
+  }).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof OperationError && cause.operation === "write"
+        ? cause
+        : new OperationError({ operation: "write", cause }),
+    ),
+  )
+}
+
 function readStateRecord(fs: FSUtil.Interface, file: string) {
   return Effect.gen(function* () {
     const content = yield* fs.readFileString(file).pipe(
@@ -386,12 +420,13 @@ function withStateLock<A, R>(
   flock: EffectFlock.Interface,
   file: string,
   operation: "write" | "delete",
-  body: Effect.Effect<A, OperationError, R>,
-) {
+  body: Effect.Effect<A, OperationError | NotFoundError, R>,
+): Effect.Effect<A, OperationError | NotFoundError, R> {
   return flock.withLock(body, file).pipe(
-    Effect.catchCause((cause) => {
+    Effect.catchCause((cause): Effect.Effect<never, OperationError | NotFoundError> => {
       if (Cause.hasInterrupts(cause)) return Effect.interrupt
       const error = Cause.squash(cause)
+      if (!Cause.hasDies(cause) && error instanceof NotFoundError) return Effect.fail(error)
       return error instanceof OperationError && error.operation === operation && !Cause.hasDies(cause)
         ? Effect.fail(error)
         : Effect.fail(new OperationError({ operation, cause: error }))

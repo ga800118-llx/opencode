@@ -130,6 +130,10 @@ Writes use a temporary file followed by replacement so an interrupted write
 cannot leave a partially written document. A missing file means all discovered
 installations are enabled. Invalid state files produce a logged warning and the
 same enabled-by-default behavior rather than preventing Skill discovery.
+Enable and delete mutations share the state-file lock. After acquiring it, an
+enable mutation repeats local discovery and verifies both installation ID and
+scope before writing, so a completed concurrent deletion cannot leave a stale
+disabled ID that affects a later installation at the same path.
 
 ## API Design
 
@@ -184,20 +188,29 @@ POSIX does not provide a rename operation that also compares the source inode.
 Therefore, a same-permission, non-cooperating process replacing the final source
 entry between the last identity check and the rename syscall is outside the hard
 security boundary. The implementation detects that race immediately after the
-move and performs an uninterruptible no-replace rollback. If the original name
-has concurrently become occupied, it never overwrites the new entry and retains
-the moved payload in the recovery area while reporting deletion failure. This
-model protects against symlink and ancestor redirection, directory replacement,
-destination overwrite, and ordinary concurrent mutation without claiming that
-the final POSIX syscall window can be eliminated.
+move, reports failure, and only compensates a directory entry whose device and
+inode still match the transaction's prepared identity. It does not move a
+replacement final record or restore a replacement payload to the Skill path.
+No-replace operations prevent overwriting an occupied destination, while the
+held descriptors keep the prepared source and recovery objects identifiable.
+
+This model prevents symlink and ancestor redirection and destination overwrite.
+It detects directory-entry replacement before and after each transaction move,
+but it does not claim complete serialization against a same-permission process
+that deliberately mutates entries inside a single syscall window. In that case,
+the operation fails and leaves every object it cannot prove ownership of in
+place. A prepared payload that another process has displaced remains recoverable
+at that process's chosen location; the deletion code does not search for or
+delete unknown entries.
 
 The delete operation first moves the target beneath
 `Global.state/skills/trash/` and records the original path, installation ID,
 and deletion timestamp. The UI does not expose restore in this version, but the
 operation remains recoverable from the state directory. If the move cannot be
 completed, compensation restores the original Skill when its name remains free.
-If an independent process occupies that name, the payload remains in recovery
-and the API reports failure rather than overwriting either object.
+If an independent process replaces the payload or occupies that name,
+compensation leaves the conflicting entries untouched and the API reports
+failure rather than overwriting or relocating an object it cannot identify.
 
 Every deletion requires a confirmation dialog naming the Skill and showing the
 target path. The dialog explains that the item will be removed from GUaI Code

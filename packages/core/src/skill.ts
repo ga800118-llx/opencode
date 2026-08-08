@@ -23,7 +23,7 @@ import {
   remove,
   scope,
   statePaths,
-  updateState,
+  updateStateIfInstalled,
   UnsafePathError,
   type Installed,
   type ManagementError,
@@ -192,7 +192,16 @@ const layer = Layer.effect(
         ) {
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
-          yield* updateState(fs, flock, paths[scope(installation.source)], installationID, enabled)
+          const expectedScope = scope(installation.source)
+          yield* updateStateIfInstalled(
+            fs,
+            flock,
+            paths[expectedScope],
+            installationID,
+            enabled,
+            expectedScope,
+            installed,
+          )
           return yield* managementList()
         }),
         remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {

@@ -19,6 +19,11 @@ export type Hooks = {
   readonly beforeSourceRename?: Effect.Effect<void>
   readonly afterSourceRename?: Effect.Effect<void>
   readonly beforeFinalizeRename?: Effect.Effect<void>
+  readonly afterFinalRename?: Effect.Effect<void>
+  readonly beforeRollback?: Effect.Effect<void>
+  readonly beforeStagingOpen?: Effect.Effect<void>
+  readonly beforeStagingStat?: Effect.Effect<void>
+  readonly probeLibrary?: () => Promise<string | undefined>
 }
 
 export class SafeMoveError extends Schema.TaggedErrorClass<SafeMoveError>()("SkillSafeMove.Error", {
@@ -86,12 +91,16 @@ type Staging = {
 
 type Capability = {
   readonly target: string
-  readonly stage: (metadata: string) => void
+  readonly createStaging: () => void
+  readonly openStaging: () => void
+  readonly captureStaging: () => void
+  readonly writeMetadata: (metadata: string) => void
   readonly validateMove: () => void
   readonly renameSource: () => void
   readonly verifySourceMove: () => void
   readonly validateFinalize: () => void
-  readonly finalize: () => void
+  readonly renameFinal: () => void
+  readonly verifyFinal: () => void
   readonly rollback: () => void
   readonly close: () => void
 }
@@ -129,17 +138,20 @@ const LinuxSymbols = {
   __errno_location: { args: [], returns: "ptr" },
 } as const
 
-let probedLibrary: Promise<string | undefined> | undefined
-
 export function make(hooks: Hooks = {}): Interface {
+  let probedLibrary: Promise<string | undefined> | undefined
+  const probe = () => {
+    probedLibrary ??= Promise.resolve()
+      .then(() => (hooks.probeLibrary ? hooks.probeLibrary() : probeLibrary()))
+      .catch(() => undefined)
+    return probedLibrary
+  }
   return Service.of({
     available: Effect.fn("SkillSafeMove.available")(function* () {
-      probedLibrary ??= probeLibrary()
-      return (yield* Effect.promise(() => probedLibrary!)) !== undefined
+      return (yield* Effect.promise(probe)) !== undefined
     }),
     prepare: Effect.fn("SkillSafeMove.prepare")(function* (input) {
-      probedLibrary ??= probeLibrary()
-      const library = yield* Effect.promise(() => probedLibrary!)
+      const library = yield* Effect.promise(probe)
       if (library === undefined) {
         return yield* new SafeMoveError({ reason: "unsupported", detail: "atomic no-replace rename is unavailable" })
       }
@@ -162,18 +174,32 @@ export function make(hooks: Hooks = {}): Interface {
           Effect.andThen(attempt(capability.verifySourceMove)),
         ),
       )
+      const stage = (metadata: string) =>
+        Effect.uninterruptibleMask((restore) =>
+          attempt(capability.createStaging).pipe(
+            Effect.andThen(restore(hooks.beforeStagingOpen ?? Effect.void)),
+            Effect.andThen(attempt(capability.openStaging)),
+            Effect.andThen(restore(hooks.beforeStagingStat ?? Effect.void)),
+            Effect.andThen(attempt(capability.captureStaging)),
+            Effect.andThen(attempt(() => capability.writeMetadata(metadata))),
+          ),
+        )
       const finalize = Effect.uninterruptibleMask((restore) =>
         attempt(capability.validateFinalize).pipe(
           Effect.andThen(restore(hooks.beforeFinalizeRename ?? Effect.void)),
-          Effect.andThen(attempt(capability.finalize)),
+          Effect.andThen(attempt(capability.renameFinal)),
+          Effect.andThen(hooks.afterFinalRename ?? Effect.void),
+          Effect.andThen(attempt(capability.verifyFinal)),
         ),
       )
       return {
         target: capability.target,
-        stage: (metadata) => Effect.try({ try: () => capability.stage(metadata), catch: normalizeError }),
+        stage,
         move,
         finalize,
-        rollback: Effect.try({ try: capability.rollback, catch: normalizeError }),
+        rollback: Effect.uninterruptible(
+          (hooks.beforeRollback ?? Effect.void).pipe(Effect.andThen(attempt(capability.rollback))),
+        ),
       }
     }),
   })
@@ -187,17 +213,52 @@ async function probeLibrary() {
   if (process.platform !== "darwin" && process.platform !== "linux") return undefined
   if (process.arch !== "x64" && process.arch !== "arm64") return undefined
   for (const candidate of libraryCandidates()) {
-    const native = await openNative(candidate).catch(() => undefined)
-    if (!native) continue
-    try {
-      const missing = cstring("")
-      const result = native.rename(AtCurrentWorkingDirectory, missing, AtCurrentWorkingDirectory, missing)
-      if (!result.ok && result.errno === os.constants.errno.ENOENT) return candidate
-    } finally {
-      native.closeLibrary()
-    }
+    if (await probeCandidate(candidate).catch(() => false)) return candidate
   }
   return undefined
+}
+
+async function probeCandidate(candidate: string) {
+  const { mkdtemp, readFile, rm, stat, writeFile } = await import("fs/promises")
+  let native: Native | undefined
+  let directory: string | undefined
+  let supported = false
+  try {
+    native = await openNative(candidate)
+    directory = await mkdtemp(path.join(os.tmpdir(), "opencode-skill-move-"))
+    const source = path.join(directory, "source")
+    const destination = path.join(directory, "destination")
+    await writeFile(source, "source")
+    await writeFile(destination, "destination")
+    const before = await stat(destination, { bigint: true })
+    const renamed = native.rename(
+      AtCurrentWorkingDirectory,
+      cstring(source),
+      AtCurrentWorkingDirectory,
+      cstring(destination),
+    )
+    const after = await stat(destination, { bigint: true })
+    supported =
+      !renamed.ok &&
+      (renamed.errno === os.constants.errno.EEXIST || renamed.errno === os.constants.errno.ENOTEMPTY) &&
+      before.dev === after.dev &&
+      before.ino === after.ino &&
+      (await readFile(source, "utf8")) === "source" &&
+      (await readFile(destination, "utf8")) === "destination"
+  } catch {
+    supported = false
+  }
+  try {
+    native?.closeLibrary()
+  } catch {
+    supported = false
+  }
+  try {
+    if (directory !== undefined) await rm(directory, { recursive: true, force: true })
+  } catch {
+    supported = false
+  }
+  return supported
 }
 
 function libraryCandidates() {
@@ -301,6 +362,8 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
     assertMissing(native, trashChain.leaf, stagingName)
     assertMissing(native, trashChain.leaf, finalName)
 
+    let provisional: Identity | undefined
+    let stagingDescriptor: number | undefined
     let staging: Staging | undefined
     let payloadPresent = false
     let finalized = false
@@ -308,6 +371,12 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
     const requireStaging = () => {
       if (!staging) throw new SafeMoveError({ reason: "io", detail: "recovery staging has not been created" })
       return staging
+    }
+    const requireStagingDescriptor = () => {
+      if (stagingDescriptor === undefined) {
+        throw new SafeMoveError({ reason: "io", detail: "recovery staging has not been opened" })
+      }
+      return stagingDescriptor
     }
     const validateSource = () => {
       validateChain(native, sourceChain)
@@ -345,36 +414,23 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
         "recovery payload identity changed",
       )
     }
-    const rollbackRename = (original: SafeMoveError) => {
-      const current = requireStaging()
-      const restored = native.rename(current.descriptor, payloadName, sourceChain.leaf, sourceName)
-      if (restored.ok) {
-        payloadPresent = false
-        throw original
-      }
-      throw new SafeMoveError({
-        reason: "io",
-        detail: `${original.message}; no-replace rollback failed: ${syscallError("rollback failed", restored.errno).message}`,
-        errno: restored.errno,
-      })
-    }
     const ownedRecordName = () => {
-      const current = requireStaging()
+      const expected = staging?.identity ?? provisional
+      if (expected === undefined) return undefined
       const names = finalized ? [finalName, stagingName] : [stagingName, finalName]
       return names.find((name) => {
         const observed = tryStatAt(native, trashChain.leaf, name)
-        return observed !== undefined && equalIdentity(current.identity, observed)
+        return observed !== undefined && equalIdentity(expected, observed)
       })
     }
     const cleanupRecord = () => {
       const current = staging
-      if (!current) return
-      const metadata = tryStatAt(native, current.descriptor, metadataName)
-      if (metadata !== undefined) {
-        if (current.metadata !== undefined) {
+      if (current) {
+        const metadata = tryStatAt(native, current.descriptor, metadataName)
+        if (metadata !== undefined && current.metadata !== undefined) {
           assertIdentity(current.metadata, metadata, "recovery metadata identity changed during cleanup")
+          unwrap(native.unlinkAt(current.descriptor, metadataName, 0), "failed to remove recovery metadata")
         }
-        unwrap(native.unlinkAt(current.descriptor, metadataName, 0), "failed to remove recovery metadata")
       }
       const name = ownedRecordName()
       if (name !== undefined) {
@@ -384,34 +440,47 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
 
     return {
       target: source,
-      stage: (metadata) => {
-        if (staging !== undefined) {
+      createStaging: () => {
+        if (provisional !== undefined || stagingDescriptor !== undefined || staging !== undefined) {
           throw new SafeMoveError({ reason: "conflict", detail: "recovery staging already exists" })
         }
         validateSource()
         validateChain(native, trashChain)
         assertMissing(native, trashChain.leaf, stagingName)
         unwrap(native.makeDirectoryAt(trashChain.leaf, stagingName, 0o700), "failed to create recovery staging")
-        const descriptor = unwrap(
+        provisional = statAt(native, trashChain.leaf, stagingName, "recovery staging disappeared after creation")
+      },
+      openStaging: () => {
+        stagingDescriptor = unwrap(
           native.openAt(trashChain.leaf, stagingName, DirectoryFlags),
           "failed to open recovery staging",
         )
-        descriptors.push(descriptor)
+        descriptors.push(stagingDescriptor)
+      },
+      captureStaging: () => {
+        const descriptor = requireStagingDescriptor()
         const stagingIdentity = statDescriptor(native, descriptor)
+        if (provisional === undefined) {
+          throw new SafeMoveError({ reason: "io", detail: "recovery staging identity was not captured" })
+        }
+        assertIdentity(provisional, stagingIdentity, "recovery staging identity changed while opening")
         assertIdentity(
           stagingIdentity,
           statAt(native, trashChain.leaf, stagingName, "recovery staging disappeared"),
           "recovery staging identity changed while opening",
         )
         staging = { descriptor, identity: stagingIdentity }
+      },
+      writeMetadata: (metadata) => {
+        const current = requireStaging()
         const metadataDescriptor = unwrap(
-          native.openAt(descriptor, metadataName, MetadataFlags, 0o600),
+          native.openAt(current.descriptor, metadataName, MetadataFlags, 0o600),
           "failed to create recovery metadata",
         )
         try {
+          current.metadata = statDescriptor(native, metadataDescriptor)
           writeAll(native, metadataDescriptor, Buffer.from(metadata))
           unwrap(native.sync(metadataDescriptor), "failed to sync recovery metadata")
-          staging.metadata = statDescriptor(native, metadataDescriptor)
         } finally {
           native.closeDescriptor(metadataDescriptor)
         }
@@ -437,9 +506,7 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
         const current = requireStaging()
         const observed = statAt(native, current.descriptor, payloadName, "moved skill payload disappeared")
         if (!equalIdentity(sourceIdentity, observed)) {
-          rollbackRename(
-            new SafeMoveError({ reason: "unsafe", detail: "moved skill identity did not match preparation" }),
-          )
+          throw new SafeMoveError({ reason: "unsafe", detail: "moved skill identity did not match preparation" })
         }
         assertIdentity(sourceIdentity, statDescriptor(native, sourceDescriptor), "source descriptor identity changed")
       },
@@ -448,35 +515,57 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
         assertMissing(native, trashChain.leaf, finalName)
         validateRecord(stagingName)
       },
-      finalize: () => {
+      renameFinal: () => {
         requireStaging()
         unwrap(
           native.rename(trashChain.leaf, stagingName, trashChain.leaf, finalName),
           "atomic recovery finalization failed",
         )
         finalized = true
+      },
+      verifyFinal: () => {
         try {
           validateRecord(finalName)
         } catch (cause) {
           const original = normalizeError(cause)
+          const current = requireStaging()
+          const observed = tryStatAt(native, trashChain.leaf, finalName)
+          if (observed === undefined || !equalIdentity(current.identity, observed)) throw original
           const restored = native.rename(trashChain.leaf, finalName, trashChain.leaf, stagingName)
-          if (restored.ok) {
-            finalized = false
-            throw original
+          if (!restored.ok) {
+            throw new SafeMoveError({
+              reason: "io",
+              detail: `${original.message}; recovery record rollback failed: ${syscallError("rollback failed", restored.errno).message}`,
+              errno: restored.errno,
+            })
           }
-          throw new SafeMoveError({
-            reason: "io",
-            detail: `${original.message}; recovery record rollback failed: ${syscallError("rollback failed", restored.errno).message}`,
-            errno: restored.errno,
-          })
+          assertIdentity(
+            current.identity,
+            statAt(native, trashChain.leaf, stagingName, "restored recovery staging disappeared"),
+            "restored recovery staging identity changed",
+          )
+          finalized = false
+          throw original
         }
       },
       rollback: () => {
         if (payloadPresent) {
           const current = requireStaging()
+          assertIdentity(
+            sourceIdentity,
+            statAt(native, current.descriptor, payloadName, "recovery payload disappeared before rollback"),
+            "recovery payload identity changed before rollback",
+          )
+          assertIdentity(sourceIdentity, statDescriptor(native, sourceDescriptor), "source descriptor identity changed")
+          assertMissing(native, sourceChain.leaf, sourceName)
           unwrap(
             native.rename(current.descriptor, payloadName, sourceChain.leaf, sourceName),
             "atomic skill rollback failed",
+          )
+          assertIdentity(
+            sourceIdentity,
+            statAt(native, sourceChain.leaf, sourceName, "restored skill disappeared"),
+            "restored skill identity changed",
           )
           payloadPresent = false
         }
