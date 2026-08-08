@@ -1,4 +1,5 @@
 import { createMemo, createResource, onMount, type Accessor } from "solid-js"
+import type { Permission } from "@opencode-ai/schema/permission"
 import type { ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { usePermission } from "@/context/permission"
@@ -22,7 +23,14 @@ import { createSoundPreviewController, type ShellOption } from "./general-contro
 export { createShellOptions, createSoundPreviewController } from "./general-controller-behavior"
 export type { ShellOption, ShellSelectOption } from "./general-controller-behavior"
 
-export function createPermissionScopeController(sessionID: Accessor<string | undefined>) {
+export function toggleAutoMode(mode: Permission.Mode): Permission.Mode {
+  return mode === "auto" ? "standard" : "auto"
+}
+
+export function createPermissionScopeController(
+  sessionID: Accessor<string | undefined>,
+  requestMode: (input: { sessionID?: string; directory: string; mode: Permission.Mode }) => Promise<boolean>,
+) {
   const permission = usePermission()
   const serverSync = useServerSync()
   const directory = createMemo(() => {
@@ -36,6 +44,7 @@ export function createPermissionScopeController(sessionID: Accessor<string | und
       const id = sessionID()
       const dir = directory()
       if (!id || !dir) return false
+      if (permission.supportsModes()) return permission.mode(id, dir) === "auto"
       return permission.isAutoAccepting(id, dir)
     }),
     enabled: createMemo(() => !!directory()),
@@ -43,6 +52,11 @@ export function createPermissionScopeController(sessionID: Accessor<string | und
       const id = sessionID()
       const dir = directory()
       if (!id || !dir) return
+      if (permission.supportsModes()) {
+        const mode = toggleAutoMode(permission.mode(id, dir))
+        if ((mode === "auto") !== checked) return
+        return requestMode({ sessionID: id, directory: dir, mode })
+      }
       if (checked) return permission.enableAutoAccept(id, dir)
       permission.disableAutoAccept(id, dir)
     },

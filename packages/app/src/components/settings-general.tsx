@@ -31,6 +31,9 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { usePermissionModeRequester } from "./permission-mode-control"
+import { toggleAutoMode } from "./settings-v2/general-controllers"
+import { showToast } from "@/utils/toast"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -90,6 +93,7 @@ export const SettingsGeneral: Component = () => {
   const dialog = useDialog()
   const params = useParams()
   const settings = useSettings()
+  const requestMode = usePermissionModeRequester()
 
   const updater = useUpdaterAction()
 
@@ -98,6 +102,7 @@ export const SettingsGeneral: Component = () => {
   const accepting = createMemo(() => {
     const value = dir()
     if (!value) return false
+    if (permission.supportsModes()) return permission.mode(params.id, value) === "auto"
     if (!params.id) return permission.isAutoAcceptingDirectory(value)
     return permission.isAutoAccepting(params.id, value)
   })
@@ -105,6 +110,19 @@ export const SettingsGeneral: Component = () => {
   const toggleAccept = (checked: boolean) => {
     const value = dir()
     if (!value) return
+
+    if (permission.supportsModes()) {
+      const mode = toggleAutoMode(permission.mode(params.id, value))
+      if ((mode === "auto") !== checked) return
+      void requestMode({ sessionID: params.id, directory: value, mode }).catch((error: unknown) =>
+        showToast({
+          variant: "error",
+          title: language.t("permission.mode.switchFailed"),
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      return
+    }
 
     if (!params.id) {
       if (permission.isAutoAcceptingDirectory(value) === checked) return

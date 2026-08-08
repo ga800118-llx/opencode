@@ -30,39 +30,10 @@ export async function requestPermissionMode(input: RequestPermissionModeInput) {
   return true
 }
 
-export function PermissionModeControl(props: {
-  sessionID?: string
-  onClose?: () => void
-  defaultOpen?: boolean
-}) {
+export function usePermissionModeRequester(input?: { onClose?: () => void }) {
   const dialog = useDialog()
   const language = useLanguage()
   const permission = usePermission()
-  const sdk = useSDK()
-  const [switching, setSwitching] = createSignal(false)
-  const directory = () => sdk().directory
-  const mode = () => permission.mode(props.sessionID, directory())
-  const options = createMemo(
-    () =>
-      [
-        {
-          id: "restricted",
-          label: language.t("permission.mode.restricted.label"),
-          description: language.t("permission.mode.restricted.description"),
-        },
-        {
-          id: "standard",
-          label: language.t("permission.mode.standard.label"),
-          description: language.t("permission.mode.standard.description"),
-        },
-        {
-          id: "auto",
-          label: language.t("permission.mode.auto.label"),
-          description: language.t("permission.mode.auto.description"),
-        },
-      ] satisfies Array<{ id: Permission.Mode; label: string; description: string }>,
-  )
-  const current = () => options().find((option) => option.id === mode()) ?? options()[1]
 
   const confirmAuto = () =>
     new Promise<boolean>((resolve) => {
@@ -98,21 +69,61 @@ export function PermissionModeControl(props: {
             decision.settled = true
             resolve(false)
           }
-          props.onClose?.()
+          input?.onClose?.()
         },
       )
     })
 
+  return (value: { sessionID?: string; directory: string; mode: Permission.Mode }) =>
+    requestPermissionMode({
+      mode: value.mode,
+      confirmed: permission.autoConfirmed(value.directory),
+      confirm: confirmAuto,
+      markConfirmed: () => permission.confirmAuto(value.directory),
+      setMode: (mode) => permission.setMode({ ...value, mode }),
+    })
+}
+
+export function PermissionModeControl(props: {
+  sessionID?: string
+  onClose?: () => void
+  defaultOpen?: boolean
+}) {
+  const language = useLanguage()
+  const permission = usePermission()
+  const sdk = useSDK()
+  const requestMode = usePermissionModeRequester({ onClose: props.onClose })
+  const [switching, setSwitching] = createSignal(false)
+  const directory = () => sdk().directory
+  const mode = () => permission.mode(props.sessionID, directory())
+  const options = createMemo(
+    () =>
+      [
+        {
+          id: "restricted",
+          label: language.t("permission.mode.restricted.label"),
+          description: language.t("permission.mode.restricted.description"),
+        },
+        {
+          id: "standard",
+          label: language.t("permission.mode.standard.label"),
+          description: language.t("permission.mode.standard.description"),
+        },
+        {
+          id: "auto",
+          label: language.t("permission.mode.auto.label"),
+          description: language.t("permission.mode.auto.description"),
+        },
+      ] satisfies Array<{ id: Permission.Mode; label: string; description: string }>,
+  )
+  const current = () => options().find((option) => option.id === mode()) ?? options()[1]
+
   const select = async (next: Permission.Mode) => {
     if (switching() || next === mode()) return
     setSwitching(true)
-    await requestPermissionMode({
-      mode: next,
-      confirmed: permission.autoConfirmed(directory()),
-      confirm: confirmAuto,
-      markConfirmed: () => permission.confirmAuto(directory()),
-      setMode: (value) => permission.setMode({ sessionID: props.sessionID, directory: directory(), mode: value }),
-    }).finally(() => setSwitching(false))
+    await requestMode({ sessionID: props.sessionID, directory: directory(), mode: next }).finally(() =>
+      setSwitching(false),
+    )
   }
 
   const request = (next: string) => {

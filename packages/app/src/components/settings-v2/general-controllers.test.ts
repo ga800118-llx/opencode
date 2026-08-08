@@ -1,8 +1,15 @@
 import { describe, expect, test, vi } from "bun:test"
 import { createRoot } from "solid-js"
 import { createShellOptions, createSoundPreviewController } from "./general-controller-behavior"
+import { toggleAutoMode } from "./general-controllers"
 
 describe("settings v2 controllers", () => {
+  test("toggles restricted and standard modes through auto", () => {
+    expect(toggleAutoMode("restricted")).toBe("auto")
+    expect(toggleAutoMode("standard")).toBe("auto")
+    expect(toggleAutoMode("auto")).toBe("standard")
+  })
+
   test("normalizes shell names and preserves an unavailable configured shell", () => {
     expect(
       createShellOptions({

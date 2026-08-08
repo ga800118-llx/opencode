@@ -9,6 +9,8 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useUpdaterAction } from "../updater-action"
 import { useSettings } from "@/context/settings"
+import { usePermissionModeRequester } from "../permission-mode-control"
+import { showToast } from "@/utils/toast"
 import { Link } from "../link"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
@@ -284,7 +286,17 @@ export const SettingsGeneralV2: Component<{
   const settings = useSettings()
   const mobile = createMediaQuery("(max-width: 767px)")
   const updater = useUpdaterAction()
-  const permissionScope = createPermissionScopeController(() => props.sessionID)
+  const requestMode = usePermissionModeRequester()
+  const permissionScope = createPermissionScopeController(() => props.sessionID, (input) =>
+    requestMode(input).catch((error: unknown) => {
+      showToast({
+        variant: "error",
+        title: language.t("permission.mode.switchFailed"),
+        description: error instanceof Error ? error.message : String(error),
+      })
+      return false
+    }),
+  )
   const shell = createShellSettingsController()
   const appearance = createAppearanceSettingsController()
   const sounds = createSoundSettingsController()

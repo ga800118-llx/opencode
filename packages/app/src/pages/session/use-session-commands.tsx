@@ -20,6 +20,8 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionOwnership } from "./session-ownership"
 import { useLocal } from "@/context/local"
 import { useProductTaskAdapter } from "@/product/context"
+import { usePermissionModeRequester } from "@/components/permission-mode-control"
+import { toggleAutoMode } from "@/components/settings-v2/general-controllers"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -53,6 +55,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const navigate = useNavigate()
   const { params, sessionKey, tabs, view } = useSessionLayout()
   const sessionOwnership = createSessionOwnership(sessionKey)
+  const requestPermissionMode = usePermissionModeRequester({ onClose: actions.focusInput })
   const openDialog = async <T,>(load: () => Promise<T>, show: (value: T) => void) => {
     const owner = sessionOwnership.capture()
     const value = await load()
@@ -142,6 +145,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const isAutoAcceptActive = () => {
     const sessionID = params.id
+    if (permission.supportsModes()) return permission.mode(sessionID, sdk().directory) === "auto"
     if (sessionID) return permission.isAutoAccepting(sessionID, sdk().directory)
     return permission.isAutoAcceptingDirectory(sdk().directory)
   }
@@ -286,14 +290,31 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     )
   }
 
-  const toggleAutoAccept = () => {
+  const toggleAutoAccept = async () => {
     const sessionID = params.id
-    if (sessionID) permission.toggleAutoAccept(sessionID, sdk().directory)
-    else permission.toggleAutoAcceptDirectory(sdk().directory)
+    const directory = sdk().directory
 
-    const active = sessionID
-      ? permission.isAutoAccepting(sessionID, sdk().directory)
-      : permission.isAutoAcceptingDirectory(sdk().directory)
+    if (permission.supportsModes()) {
+      const changed = await requestPermissionMode({
+        sessionID,
+        directory,
+        mode: toggleAutoMode(permission.mode(sessionID, directory)),
+      }).catch((error: unknown) => {
+        showToast({
+          variant: "error",
+          title: language.t("permission.mode.switchFailed"),
+          description: error instanceof Error ? error.message : String(error),
+        })
+        return false
+      })
+      if (!changed) return
+    } else if (sessionID) {
+      permission.toggleAutoAccept(sessionID, directory)
+    } else {
+      permission.toggleAutoAcceptDirectory(directory)
+    }
+
+    const active = isAutoAcceptActive()
     showToast({
       title: active
         ? language.t("toast.permissions.autoaccept.on.title")
@@ -590,7 +611,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         : language.t("command.permissions.autoaccept.enable"),
       keybind: "mod+shift+a",
       disabled: false,
-      onSelect: toggleAutoAccept,
+      onSelect: () => void toggleAutoAccept(),
     }),
   ]
 
