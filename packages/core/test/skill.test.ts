@@ -415,6 +415,13 @@ describe("SkillV2", () => {
             false,
           )
           expect(yield* Effect.promise(() => fs.readdir(path.join(base.state, "skills", "trash")))).toHaveLength(1)
+          expect(yield* Effect.promise(() => fs.stat(path.dirname(lockMetadata)).then(() => true, () => false))).toBe(false)
+
+          const updated = yield* skill.management.setEnabled(next[0].id, false).pipe(Effect.timeout("1 second"))
+          expect(updated.map((item) => ({ name: item.name, status: item.status }))).toEqual([
+            { name: "late", status: "disabled" },
+          ])
+          expect(yield* skill.list()).toEqual([])
         }),
       ),
     ),

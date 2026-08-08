@@ -204,7 +204,7 @@ export namespace EffectFlock {
           }
 
           // We own the lock dir — write heartbeat + meta with exclusive create
-          yield* exclusiveWrite(heartbeatPath, "", lockDir, "heartbeat already existed")
+          yield* exclusiveWrite(heartbeatPath, token, lockDir, "heartbeat already existed")
 
           const metaJson = encodeMeta({ token, pid: process.pid, hostname, createdAt: new Date().toISOString() })
           yield* exclusiveWrite(metaPath, metaJson, lockDir, "meta.json already existed")
@@ -229,19 +229,37 @@ export namespace EffectFlock {
 
       // -- release --
 
+      const failRelease = (handle: Handle, cause: unknown) =>
+        Effect.gen(function* () {
+          const breakerPath = handle.lockDir + ".breaker"
+          const claimed = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
+            Effect.as(true),
+            Effect.catch(() => Effect.succeed(false)),
+          )
+          if (!claimed) return yield* Effect.die(cause)
+          return yield* Effect.gen(function* () {
+            const heartbeat = yield* fs.readFileString(handle.heartbeatPath).pipe(
+              Effect.catchIf(isPathGone, () => Effect.succeed(undefined)),
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (heartbeat === handle.token) yield* fs.remove(handle.lockDir, { recursive: true }).pipe(Effect.orDie)
+            return yield* Effect.die(cause)
+          }).pipe(Effect.ensuring(forceRemove(breakerPath)))
+        })
+
       const release = (handle: Handle) =>
         Effect.gen(function* () {
           const raw = yield* fs.readFileString(handle.metaPath).pipe(
             Effect.catch((err) => {
-              if (isPathGone(err)) return Effect.die(new ReleaseError({ detail: "metadata missing" }))
-              return Effect.die(err)
+              if (isPathGone(err)) return failRelease(handle, new ReleaseError({ detail: "metadata missing" }))
+              return failRelease(handle, err)
             }),
           )
 
           const parsed = yield* Effect.try({
             try: () => decodeMeta(raw),
             catch: (cause) => new ReleaseError({ detail: "metadata invalid", cause }),
-          }).pipe(Effect.orDie)
+          }).pipe(Effect.catch((error) => failRelease(handle, error)))
 
           if (parsed.token !== handle.token) return yield* Effect.die(new ReleaseError({ detail: "token mismatch" }))
 

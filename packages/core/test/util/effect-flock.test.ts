@@ -177,20 +177,69 @@ describe("util.effect-flock", () => {
       const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
       const dir = path.join(tmp, "locks")
       const key = "eflock:meta"
-      const file = path.join(lock(dir, key), "meta.json")
+      const lockDir = lock(dir, key)
+      const file = path.join(lockDir, "meta.json")
 
       yield* Effect.scoped(
         Effect.gen(function* () {
           yield* flock.acquire(key, dir)
           const json = yield* Effect.promise(() =>
-            readJson<{ token?: unknown; pid?: unknown; hostname?: unknown; createdAt?: unknown }>(file),
+            readJson<{ token: string; pid?: unknown; hostname?: unknown; createdAt?: unknown }>(file),
           )
           expect(typeof json.token).toBe("string")
           expect(typeof json.pid).toBe("number")
           expect(typeof json.hostname).toBe("string")
           expect(typeof json.createdAt).toBe("string")
+          expect(yield* Effect.promise(() => fs.readFile(path.join(lockDir, "heartbeat"), "utf8"))).toBe(json.token)
         }),
       )
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "cleans its owned lock after metadata disappears",
+    Effect.gen(function* () {
+      const flock = yield* EffectFlock.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:missing-metadata"
+      const lockDir = lock(dir, key)
+
+      const result = yield* flock
+        .withLock(Effect.promise(() => fs.rm(path.join(lockDir, "meta.json"))), key, dir)
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(result)).toBe(true)
+      expect(Exit.isFailure(result) ? Cause.pretty(result.cause) : "").toContain("metadata missing")
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
+
+      yield* flock.withLock(Effect.void, key, dir).pipe(Effect.timeout("1 second"))
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "preserves a lock when the heartbeat owner token does not match",
+    Effect.gen(function* () {
+      const flock = yield* EffectFlock.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:mismatched-heartbeat"
+      const lockDir = lock(dir, key)
+
+      const result = yield* flock
+        .withLock(
+          Effect.promise(async () => {
+            await fs.writeFile(path.join(lockDir, "heartbeat"), "another-owner")
+            await fs.rm(path.join(lockDir, "meta.json"))
+          }),
+          key,
+          dir,
+        )
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(result)).toBe(true)
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(true)
       yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
     }),
   )
