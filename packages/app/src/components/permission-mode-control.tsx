@@ -178,12 +178,16 @@ export function PermissionModeControl(props: {
                     class="[&_[data-slot=menu-v2-item-content]]:items-start"
                   >
                     <span class="flex min-w-0 flex-col gap-1">
-                      <span
-                        data-permission-mode-label={option.id}
-                        class="whitespace-nowrap text-[13px] font-[530] leading-4"
-                        classList={{ "text-v2-state-fg-warning": option.id === "auto" }}
-                      >
-                        {option.label}
+                      <span class="flex items-center gap-1">
+                        <Show when={option.id === "auto"}>
+                          <Icon name="warning" size="small" class="text-v2-state-fg-warning" />
+                        </Show>
+                        <span
+                          data-permission-mode-label={option.id}
+                          class="whitespace-nowrap text-[13px] font-[530] leading-4"
+                        >
+                          {option.label}
+                        </span>
                       </span>
                       <span class="text-[11px] font-[440] leading-4 text-v2-text-text-muted">
                         {option.description}

@@ -14,7 +14,7 @@ Guai Code is an AI-powered coding assistant that runs locally on your machine. I
 
 ### No Sandbox
 
-Guai Code does **not** sandbox the agent. The permission system exists as a UX feature to help users stay aware of what actions the agent is taking - it prompts for confirmation before executing commands, writing files, etc. However, it is not designed to provide security isolation.
+Guai Code does **not** sandbox the agent. The permission system exists as a UX feature to help users stay aware of what actions the agent is taking. Depending on the selected permission mode, it asks for confirmation before commands and file writes or automatically approves those requests. It is not designed to provide security isolation.
 
 If you need true isolation, run Guai Code inside a Docker container or VM.
 

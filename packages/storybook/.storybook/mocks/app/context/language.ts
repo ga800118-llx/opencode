@@ -30,7 +30,7 @@ const dict: Record<string, string> = {
   "permission.mode.auto.description": "Automatically approve permission requests.",
   "permission.mode.auto.confirm.title": "Enable Auto approve?",
   "permission.mode.auto.confirm.description":
-    "Auto approve automatically approves in-app permission requests, but it does not add a system sandbox or grant permissions the Guai Code process does not already have.",
+    "Guai Code does not provide a system sandbox. Approved commands run with the Guai Code process's permissions, without granting permissions that process does not already have.",
   "permission.mode.auto.confirm.cancel": "Cancel",
   "permission.mode.auto.confirm.action": "Enable Auto approve",
   "permission.mode.switchFailed": "Couldn't change permission mode",
