@@ -118,7 +118,9 @@ Management state is machine-local operational state, not repository
 configuration. It will be stored beneath `Global.state`:
 
 - `skills/global.json` for global installations;
-- `skills/projects/<project-id>.json` for project installations.
+- `skills/projects/<project-key>.json` for project installations. The key is a
+  hash of both the resolved project ID and project root, so unrelated non-Git
+  directories that use the shared `global` project ID remain isolated.
 
 Each file contains a schema version and a set of disabled installation IDs.
 Writes use a temporary file followed by replacement so an interrupted write
