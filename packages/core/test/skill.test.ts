@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer, Logger, PlatformError } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Function, Layer, Logger, PlatformError } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -534,29 +534,49 @@ describe("SkillV2", () => {
   )
 
   it.live("preserves interruption while waiting for the state lock", () =>
-    Effect.gen(function* () {
-      const tmp = yield* Effect.promise(() => tmpdir())
-      const context = yield* Layer.build(stateDependencies(path.join(tmp.path, "state")))
-      const fsService = Context.get(context, FSUtil.Service)
-      const flock = Context.get(context, EffectFlock.Service)
-      const file = path.join(tmp.path, "state", "skills", "global.json")
-      const started = yield* Deferred.make<void>()
-      const release = yield* Deferred.make<void>()
-      const holder = yield* flock
-        .withLock(Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release))), file)
-        .pipe(Effect.forkScoped)
-      yield* Deferred.await(started)
-      const update = yield* updateState(fsService, flock, file, SkillV2.ManagementID.make("blocked"), false).pipe(
-        Effect.forkScoped,
-      )
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const context = yield* Layer.build(stateDependencies(path.join(tmp.path, "state")))
+          const fsService = Context.get(context, FSUtil.Service)
+          const contenderStarted = yield* Deferred.make<void>()
+          const contenderRelease = yield* Deferred.make<void>()
+          const withLock: EffectFlock.Interface["withLock"] = Function.dual(
+            (args) => Effect.isEffect(args[0]),
+            <A, E, R>(body: Effect.Effect<A, E, R>, _key: string, _dir?: string) =>
+              Deferred.succeed(contenderStarted, undefined).pipe(
+                Effect.andThen(Deferred.await(contenderRelease)),
+                Effect.andThen(body),
+              ),
+          )
+          const flock = {
+            acquire: () => Effect.never,
+            withLock,
+          } satisfies EffectFlock.Interface
+          const update = yield* updateState(
+            fsService,
+            flock,
+            path.join(tmp.path, "state", "skills", "global.json"),
+            SkillV2.ManagementID.make("blocked"),
+            false,
+          ).pipe(Effect.forkScoped)
+          yield* Deferred.await(contenderStarted)
 
-      yield* Fiber.interrupt(update)
-      const exit = yield* Fiber.await(update)
-      expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true)
-      yield* Deferred.succeed(release, undefined)
-      yield* Fiber.join(holder)
-      yield* Effect.promise(() => tmp[Symbol.asyncDispose]())
-    }),
+          yield* Fiber.interrupt(update)
+          const exit = yield* Fiber.await(update)
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isSuccess(exit)) return
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+          expect(Cause.hasFails(exit.cause)).toBe(false)
+          expect(Cause.hasDies(exit.cause)).toBe(false)
+          expect(Cause.squash(exit.cause)).not.toBeInstanceOf(SkillV2.OperationError)
+          yield* Deferred.succeed(contenderRelease, undefined)
+        }),
+      ),
+    ),
   )
 
   it.live("keeps old state and cleans temp files when atomic writes fail", () =>
