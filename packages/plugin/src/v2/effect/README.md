@@ -1,4 +1,4 @@
-# OpenCode V2 Effect Plugin API
+# Guai Code V2 Effect Plugin API
 
 The Effect plugin API grants plugins two in-process capabilities:
 

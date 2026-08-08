@@ -1,4 +1,4 @@
-# OpenCode V2 Promise Plugin API
+# Guai Code V2 Promise Plugin API
 
 The Promise plugin API is the async/await equivalent of `@opencode-ai/plugin/v2/effect`. It grants plugins the same two in-process capabilities:
 
