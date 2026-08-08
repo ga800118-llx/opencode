@@ -188,14 +188,22 @@ describe("createModelCenterService", () => {
     expect(fake.credentialValues.size).toBe(0)
   })
 
-  test("rejects non-agent defaults and rolls back unpublished profiles on credential failure", async () => {
-    const partial = fixture({ classification: "chat-only" })
-    const profile = await partial.service.save(draft)
-    await partial.service.test({ profileID: profile.id, modelID: "coder" })
-    expect(partial.service.selectDefault({ profileID: profile.id, modelID: "coder" })).rejects.toThrow(
-      "Only an agent-capable tested model can be the default.",
-    )
+  test("allows untested and non-agent-capable models as defaults", async () => {
+    const untested = fixture()
+    const untestedProfile = await untested.service.save(draft)
+    expect(await untested.service.selectDefault({ profileID: untestedProfile.id, modelID: "coder" })).toMatchObject({
+      defaultModelID: "coder",
+    })
 
+    const partial = fixture({ classification: "chat-only" })
+    const partialProfile = await partial.service.save(draft)
+    await partial.service.test({ profileID: partialProfile.id, modelID: "coder" })
+    expect(await partial.service.selectDefault({ profileID: partialProfile.id, modelID: "coder" })).toMatchObject({
+      defaultModelID: "coder",
+    })
+  })
+
+  test("rolls back unpublished profiles on credential failure", async () => {
     const failing = fixture({ failCredentialWrite: true })
     expect(failing.service.save(draft)).rejects.toThrow("The model credentials could not be saved.")
     expect(await failing.service.list()).toEqual([])

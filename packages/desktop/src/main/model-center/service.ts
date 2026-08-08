@@ -110,9 +110,6 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
     async selectDefault(input) {
       const profile = options.profiles.get(input.profileID)
       if (!profile) throw new Error("The model profile does not exist.")
-      if (profile.test?.modelID !== input.modelID || profile.test.classification !== "agent-capable") {
-        throw new Error("Only an agent-capable tested model can be the default.")
-      }
       return present(options.profiles.selectDefault(input))
     },
     async reloadCredentials() {
