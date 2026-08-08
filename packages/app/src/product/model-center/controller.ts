@@ -78,7 +78,6 @@ export function createModelCenterController(options: ProductModelCenterControlle
       defaultModelPatch(profile, input.modelID)
       const selected = await safe(() => options.modelCenter.selectDefault(input))
       await safe(() => options.updateConfig(defaultModelPatch(selected, input.modelID)))
-      await safe(() => options.refreshProviders())
       return selected
     },
   })

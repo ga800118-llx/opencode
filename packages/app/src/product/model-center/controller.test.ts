@@ -141,7 +141,7 @@ describe("createModelCenterController", () => {
     const selecting = fixture()
     selecting.setStored([profile])
     expect(await selecting.controller.selectDefault({ profileID: profile.id, modelID: "coder" })).toEqual(profile)
-    expect(selecting.calls).toEqual(["list", "select-default", "update-config", "refresh"])
+    expect(selecting.calls).toEqual(["list", "select-default", "update-config"])
     expect(selecting.patches).toEqual([{ model: `${profile.providerID}/coder` }])
   })
 
