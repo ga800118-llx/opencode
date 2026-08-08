@@ -14,6 +14,7 @@ import { createModelProfileFormController, type ModelProfileOperations } from ".
 import { ModelCapabilityStatus } from "./model-capability-status"
 import { createModelDiscoveryCoordinator, modelDiscoveryPresentation } from "./model-discovery-presentation"
 import { ModelDiscoveryStatus } from "./model-discovery-status"
+import { modelTestPresentation } from "./model-test-presentation"
 
 const KINDS: ProductProviderKind[] = ["openai-compatible", "ollama", "lm-studio", "custom-local"]
 
@@ -84,6 +85,11 @@ export const DialogModelProfile: Component<{
     const status = discoveryPresentation()
     if (!status) return ""
     return language.t(status.key, status.params)
+  }
+  const testDiagnosticMessage = () => {
+    const presentation = modelTestPresentation(form.state.diagnostic)
+    if (!presentation) return
+    return language.t(presentation.key)
   }
 
   const toggleAdvanced = () => {
@@ -470,9 +476,9 @@ export const DialogModelProfile: Component<{
             </Show>
           </section>
 
-          <Show when={form.state.error || form.state.diagnostic}>
+          <Show when={form.state.error || testDiagnosticMessage()}>
             <div class="model-profile-feedback" role="status">
-              {form.state.error ?? form.state.diagnostic}
+              {form.state.error ?? testDiagnosticMessage()}
             </div>
           </Show>
 

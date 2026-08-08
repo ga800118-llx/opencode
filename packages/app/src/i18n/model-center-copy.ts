@@ -92,6 +92,22 @@ export const modelCenterEn = {
   "settings.modelCenter.status.partial": "Partial",
   "settings.modelCenter.status.untested": "Untested",
   "settings.modelCenter.test.checks": "Streaming {{streaming}} / Tools {{tools}}",
+  "settings.modelCenter.test.unreachableEndpoint":
+    "Could not reach the model endpoint. Check the URL and service, then retry.",
+  "settings.modelCenter.test.authentication": "Authentication failed. Check the API key and request headers.",
+  "settings.modelCenter.test.incompatible": "The endpoint does not provide a compatible chat API.",
+  "settings.modelCenter.test.missingModel":
+    "The selected model is unavailable. Choose another model or correct its ID.",
+  "settings.modelCenter.test.streaming": "The model response stream failed. Check streaming support or retry.",
+  "settings.modelCenter.test.toolCalling":
+    "The model could not complete a tool call. Choose a model with structured tool support.",
+  "settings.modelCenter.test.timeout":
+    "The capability test timed out. Check the service or increase the timeout.",
+  "settings.modelCenter.test.tls": "Could not establish a secure TLS connection. Check the endpoint certificate.",
+  "settings.modelCenter.test.serverCrash":
+    "The agent service stopped during the capability test. Restart it and retry.",
+  "settings.modelCenter.test.aborted": "The capability test was canceled.",
+  "settings.modelCenter.test.unexpected": "The capability test failed unexpectedly. Retry once.",
   "settings.modelCenter.toast.defaultChanged": "Default model changed",
   "settings.modelCenter.toast.saved": "{{name}} saved",
 }
@@ -188,6 +204,17 @@ export const modelCenterZh: Record<keyof typeof modelCenterEn, string> = {
   "settings.modelCenter.status.partial": "部分兼容",
   "settings.modelCenter.status.untested": "未测试",
   "settings.modelCenter.test.checks": "流式 {{streaming}} / 工具 {{tools}}",
+  "settings.modelCenter.test.unreachableEndpoint": "无法连接模型端点。请检查 URL 和服务状态后重试。",
+  "settings.modelCenter.test.authentication": "身份验证失败。请检查 API 密钥和请求头。",
+  "settings.modelCenter.test.incompatible": "该端点未提供兼容的聊天 API。",
+  "settings.modelCenter.test.missingModel": "所选模型不可用。请选择其他模型或更正模型 ID。",
+  "settings.modelCenter.test.streaming": "模型流式响应失败。请检查流式支持或重试。",
+  "settings.modelCenter.test.toolCalling": "该模型未能完成工具调用。请选择支持结构化工具调用的模型。",
+  "settings.modelCenter.test.timeout": "能力测试超时。请检查服务或增加超时时间。",
+  "settings.modelCenter.test.tls": "无法建立安全的 TLS 连接。请检查端点证书。",
+  "settings.modelCenter.test.serverCrash": "能力测试期间智能体服务已停止。请重启后重试。",
+  "settings.modelCenter.test.aborted": "能力测试已取消。",
+  "settings.modelCenter.test.unexpected": "能力测试意外失败。请重试一次。",
   "settings.modelCenter.toast.defaultChanged": "默认模型已更改",
   "settings.modelCenter.toast.saved": "已保存 {{name}}",
 }

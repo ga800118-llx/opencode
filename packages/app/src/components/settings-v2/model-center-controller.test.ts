@@ -190,7 +190,7 @@ describe("createModelProfileFormController", () => {
     reports[0].resolve(report)
     await successTest
     expect(form.state.error).toBe("save failed")
-    expect(form.state.diagnostic).toBe("Authentication failed.")
+    expect(form.state.diagnostic).toEqual(diagnostic)
 
     await form.discover()
     expect(form.state.error).toBeUndefined()
@@ -202,7 +202,7 @@ describe("createModelProfileFormController", () => {
     reports[1].resolve(report)
     await diagnosticTest
     expect(form.state.error).toBe("save failed")
-    expect(form.state.diagnostic).toBe("Authentication failed.")
+    expect(form.state.diagnostic).toEqual(diagnostic)
 
     await form.discover()
     expect(form.state.error).toBeUndefined()
@@ -215,7 +215,7 @@ describe("createModelProfileFormController", () => {
     reports[2].resolve(report)
     await invalidEndpointTest
     expect(form.state.error).toBe("A valid HTTP or HTTPS endpoint is required.")
-    expect(form.state.diagnostic).toBe("Authentication failed.")
+    expect(form.state.diagnostic).toEqual(diagnostic)
 
     await form.discover()
     expect(form.state.error).toBeUndefined()

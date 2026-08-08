@@ -58,7 +58,7 @@ type FormState = {
   deleting: boolean
   deleteConfirmation: boolean
   error?: string
-  diagnostic?: string
+  diagnostic?: ProductModelDiagnostic
   discoveryFeedback?: ModelDiscoveryFeedback
 }
 
@@ -420,7 +420,7 @@ export function createModelProfileFormController(options: {
         const result = await options.operations.test({ draft: input(), modelID })
         if (generation !== testGeneration) return result
         setState("report", result)
-        setState("diagnostic", result.diagnostic?.message)
+        setState("diagnostic", result.diagnostic)
         return result
       } catch (error) {
         if (generation !== testGeneration) return undefined
