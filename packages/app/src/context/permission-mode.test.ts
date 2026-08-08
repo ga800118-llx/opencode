@@ -218,7 +218,11 @@ describe("V2 permission mode state", () => {
   test("keeps a newer cross-window mode when an older local switch resolves", async () => {
     const gate = Promise.withResolvers<void>()
     const request = permission("permission", "session")
-    const harness = setup({ permissionMode: "standard", switchMode: () => gate.promise })
+    const harness = setup({
+      permissionMode: "standard",
+      switchMode: () => gate.promise,
+      resolveMode: () => "restricted",
+    })
 
     const changing = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
     await Bun.sleep(0)
@@ -255,6 +259,76 @@ describe("V2 permission mode state", () => {
     await Bun.sleep(0)
     expect(harness.state.mode("session", "/project")).toBe("auto")
     expect(harness.replies).toHaveLength(1)
+  })
+
+  test("refreshes past a delayed old auto event before completing queued restricted", async () => {
+    const first = Promise.withResolvers<void>()
+    const second = Promise.withResolvers<void>()
+    const requests = [first, second]
+    const harness = setup({
+      permissionMode: "standard",
+      switchMode: () => requests.shift()!.promise,
+    })
+
+    const auto = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    await Bun.sleep(0)
+    const restricted = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+
+    first.resolve()
+    await auto
+    await Bun.sleep(0)
+    harness.switchEvent("auto")
+    harness.ask(permission("permission", "session"))
+    await Bun.sleep(0)
+    expect(harness.replies).toEqual([])
+
+    second.resolve()
+    await restricted
+    await Bun.sleep(0)
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.projectedMode()).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
+  test("uses an authoritative bootstrap projection over a previous local auto switch", async () => {
+    const harness = setup({ permissionMode: "standard" })
+
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+
+    harness.project("restricted")
+    harness.ask(permission("permission", "session"))
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
+  test("forces a session refresh after a successful switch without SSE", async () => {
+    const harness = setup({ permissionMode: "standard" })
+
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+
+    expect(harness.resolves).toEqual([{ sessionID: "session", force: true }])
+    expect(harness.projectedMode()).toBe("auto")
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+  })
+
+  test("does not send a queued switch after the permission state is disposed", async () => {
+    const gate = Promise.withResolvers<void>()
+    const harness = setup({
+      permissionMode: "standard",
+      switchMode: () => (harness.switches.length === 1 ? gate.promise : Promise.resolve()),
+    })
+
+    const first = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    await Bun.sleep(0)
+    const queued = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    harness.dispose()
+    gate.resolve()
+    await Promise.all([first, queued])
+
+    expect(harness.switches).toEqual([{ sessionID: "session", mode: "restricted" }])
   })
 
   test("entering auto responds to existing pending requests once", async () => {
@@ -507,15 +581,19 @@ function setup(input: {
   switchMode?: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
   list?: () => Promise<{ data: ReturnType<typeof currentPermission>[] }>
   reply?: (input: unknown) => Promise<void>
+  resolveMode?: () => Permission.Mode
 }) {
+  type ProjectedSession = Session & { permissionMode?: Permission.Mode }
   const record = {
     id: "session",
     directory: "/project",
     permissionMode: input.permissionMode,
-  } as Session & { permissionMode?: Permission.Mode }
+  } as ProjectedSession
   const pending = input.pending ?? []
+  let authoritativeMode = input.permissionMode
   const replies: unknown[] = []
   const switches: Array<{ sessionID: string; mode: Permission.Mode }> = []
+  const resolves: Array<{ sessionID: string; force: boolean }> = []
   type TestEvent =
     | { name: string; details: { type: "permission.asked"; properties: PermissionRequest } }
     | {
@@ -527,12 +605,19 @@ function setup(input: {
       }
   const events: { permission?: (event: TestEvent) => void } = {}
   const [sessionData, setSessionData] = createStore({
-    info: { session: record } as Record<string, Session | undefined>,
+    info: { session: record } as Record<string, ProjectedSession | undefined>,
     permission: { session: pending } as Record<string, PermissionRequest[]>,
   })
   const sync = {
     session: {
       data: sessionData,
+      resolve: async (sessionID: string, options: { force?: boolean } = {}) => {
+        resolves.push({ sessionID, force: options.force === true })
+        const mode = input.resolveMode?.() ?? authoritativeMode
+        const next = { ...record, permissionMode: mode }
+        setSessionData("info", sessionID, next)
+        return next
+      },
       lineage: {
         peek: () => ({ session: record, root: record }),
         resolve: async () => ({ session: record, root: record }),
@@ -550,7 +635,9 @@ function setup(input: {
       session: {
         switchPermissionMode: (value: { sessionID: string; mode: Permission.Mode }) => {
           switches.push(value)
-          return input.switchMode?.(value) ?? Promise.resolve()
+          return (input.switchMode?.(value) ?? Promise.resolve()).then(() => {
+            authoritativeMode = value.mode
+          })
         },
       },
       permission: {
@@ -570,7 +657,9 @@ function setup(input: {
       },
     },
   } as unknown as ServerSDK
+  let disposeState: () => void = () => undefined
   const state = createRoot((dispose) => {
+    disposeState = dispose
     disposals.push(dispose)
     return createServerPermissionState(
       { sdk, sync },
@@ -588,6 +677,15 @@ function setup(input: {
     state,
     replies,
     switches,
+    resolves,
+    dispose: () => disposeState(),
+    project(mode: Permission.Mode) {
+      authoritativeMode = mode
+      setSessionData("info", "session", { ...record, permissionMode: mode })
+    },
+    projectedMode() {
+      return sessionData.info.session?.permissionMode
+    },
     ask(request: PermissionRequest) {
       pending.push(request)
       events.permission?.({ name: "/project", details: { type: "permission.asked", properties: request } })
@@ -597,6 +695,8 @@ function setup(input: {
       setSessionData("permission", request.sessionID, [request])
     },
     switchEvent(mode: Permission.Mode) {
+      authoritativeMode = mode
+      setSessionData("info", "session", { ...record, permissionMode: mode })
       events.permission?.({
         name: "/project",
         details: {

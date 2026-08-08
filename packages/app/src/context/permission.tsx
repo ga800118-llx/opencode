@@ -286,7 +286,6 @@ export function createServerPermissionState(
       autoConfirmed: {} as Record<string, boolean>,
     }),
   )
-  const [taskMode, setTaskMode] = createStore<Record<string, Permission.Mode>>({})
   const capability = {
     value:
       input.sdk.protocolKind() === "v1"
@@ -324,7 +323,6 @@ export function createServerPermissionState(
   const responded = new Map<string, number>()
   const enableVersion = new Map<string, number>()
   const modeSwitch = new Map<string, number>()
-  const modeEventGeneration = new Map<string, number>()
   const modeQueue = new Map<string, Promise<void>>()
   const meta = { disposed: false }
 
@@ -403,7 +401,7 @@ export function createServerPermissionState(
     return projectPermissionMode(store.mode, directory)
   }
 
-  function serverMode(sessionID: string, directory: string) {
+  function serverMode(sessionID: string, directory?: string) {
     const session = sessions(directory).find((session) => session.id === sessionID)
     if (!session || !("permissionMode" in session)) return undefined
     return normalizePermissionMode(session.permissionMode)
@@ -412,11 +410,11 @@ export function createServerPermissionState(
   function mode(sessionID: string | undefined, directory: string): Permission.Mode {
     if (!sessionID) return projectMode(directory)
     if (!supportsModes()) return isAutoAccepting(sessionID, directory) ? "auto" : "standard"
-    return taskMode[sessionID] ?? taskPermissionMode(serverMode(sessionID, directory), projectMode(directory))
+    return taskPermissionMode(serverMode(sessionID, directory), projectMode(directory))
   }
 
   function autoResponseTaskMode() {
-    const result = { ...taskMode }
+    const result: Record<string, Permission.Mode> = {}
     modeSwitch.forEach((_version, sessionID) => {
       result[sessionID] = "standard"
     })
@@ -527,15 +525,16 @@ export function createServerPermissionState(
     const key = acceptKey(sessionID, value.directory)
     const version = bumpEnableVersion(sessionID, value.directory)
     modeSwitch.set(sessionID, version)
-    const attempt = { eventGeneration: 0 }
     const request = (modeQueue.get(sessionID) ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => {
-        attempt.eventGeneration = modeEventGeneration.get(sessionID) ?? 0
-        return (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi).switchPermissionMode({
+      .then(async () => {
+        if (meta.disposed) return
+        await (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi).switchPermissionMode({
           sessionID,
           mode: value.mode,
         })
+        if (meta.disposed) return
+        await input.sync.session.resolve(sessionID, { force: true })
       })
     const queued = request.then(
       () => undefined,
@@ -547,9 +546,6 @@ export function createServerPermissionState(
       .then(
         () => {
           if (meta.disposed) return Promise.resolve()
-          if ((modeEventGeneration.get(sessionID) ?? 0) === attempt.eventGeneration) {
-            setTaskMode(sessionID, value.mode)
-          }
           if (modeSwitch.get(sessionID) !== version) return Promise.resolve()
           modeSwitch.delete(sessionID)
           if (mode(sessionID, value.directory) !== "auto") return Promise.resolve()
@@ -579,20 +575,21 @@ export function createServerPermissionState(
     if (event?.type !== "session.next.permission-mode.switched") return
     if (!isPermissionModeSwitched(event.properties)) return
     const properties = event.properties
-    modeEventGeneration.set(properties.sessionID, (modeEventGeneration.get(properties.sessionID) ?? 0) + 1)
     const directory = e.name === "global" ? sessionDirectory(properties.sessionID) : e.name
     const key = acceptKey(properties.sessionID, directory)
     const version = bumpEnableVersion(properties.sessionID, directory)
-    setTaskMode(properties.sessionID, properties.mode)
     if (modeSwitch.has(properties.sessionID)) return
-    if (properties.mode !== "auto") return
+    if (taskPermissionMode(serverMode(properties.sessionID, directory), "standard") !== "auto") return
     if (directory) {
       void respondPendingForMode(properties.sessionID, directory, key, version)
       return
     }
     void sweepPending({
       sessionID: properties.sessionID,
-      current: () => enableVersion.get(key) === version && taskMode[properties.sessionID] === "auto",
+      current: () =>
+        enableVersion.get(key) === version &&
+        !modeSwitch.has(properties.sessionID) &&
+        taskPermissionMode(serverMode(properties.sessionID), "standard") === "auto",
     })
   }
 
