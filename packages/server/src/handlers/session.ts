@@ -70,8 +70,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
           return {
             data: yield* session.create({
               id: ctx.payload.id,
+              parentID: ctx.payload.parentID,
               agent: ctx.payload.agent,
               model: ctx.payload.model,
+              permissionMode: ctx.payload.permissionMode,
               location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
             }),
           }
@@ -124,6 +126,22 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.switchModel",
         Effect.fn(function* (ctx) {
           yield* session.switchModel({ sessionID: ctx.params.sessionID, model: ctx.payload.model }).pipe(
+            Effect.catchTag("Session.NotFoundError", (error) =>
+              Effect.fail(
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+              ),
+            ),
+          )
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.switchPermissionMode",
+        Effect.fn(function* (ctx) {
+          yield* session.switchPermissionMode({ sessionID: ctx.params.sessionID, mode: ctx.payload.mode }).pipe(
             Effect.catchTag("Session.NotFoundError", (error) =>
               Effect.fail(
                 new SessionNotFoundError({

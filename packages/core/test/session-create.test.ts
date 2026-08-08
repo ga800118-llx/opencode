@@ -10,6 +10,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { Location } from "@opencode-ai/core/location"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { PermissionV2 } from "@opencode-ai/core/permission"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -93,18 +94,94 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("creates a Session with an explicit permission mode", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+
+      const created = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+
+      expect(created.permissionMode).toBe("auto")
+      expect(
+        yield* db.select().from(SessionTable).where(eq(SessionTable.id, created.id)).get().pipe(Effect.orDie),
+      ).toMatchObject({ permission_mode: "auto" })
+    }),
+  )
+
+  it.effect("inherits the parent permission mode and stores the parent ID", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const parent = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+
+      const child = yield* session.create({ location, parentID: parent.id })
+
+      expect(child).toMatchObject({ parentID: parent.id, permissionMode: "auto" })
+      expect(yield* session.get(child.id)).toMatchObject({ parentID: parent.id, permissionMode: "auto" })
+    }),
+  )
+
+  it.effect("inherits effective Standard from a parent with no persisted mode", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const parent = yield* session.create({ location })
+
+      const child = yield* session.create({ location, parentID: parent.id })
+
+      expect(child.parentID).toBe(parent.id)
+      expect(child.permissionMode).toBeUndefined()
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, child.id)).all().pipe(Effect.orDie),
+      ).toHaveLength(1)
+    }),
+  )
+
+  it.effect("prefers an explicit child permission mode over the parent mode", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const parent = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+
+      const child = yield* session.create({
+        location,
+        parentID: parent.id,
+        permissionMode: PermissionV2.Mode.make("restricted"),
+      })
+
+      expect(child).toMatchObject({ parentID: parent.id, permissionMode: "restricted" })
+    }),
+  )
+
+  it.effect("preserves a missing parent ID while resolving the default mode as Standard", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const parentID = SessionV2.ID.make("ses_missing_parent")
+
+      const created = yield* session.create({ location, parentID })
+
+      expect(created).toMatchObject({ parentID })
+      expect(created.permissionMode).toBeUndefined()
+      expect((created.permissionMode ?? "standard") satisfies PermissionV2.Mode).toBe("standard")
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, created.id)).all().pipe(Effect.orDie),
+      ).toHaveLength(1)
+    }),
+  )
+
   it.effect("returns the existing Session when one ID is reused with different create arguments", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service
       const created = yield* session.create({ id, location })
       const changed = [
         { id, location: Location.Ref.make({ directory: AbsolutePath.make("/other") }) },
+        { id, location, parentID: SessionV2.ID.make("ses_changed_parent") },
         { id, location, agent: AgentV2.ID.make("build") },
         {
           id,
           location,
           model: ModelV2.Ref.make({ id: ModelV2.ID.make("sonnet"), providerID: ProviderV2.ID.anthropic }),
         },
+        { id, location, permissionMode: PermissionV2.Mode.make("auto") },
       ]
 
       for (const input of changed) {
@@ -294,6 +371,56 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("replays permission mode switches into a fresh target database", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const sourceDb = (yield* Database.Service).db
+      const created = yield* session.create({
+        id: SessionV2.ID.make("ses_permission_mode_replay"),
+        location,
+        permissionMode: PermissionV2.Mode.make("auto"),
+      })
+      yield* session.switchPermissionMode({ sessionID: created.id, mode: PermissionV2.Mode.make("restricted") })
+      const serialized = (yield* sourceDb
+        .select()
+        .from(EventTable)
+        .where(eq(EventTable.aggregate_id, created.id))
+        .orderBy(asc(EventTable.seq))
+        .all()
+        .pipe(Effect.orDie)).map((event) => ({
+        id: event.id,
+        aggregateID: event.aggregate_id,
+        seq: event.seq,
+        type: event.type,
+        data: event.data,
+      }))
+
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const targetDatabase = Database.layerFromPath(path.join(tmp.path, "permission-mode-target.sqlite"))
+      const targetLayer = AppNodeBuilder.build(
+        LayerNode.group([Database.node, EventV2.node, SessionProjector.node, SessionStore.node]),
+        [[Database.node, targetDatabase]],
+      )
+
+      yield* Effect.gen(function* () {
+        const db = (yield* Database.Service).db
+        const events = yield* EventV2.Service
+        const store = yield* SessionStore.Service
+        yield* db
+          .insert(ProjectTable)
+          .values({ id: ProjectV2.ID.global, worktree: location.directory, sandboxes: [] })
+          .run()
+          .pipe(Effect.orDie)
+
+        expect(yield* events.replayAll(serialized)).toBe(created.id)
+        expect(yield* store.get(created.id)).toMatchObject({ permissionMode: "restricted" })
+      }).pipe(Effect.provide(Layer.fresh(targetLayer)))
+    }),
+  )
+
   it.effect("does not mask unrelated created projector defects", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service
@@ -420,6 +547,60 @@ describe("SessionV2.create", () => {
             Effect.map((error) => error._tag),
           ),
       ).toBe("Session.NotFoundError")
+    }),
+  )
+
+  it.effect("switches a child permission mode once when the selected mode changes", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const parent = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+      const child = yield* session.create({ location, parentID: parent.id })
+
+      yield* session.switchPermissionMode({
+        sessionID: child.id,
+        mode: PermissionV2.Mode.make("restricted"),
+      })
+      yield* session.switchPermissionMode({
+        sessionID: child.id,
+        mode: PermissionV2.Mode.make("restricted"),
+      })
+
+      const { db } = yield* Database.Service
+      expect(yield* session.get(child.id)).toMatchObject({ permissionMode: "restricted" })
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, child.id)).all().pipe(Effect.orDie),
+      ).toHaveLength(3)
+    }),
+  )
+
+  it.effect("persists an explicit switch back to Standard", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+
+      yield* session.switchPermissionMode({
+        sessionID: created.id,
+        mode: PermissionV2.Mode.make("standard"),
+      })
+
+      expect(yield* session.get(created.id)).toMatchObject({ permissionMode: "standard" })
+      expect(
+        yield* db.select().from(SessionTable).where(eq(SessionTable.id, created.id)).get().pipe(Effect.orDie),
+      ).toMatchObject({ permission_mode: "standard" })
+    }),
+  )
+
+  it.effect("rejects a permission mode switch for a missing Session", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const missing = SessionV2.ID.make("ses_missing_permission_mode_switch")
+
+      const error = yield* session
+        .switchPermissionMode({ sessionID: missing, mode: PermissionV2.Mode.make("auto") })
+        .pipe(Effect.flip)
+
+      expect(error).toBeInstanceOf(SessionV2.NotFoundError)
     }),
   )
 })

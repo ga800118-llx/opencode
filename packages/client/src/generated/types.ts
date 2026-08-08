@@ -238,6 +238,7 @@ export type SessionsListOutput = {
     readonly projectID: string
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly permissionMode?: "restricted" | "standard" | "auto"
     readonly cost: number
     readonly tokens: {
       readonly input: number
@@ -269,26 +270,50 @@ export type SessionsListOutput = {
 export type SessionsCreateInput = {
   readonly id?: {
     readonly id?: string | null
+    readonly parentID?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
   }["id"]
-  readonly agent?: {
+  readonly parentID?: {
     readonly id?: string | null
+    readonly parentID?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
+    readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+  }["parentID"]
+  readonly agent?: {
+    readonly id?: string | null
+    readonly parentID?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
   }["agent"]
   readonly model?: {
     readonly id?: string | null
+    readonly parentID?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
   }["model"]
-  readonly location?: {
+  readonly permissionMode?: {
     readonly id?: string | null
+    readonly parentID?: string | null
     readonly agent?: string | null
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
+    readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
+  }["permissionMode"]
+  readonly location?: {
+    readonly id?: string | null
+    readonly parentID?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly permissionMode?: ("restricted" | "standard" | "auto") | null
     readonly location?: { readonly directory: string; readonly workspaceID?: string } | null
   }["location"]
 }
@@ -300,6 +325,7 @@ export type SessionsCreateOutput = {
     readonly projectID: string
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly permissionMode?: "restricted" | "standard" | "auto"
     readonly cost: number
     readonly tokens: {
       readonly input: number
@@ -338,6 +364,7 @@ export type SessionsGetOutput = {
     readonly projectID: string
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly permissionMode?: "restricted" | "standard" | "auto"
     readonly cost: number
     readonly tokens: {
       readonly input: number
@@ -380,6 +407,13 @@ export type SessionsSwitchModelInput = {
 }
 
 export type SessionsSwitchModelOutput = void
+
+export type SessionsSwitchPermissionModeInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly mode: { readonly mode: "restricted" | "standard" | "auto" }["mode"]
+}
+
+export type SessionsSwitchPermissionModeOutput = void
 
 export type SessionsPromptInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
@@ -708,6 +742,18 @@ export type SessionsHistoryOutput = {
           readonly sessionID: string
           readonly messageID: string
           readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+        }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "session.next.permission-mode.switched"
+        readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+        readonly location?: { readonly directory: string; readonly workspaceID?: string }
+        readonly data: {
+          readonly timestamp: number
+          readonly sessionID: string
+          readonly mode: "restricted" | "standard" | "auto"
         }
       }
     | {
@@ -1166,6 +1212,18 @@ export type SessionsEventsOutput =
         readonly sessionID: string
         readonly messageID: string
         readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+      }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.next.permission-mode.switched"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly timestamp: number
+        readonly sessionID: string
+        readonly mode: "restricted" | "standard" | "auto"
       }
     }
   | {

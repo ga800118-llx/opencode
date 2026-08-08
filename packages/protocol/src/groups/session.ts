@@ -19,6 +19,7 @@ import {
 import { Agent } from "@opencode-ai/schema/agent"
 import { Model } from "@opencode-ai/schema/model"
 import { Location } from "@opencode-ai/schema/location"
+import { Permission } from "@opencode-ai/schema/permission"
 import { Revert } from "@opencode-ai/schema/revert"
 import { SessionEvent } from "@opencode-ai/schema/session-event"
 
@@ -129,8 +130,10 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       HttpApiEndpoint.post("session.create", "/api/session", {
         payload: Schema.Struct({
           id: Session.ID.pipe(Schema.optional),
+          parentID: Session.ID.pipe(Schema.optional),
           agent: Agent.ID.pipe(Schema.optional),
           model: Model.Ref.pipe(Schema.optional),
+          permissionMode: Permission.Mode.pipe(Schema.optional),
           location: Location.Ref.pipe(Schema.optional),
         }),
         success: Schema.Struct({ data: Session.Info }),
@@ -198,6 +201,22 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             identifier: "v2.session.switchModel",
             summary: "Switch session model",
             description: "Switch the model used by subsequent provider turns.",
+          }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.post("session.switchPermissionMode", "/api/session/:sessionID/permission-mode", {
+        params: { sessionID: Session.ID },
+        payload: Schema.Struct({ mode: Permission.Mode }),
+        success: HttpApiSchema.NoContent,
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.switchPermissionMode",
+            summary: "Switch session permission mode",
+            description: "Switch the permission mode used by subsequent permission evaluations.",
           }),
         ),
     )

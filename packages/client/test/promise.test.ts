@@ -99,7 +99,7 @@ test("session methods use the public HTTP contract", async () => {
       if (url.includes("/history")) {
         historyPage++
         return Response.json(
-          historyPage === 1 ? { data: [modelSwitchedEvent], hasMore: true } : { data: [], hasMore: false },
+          historyPage === 1 ? { data: [permissionModeSwitchedEvent], hasMore: true } : { data: [], hasMore: false },
         )
       }
       if (url.includes("/prompt")) return Response.json(admission)
@@ -114,12 +114,17 @@ test("session methods use the public HTTP contract", async () => {
 
   const page = await client.sessions.list({ limit: 10, order: "desc" })
   const active = await client.sessions.active()
-  const created = await client.sessions.create({ location: { directory: "/tmp/project" } })
+  const created = await client.sessions.create({
+    parentID: "ses_parent",
+    permissionMode: "auto",
+    location: { directory: "/tmp/project" },
+  })
   await client.sessions.switchAgent({ sessionID: "ses_test", agent: "build" })
   await client.sessions.switchModel({
     sessionID: "ses_test",
     model: { id: "claude", providerID: "anthropic" },
   })
+  await client.sessions.switchPermissionMode({ sessionID: "ses_test", mode: "restricted" })
   const admitted = await client.sessions.prompt({
     sessionID: "ses_test",
     prompt: { text: "Hello" },
@@ -141,9 +146,13 @@ test("session methods use the public HTTP contract", async () => {
   expect(page.cursor.next).toBe("next")
   expect(active).toEqual({ ses_test: { type: "running" } })
   expect(created.id).toBe("ses_test")
+  expect(created.permissionMode).toBe("auto")
   expect(admitted.id).toBe("msg_test")
   expect(context).toEqual([])
-  expect(history).toEqual({ data: [modelSwitchedEvent], hasMore: true })
+  expect(history).toEqual({ data: [permissionModeSwitchedEvent], hasMore: true })
+  expect(
+    history.data[0]?.type === "session.next.permission-mode.switched" ? history.data[0].data.mode : undefined,
+  ).toBe("auto")
   expect(historyNext).toEqual({ data: [], hasMore: false })
   expect(events).toEqual([modelSwitchedEvent])
   expect(message).toEqual(modelSwitchedMessage)
@@ -153,6 +162,7 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/session"],
     ["POST", "http://localhost:3000/api/session/ses_test/agent"],
     ["POST", "http://localhost:3000/api/session/ses_test/model"],
+    ["POST", "http://localhost:3000/api/session/ses_test/permission-mode"],
     ["POST", "http://localhost:3000/api/session/ses_test/prompt"],
     ["POST", "http://localhost:3000/api/session/ses_test/compact"],
     ["POST", "http://localhost:3000/api/session/ses_test/wait"],
@@ -163,6 +173,13 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/session/ses_test/interrupt"],
     ["GET", "http://localhost:3000/api/session/ses_test/message/msg_model"],
   ])
+  const createBody = requests.find((request) => request.url.endsWith("/api/session"))?.init?.body
+  if (typeof createBody !== "string") throw new Error("Expected JSON request body")
+  expect(JSON.parse(createBody)).toEqual({
+    parentID: "ses_parent",
+    permissionMode: "auto",
+    location: { directory: "/tmp/project" },
+  })
   const body = requests.find((request) => request.url.endsWith("/api/session/ses_test/prompt"))?.init?.body
   if (typeof body !== "string") throw new Error("Expected JSON request body")
   expect(JSON.parse(body)).toEqual({
@@ -207,7 +224,9 @@ test("sessions.history decodes SessionNotFoundError", async () => {
 const session = {
   data: {
     id: "ses_test",
+    parentID: "ses_parent",
     projectID: "project",
+    permissionMode: "auto",
     cost: 0,
     tokens: {
       input: 1,
@@ -251,5 +270,16 @@ const modelSwitchedEvent = {
     sessionID: "ses_test",
     messageID: "msg_model",
     model: { id: "claude", providerID: "anthropic" },
+  },
+}
+
+const permissionModeSwitchedEvent = {
+  id: "evt_permission_mode",
+  type: "session.next.permission-mode.switched",
+  durable: { aggregateID: "ses_test", seq: 1, version: 1 },
+  data: {
+    timestamp: 1_717_171_717_000,
+    sessionID: "ses_test",
+    mode: "auto",
   },
 }

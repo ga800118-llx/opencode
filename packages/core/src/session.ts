@@ -37,6 +37,7 @@ import { SessionRevert } from "./session/revert"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
+import { PermissionV2 } from "./permission"
 
 export const RevertState = Revert.State
 export type RevertState = Revert.State
@@ -78,8 +79,10 @@ export type ListInput = typeof ListInput.Type
 
 type CreateInput = {
   id?: SessionSchema.ID
+  parentID?: SessionSchema.ID
   agent?: AgentV2.ID
   model?: ModelV2.Ref
+  permissionMode?: PermissionV2.Mode
   location: Location.Ref
 }
 
@@ -143,6 +146,10 @@ export interface Interface {
   readonly switchModel: (input: {
     sessionID: SessionSchema.ID
     model: ModelV2.Ref
+  }) => Effect.Effect<void, NotFoundError>
+  readonly switchPermissionMode: (input: {
+    sessionID: SessionSchema.ID
+    mode: PermissionV2.Mode
   }) => Effect.Effect<void, NotFoundError>
   readonly prompt: (input: {
     id?: SessionMessage.ID
@@ -209,6 +216,9 @@ const layer = Layer.effect(
         const sessionID = input.id ?? SessionSchema.ID.create()
         const recorded = yield* store.get(sessionID)
         if (recorded) return recorded
+        const permissionMode =
+          input.permissionMode ??
+          (input.parentID ? ((yield* store.get(input.parentID))?.permissionMode ?? "standard") : "standard")
         const project = yield* projects.resolve(input.location.directory)
         yield* db
           .insert(ProjectTable)
@@ -224,6 +234,7 @@ const layer = Layer.effect(
           projectID: project.id,
           directory: input.location.directory,
           path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
+          parentID: input.parentID,
           workspaceID: input.location.workspaceID ? WorkspaceV2.ID.make(input.location.workspaceID) : undefined,
           title: `New session - ${new Date(now).toISOString()}`,
           agent: input.agent,
@@ -257,6 +268,13 @@ const layer = Layer.effect(
             }),
           )
         if (projected.type === "existing") return projected.session
+        if (permissionMode !== "standard") {
+          yield* events.publish(SessionEvent.PermissionModeSwitched, {
+            sessionID,
+            timestamp: yield* DateTime.now,
+            mode: permissionMode,
+          })
+        }
         // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
         return yield* result.get(sessionID).pipe(Effect.orDie)
       }),
@@ -412,6 +430,15 @@ const layer = Layer.effect(
           messageID: SessionMessage.ID.create(),
           timestamp: yield* DateTime.now,
           model: input.model,
+        })
+      }),
+      switchPermissionMode: Effect.fn("V2Session.switchPermissionMode")(function* (input) {
+        const session = yield* result.get(input.sessionID)
+        if ((session.permissionMode ?? "standard") === input.mode) return
+        yield* events.publish(SessionEvent.PermissionModeSwitched, {
+          sessionID: input.sessionID,
+          timestamp: yield* DateTime.now,
+          mode: input.mode,
         })
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {

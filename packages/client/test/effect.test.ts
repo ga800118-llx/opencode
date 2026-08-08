@@ -1,7 +1,17 @@
 import { expect, test } from "bun:test"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
-import { AbsolutePath, Agent, Location, Model, OpenCode, Prompt, Session, SessionMessage } from "../src/effect"
+import {
+  AbsolutePath,
+  Agent,
+  Location,
+  Model,
+  OpenCode,
+  Permission,
+  Prompt,
+  Session,
+  SessionMessage,
+} from "../src/effect"
 
 test("sessions.get returns the decoded Effect projection", async () => {
   const httpClient = HttpClient.make((request) =>
@@ -81,7 +91,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
         HttpClientResponse.fromWeb(
           request,
           Response.json(
-            historyPage === 1 ? { data: [modelSwitchedEvent], hasMore: true } : { data: [], hasMore: false },
+            historyPage === 1 ? { data: [permissionModeSwitchedEvent], hasMore: true } : { data: [], hasMore: false },
           ),
         ),
       )
@@ -115,12 +125,18 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
     const page = yield* client.sessions.list({ limit: 10 })
     const active = yield* client.sessions.active()
     const created = yield* client.sessions.create({
+      parentID: Session.ID.make("ses_parent"),
+      permissionMode: Permission.Mode.make("auto"),
       location: Location.Ref.make({ directory: AbsolutePath.make("/tmp/project") }),
     })
     yield* client.sessions.switchAgent({ sessionID: Session.ID.make("ses_test"), agent: Agent.ID.make("build") })
     yield* client.sessions.switchModel({
       sessionID: Session.ID.make("ses_test"),
       model: Model.Ref.make({ id: "claude", providerID: "anthropic" }),
+    })
+    yield* client.sessions.switchPermissionMode({
+      sessionID: Session.ID.make("ses_test"),
+      mode: Permission.Mode.make("restricted"),
     })
     const admitted = yield* client.sessions.prompt({
       sessionID: Session.ID.make("ses_test"),
@@ -158,11 +174,17 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(Object.getPrototypeOf(result.page.data[0])).toBe(Object.prototype)
   expect(Object.getPrototypeOf(result.created)).toBe(Object.prototype)
   expect(result.created.id).toBe("ses_test")
+  expect(result.created.permissionMode).toBe("auto")
   expect(Object.getPrototypeOf(result.admitted)).toBe(Object.prototype)
   expect(Object.getPrototypeOf(result.admitted.prompt)).toBe(Object.prototype)
   expect(DateTime.toEpochMillis(result.admitted.timeCreated)).toBe(1_717_171_717_000)
   expect(result.context).toEqual([])
   expect(DateTime.toEpochMillis(result.history.data[0].data.timestamp)).toBe(1_717_171_717_000)
+  expect(
+    result.history.data[0].type === "session.next.permission-mode.switched"
+      ? result.history.data[0].data.mode
+      : undefined,
+  ).toBe("auto")
   expect(result.history).toEqual(expect.objectContaining({ hasMore: true }))
   expect(result.historyNext).toEqual({ data: [], hasMore: false })
   expect(historyQueries[0]).toEqual({ limit: "1", after: "0" })
@@ -198,7 +220,9 @@ test("sessions.history retains the typed SessionNotFoundError", async () => {
 const session = {
   data: {
     id: "ses_test",
+    parentID: "ses_parent",
     projectID: "project",
+    permissionMode: "auto",
     cost: 0,
     tokens: {
       input: 1,
@@ -242,5 +266,16 @@ const modelSwitchedEvent = {
     sessionID: "ses_test",
     messageID: "msg_model",
     model: { id: "claude", providerID: "anthropic" },
+  },
+}
+
+const permissionModeSwitchedEvent = {
+  id: "evt_permission_mode",
+  type: "session.next.permission-mode.switched",
+  durable: { aggregateID: "ses_test", seq: 1, version: 1 },
+  data: {
+    timestamp: 1_717_171_717_000,
+    sessionID: "ses_test",
+    mode: "auto",
   },
 }

@@ -15,6 +15,8 @@ import type {
   SessionsSwitchAgentOutput,
   SessionsSwitchModelInput,
   SessionsSwitchModelOutput,
+  SessionsSwitchPermissionModeInput,
+  SessionsSwitchPermissionModeOutput,
   SessionsPromptInput,
   SessionsPromptOutput,
   SessionsCompactInput,
@@ -311,8 +313,10 @@ export function make(options: ClientOptions) {
             path: `/api/session`,
             body: {
               id: input?.["id"],
+              parentID: input?.["parentID"],
               agent: input?.["agent"],
               model: input?.["model"],
+              permissionMode: input?.["permissionMode"],
               location: input?.["location"],
             },
             successStatus: 200,
@@ -361,6 +365,18 @@ export function make(options: ClientOptions) {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/model`,
             body: { model: input["model"] },
+            successStatus: 204,
+            declaredStatuses: [404, 400, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      switchPermissionMode: (input: SessionsSwitchPermissionModeInput, requestOptions?: RequestOptions) =>
+        request<SessionsSwitchPermissionModeOutput>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/permission-mode`,
+            body: { mode: input["mode"] },
             successStatus: 204,
             declaredStatuses: [404, 400, 401],
             empty: true,

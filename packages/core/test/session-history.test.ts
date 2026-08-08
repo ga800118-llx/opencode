@@ -5,6 +5,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
+import { PermissionV2 } from "@opencode-ai/core/permission"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -127,6 +128,25 @@ describe("SessionV2.history", () => {
       expect(first.hasMore).toBe(true)
       expect([...first.events, ...second.events].map((event) => event.durable?.seq)).toEqual([1, 2, 3])
       expect(second.hasMore).toBe(false)
+    }),
+  )
+
+  it.effect("returns durable permission mode creation and switch history", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const created = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
+      yield* session.switchPermissionMode({
+        sessionID: created.id,
+        mode: PermissionV2.Mode.make("restricted"),
+      })
+
+      const page = yield* session.history({ sessionID: created.id, limit: 10 })
+
+      expect(page.events).toMatchObject([
+        { type: "session.next.permission-mode.switched", durable: { seq: 1 }, data: { mode: "auto" } },
+        { type: "session.next.permission-mode.switched", durable: { seq: 2 }, data: { mode: "restricted" } },
+      ])
+      expect(page.hasMore).toBe(false)
     }),
   )
 
