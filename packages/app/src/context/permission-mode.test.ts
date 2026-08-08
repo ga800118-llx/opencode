@@ -135,6 +135,31 @@ describe("V2 permission mode state", () => {
     expect(harness.replies).toEqual([])
   })
 
+  test("resumes pending auto responses when the latest switch away fails", async () => {
+    const gate = Promise.withResolvers<void>()
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "auto", switchMode: () => gate.promise })
+
+    const leaving = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "standard" })
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.replies).toEqual([])
+
+    gate.reject(new Error("switch failed"))
+    await expect(leaving).rejects.toThrow("switch failed")
+    await Bun.sleep(0)
+
+    expect(harness.replies).toEqual([
+      {
+        sessionID: "session",
+        requestID: "permission",
+        reply: "once",
+        location: { directory: "/project" },
+      },
+    ])
+  })
+
   test("does not expose mode switching or restricted state on V1", async () => {
     const harness = setup({ protocol: "v1", permissionMode: "restricted" })
 
@@ -174,6 +199,9 @@ function setup(input: {
   const pending = input.pending ?? []
   const replies: unknown[] = []
   const switches: Array<{ sessionID: string; mode: Permission.Mode }> = []
+  const events: {
+    permission?: (event: { name: string; details: { type: "permission.asked"; properties: PermissionRequest } }) => void
+  } = {}
   const sync = {
     session: {
       data: {
@@ -209,7 +237,10 @@ function setup(input: {
       },
     },
     event: {
-      listen: () => () => undefined,
+      listen: (listener: NonNullable<typeof events.permission>) => {
+        events.permission = listener
+        return () => undefined
+      },
     },
   } as unknown as ServerSDK
   const state = createRoot((dispose) => {
@@ -226,5 +257,13 @@ function setup(input: {
       },
     ).api
   })
-  return { state, replies, switches }
+  return {
+    state,
+    replies,
+    switches,
+    ask(request: PermissionRequest) {
+      pending.push(request)
+      events.permission?.({ name: "/project", details: { type: "permission.asked", properties: request } })
+    },
+  }
 }

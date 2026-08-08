@@ -428,6 +428,25 @@ export function createServerPermissionState(
     return next
   }
 
+  function respondPendingForMode(sessionID: string, directory: string, key: string, version: number) {
+    return list(directory)
+      .then((permissions) => {
+        if (meta.disposed || enableVersion.get(key) !== version || mode(sessionID, directory) !== "auto") return
+        for (const permission of permissions) {
+          void respondPending(
+            permission,
+            directory,
+            () =>
+              enableVersion.get(key) === version &&
+              mode(sessionID, directory) === "auto" &&
+              shouldAutoRespond(permission, directory),
+          )
+        }
+      })
+      .catch(() => undefined)
+      .then(() => undefined)
+  }
+
   function setMode(value: { sessionID?: string; directory: string; mode: Permission.Mode }) {
     if (meta.disposed) return Promise.resolve()
     setStore("mode", directoryAcceptKey(value.directory), value.mode)
@@ -447,23 +466,14 @@ export function createServerPermissionState(
           setTaskMode(sessionID, value.mode)
           modeSwitch.delete(sessionID)
           if (value.mode !== "auto") return Promise.resolve()
-
-          return list(value.directory)
-            .then((permissions) => {
-              if (meta.disposed || enableVersion.get(key) !== version) return
-              for (const permission of permissions) {
-                void respondPending(
-                  permission,
-                  value.directory,
-                  () => enableVersion.get(key) === version && shouldAutoRespond(permission, value.directory),
-                )
-              }
-            })
-            .catch(() => undefined)
-            .then(() => undefined)
+          return respondPendingForMode(sessionID, value.directory, key, version)
         },
         (error: unknown) => {
-          if (modeSwitch.get(sessionID)?.version === version) modeSwitch.delete(sessionID)
+          if (modeSwitch.get(sessionID)?.version !== version) throw error
+          modeSwitch.delete(sessionID)
+          if (!meta.disposed && mode(sessionID, value.directory) === "auto") {
+            void respondPendingForMode(sessionID, value.directory, key, version)
+          }
           throw error
         },
       )
