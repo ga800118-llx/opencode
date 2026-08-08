@@ -650,6 +650,46 @@ describe("SkillV2", () => {
     ),
   )
 
+  it.live("writes native recovery metadata with owner-only read and write permissions", () => {
+    if (process.platform === "win32") return Effect.void
+    return Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const safeMove = SkillSafeMove.make()
+          if (!(yield* safeMove.available())) return
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "review")
+          const trashRoot = path.join(tmp.path, "trash")
+          yield* Effect.promise(() => Promise.all([fs.mkdir(target, { recursive: true }), fs.mkdir(trashRoot)]))
+          yield* Effect.promise(() => write(sourceRoot, "review", "Native recovery permissions"))
+          const metadata = JSON.stringify({ name: "review" })
+
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* safeMove.prepare({
+                sourceRoot,
+                source: "review",
+                trashRoot,
+                staging: "review.staging",
+                final: "review",
+              })
+              yield* handle.stage(metadata)
+              yield* handle.move
+              yield* handle.finalize
+            }),
+          )
+
+          const file = path.join(trashRoot, "review", "metadata.json")
+          expect((yield* Effect.promise(() => fs.stat(file))).mode & 0o777).toBe(0o600)
+          expect(yield* Effect.promise(() => fs.readFile(file, "utf8"))).toBe(metadata)
+        }),
+      ),
+    )
+  })
+
   it.live("treats lock release failure after commit as successful deletion and clears the source cache", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -163,7 +163,7 @@ describe("v2 location HttpApi", () => {
     const recovery = records.find((record) => record.includes(installation!.id.slice(0, 12)))
     expect(recovery).toBeDefined()
     const metadata = path.join(Global.Path.state, "skills", "trash", recovery!, "metadata.json")
-    await fs.chmod(metadata, 0o600)
+    if (process.platform !== "win32") expect((await fs.stat(metadata)).mode & 0o777).toBe(0o600)
     expect(JSON.parse(await Bun.file(metadata).text())).toMatchObject({ id: installation!.id, originalPath: tmp.extra })
     expect(await fs.stat(path.join(Global.Path.state, "skills", "trash", recovery!, "payload"))).toBeDefined()
   })

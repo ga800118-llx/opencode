@@ -61,6 +61,7 @@ type Result<A> = { readonly ok: true; readonly value: A } | { readonly ok: false
 type Native = {
   readonly openAt: (directory: number, name: Buffer, flags: number, mode?: number) => Result<number>
   readonly makeDirectoryAt: (directory: number, name: Buffer, mode: number) => Result<void>
+  readonly fchmod: (descriptor: number, mode: number) => Result<void>
   readonly stat: (descriptor: number, buffer: Buffer) => Result<void>
   readonly statAt: (directory: number, name: Buffer, buffer: Buffer) => Result<void>
   readonly rename: (fromDirectory: number, from: Buffer, toDirectory: number, to: Buffer) => Result<void>
@@ -118,6 +119,7 @@ const RenameNoReplace = process.platform === "darwin" ? 0x0004 : 0x0001
 const CommonSymbols = {
   openat: { args: ["i32", "ptr", "i32", "u32"], returns: "i32" },
   mkdirat: { args: ["i32", "ptr", "u32"], returns: "i32" },
+  fchmod: { args: ["i32", "u32"], returns: "i32" },
   fstat: { args: ["i32", "ptr"], returns: "i32" },
   fstatat: { args: ["i32", "ptr", "ptr", "i32"], returns: "i32" },
   unlinkat: { args: ["i32", "ptr", "i32"], returns: "i32" },
@@ -279,6 +281,7 @@ async function openNative(libraryPath: string): Promise<Native> {
     return {
       openAt: (directory, name, flags, mode = 0) => result(library.symbols.openat(directory, name, flags, mode), errno),
       makeDirectoryAt: (directory, name, mode) => unit(library.symbols.mkdirat(directory, name, mode), errno),
+      fchmod: (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno),
       stat: (descriptor, buffer) => unit(library.symbols.fstat(descriptor, buffer), errno),
       statAt: (directory, name, buffer) =>
         unit(library.symbols.fstatat(directory, name, buffer, AtSymlinkNoFollow), errno),
@@ -303,6 +306,7 @@ async function openNative(libraryPath: string): Promise<Native> {
   return {
     openAt: (directory, name, flags, mode = 0) => result(library.symbols.openat(directory, name, flags, mode), errno),
     makeDirectoryAt: (directory, name, mode) => unit(library.symbols.mkdirat(directory, name, mode), errno),
+    fchmod: (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno),
     stat: (descriptor, buffer) => unit(library.symbols.fstat(descriptor, buffer), errno),
     statAt: (directory, name, buffer) =>
       unit(library.symbols.fstatat(directory, name, buffer, AtSymlinkNoFollow), errno),
@@ -479,6 +483,14 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
         )
         try {
           current.metadata = statDescriptor(native, metadataDescriptor)
+          const secured = native.fchmod(metadataDescriptor, 0o600)
+          if (!secured.ok) {
+            throw new SafeMoveError({
+              reason: "io",
+              detail: "failed to secure recovery metadata",
+              errno: secured.errno,
+            })
+          }
           writeAll(native, metadataDescriptor, Buffer.from(metadata))
           unwrap(native.sync(metadataDescriptor), "failed to sync recovery metadata")
         } finally {
