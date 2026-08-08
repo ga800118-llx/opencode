@@ -1,5 +1,13 @@
 import { describe, expect, mock, test } from "bun:test"
-import { requestPermissionMode } from "./permission-mode-control"
+import { permissionModeDialogMethod, requestPermissionMode } from "./permission-mode-control"
+
+describe("permissionModeDialogMethod", () => {
+  test("replaces standalone dialogs and pushes nested settings dialogs", () => {
+    expect(permissionModeDialogMethod()).toBe("show")
+    expect(permissionModeDialogMethod(false)).toBe("show")
+    expect(permissionModeDialogMethod(true)).toBe("push")
+  })
+})
 
 describe("requestPermissionMode", () => {
   test("switches restricted mode without confirmation", async () => {

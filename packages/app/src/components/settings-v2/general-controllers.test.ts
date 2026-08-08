@@ -1,13 +1,69 @@
-import { describe, expect, test, vi } from "bun:test"
+import { describe, expect, mock, test, vi } from "bun:test"
 import { createRoot } from "solid-js"
 import { createShellOptions, createSoundPreviewController } from "./general-controller-behavior"
-import { toggleAutoMode } from "./general-controllers"
+import { createPermissionScopeController, toggleAutoMode } from "./general-controllers"
 
 describe("settings v2 controllers", () => {
   test("toggles restricted and standard modes through auto", () => {
     expect(toggleAutoMode("restricted")).toBe("auto")
     expect(toggleAutoMode("standard")).toBe("auto")
     expect(toggleAutoMode("auto")).toBe("standard")
+  })
+
+  test("updates a V2 project default when a directory has no session", async () => {
+    const requestMode = mock(async () => true)
+    const mode = mock(() => "standard" as const)
+    const controller = createRoot(() =>
+      createPermissionScopeController({
+        sessionID: () => undefined,
+        directory: () => "/workspace/project",
+        permission: {
+          supportsModes: () => true,
+          mode,
+          isAutoAccepting: () => false,
+          isAutoAcceptingDirectory: () => false,
+          toggleAutoAcceptDirectory: () => undefined,
+          enableAutoAccept: () => undefined,
+          disableAutoAccept: () => undefined,
+        },
+        requestMode,
+      }),
+    )
+
+    expect(controller.enabled()).toBe(true)
+    expect(controller.accepting()).toBe(false)
+    await controller.set(true)
+    expect(mode).toHaveBeenCalledWith(undefined, "/workspace/project")
+    expect(requestMode).toHaveBeenCalledWith({
+      sessionID: undefined,
+      directory: "/workspace/project",
+      mode: "auto",
+    })
+  })
+
+  test("keeps V1 directory auto-accept for settings without a session", () => {
+    const toggleAutoAcceptDirectory = mock(() => undefined)
+    const controller = createRoot(() =>
+      createPermissionScopeController({
+        sessionID: () => undefined,
+        directory: () => "/workspace/project",
+        permission: {
+          supportsModes: () => false,
+          mode: () => "standard",
+          isAutoAccepting: () => false,
+          isAutoAcceptingDirectory: () => false,
+          toggleAutoAcceptDirectory,
+          enableAutoAccept: () => undefined,
+          disableAutoAccept: () => undefined,
+        },
+        requestMode: async () => true,
+      }),
+    )
+
+    expect(controller.enabled()).toBe(true)
+    expect(controller.accepting()).toBe(false)
+    controller.set(true)
+    expect(toggleAutoAcceptDirectory).toHaveBeenCalledWith("/workspace/project")
   })
 
   test("normalizes shell names and preserves an unavailable configured shell", () => {

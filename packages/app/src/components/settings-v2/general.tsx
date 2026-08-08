@@ -6,6 +6,7 @@ import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { usePermission } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
 import { useUpdaterAction } from "../updater-action"
 import { useSettings } from "@/context/settings"
@@ -279,24 +280,30 @@ const LanguageSetting = () => {
 
 export const SettingsGeneralV2: Component<{
   sessionID?: string
+  directory: () => string | undefined
 }> = (props) => {
   const language = useLanguage()
+  const permission = usePermission()
   const platform = usePlatform()
   const dialog = useDialog()
   const settings = useSettings()
   const mobile = createMediaQuery("(max-width: 767px)")
   const updater = useUpdaterAction()
-  const requestMode = usePermissionModeRequester()
-  const permissionScope = createPermissionScopeController(() => props.sessionID, (input) =>
-    requestMode(input).catch((error: unknown) => {
-      showToast({
-        variant: "error",
-        title: language.t("permission.mode.switchFailed"),
-        description: error instanceof Error ? error.message : String(error),
-      })
-      return false
-    }),
-  )
+  const requestMode = usePermissionModeRequester({ nested: true })
+  const permissionScope = createPermissionScopeController({
+    sessionID: () => props.sessionID,
+    directory: props.directory,
+    permission,
+    requestMode: (input) =>
+      requestMode(input).catch((error: unknown) => {
+        showToast({
+          variant: "error",
+          title: language.t("permission.mode.switchFailed"),
+          description: error instanceof Error ? error.message : String(error),
+        })
+        return false
+      }),
+  })
   const shell = createShellSettingsController()
   const appearance = createAppearanceSettingsController()
   const sounds = createSoundSettingsController()

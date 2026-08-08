@@ -28,37 +28,48 @@ export function toggleAutoMode(mode: Permission.Mode): Permission.Mode {
 }
 
 export function createPermissionScopeController(
-  sessionID: Accessor<string | undefined>,
-  requestMode: (input: { sessionID?: string; directory: string; mode: Permission.Mode }) => Promise<boolean>,
+  input: {
+    sessionID: Accessor<string | undefined>
+    directory: Accessor<string | undefined>
+    permission: Pick<
+      ReturnType<typeof usePermission>,
+      | "supportsModes"
+      | "mode"
+      | "isAutoAccepting"
+      | "isAutoAcceptingDirectory"
+      | "toggleAutoAcceptDirectory"
+      | "enableAutoAccept"
+      | "disableAutoAccept"
+    >
+    requestMode: (input: { sessionID?: string; directory: string; mode: Permission.Mode }) => Promise<boolean>
+  },
 ) {
-  const permission = usePermission()
-  const serverSync = useServerSync()
-  const directory = createMemo(() => {
-    const id = sessionID()
-    if (!id) return undefined
-    return serverSync().session.lineage.peek(id)?.session.directory
-  })
-
   return {
     accepting: createMemo(() => {
-      const id = sessionID()
-      const dir = directory()
-      if (!id || !dir) return false
-      if (permission.supportsModes()) return permission.mode(id, dir) === "auto"
-      return permission.isAutoAccepting(id, dir)
+      const id = input.sessionID()
+      const directory = input.directory()
+      if (!directory) return false
+      if (input.permission.supportsModes()) return input.permission.mode(id, directory) === "auto"
+      if (id) return input.permission.isAutoAccepting(id, directory)
+      return input.permission.isAutoAcceptingDirectory(directory)
     }),
-    enabled: createMemo(() => !!directory()),
+    enabled: createMemo(() => !!input.directory()),
     set: (checked: boolean) => {
-      const id = sessionID()
-      const dir = directory()
-      if (!id || !dir) return
-      if (permission.supportsModes()) {
-        const mode = toggleAutoMode(permission.mode(id, dir))
+      const id = input.sessionID()
+      const directory = input.directory()
+      if (!directory) return
+      if (input.permission.supportsModes()) {
+        const mode = toggleAutoMode(input.permission.mode(id, directory))
         if ((mode === "auto") !== checked) return
-        return requestMode({ sessionID: id, directory: dir, mode })
+        return input.requestMode({ sessionID: id, directory, mode })
       }
-      if (checked) return permission.enableAutoAccept(id, dir)
-      permission.disableAutoAccept(id, dir)
+      if (!id) {
+        if (input.permission.isAutoAcceptingDirectory(directory) === checked) return
+        input.permission.toggleAutoAcceptDirectory(directory)
+        return
+      }
+      if (checked) return input.permission.enableAutoAccept(id, directory)
+      input.permission.disableAutoAccept(id, directory)
     },
   }
 }

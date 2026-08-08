@@ -30,7 +30,11 @@ export async function requestPermissionMode(input: RequestPermissionModeInput) {
   return true
 }
 
-export function usePermissionModeRequester(input?: { onClose?: () => void }) {
+export function permissionModeDialogMethod(nested = false) {
+  return nested ? "push" : "show"
+}
+
+export function usePermissionModeRequester(input?: { onClose?: () => void; nested?: boolean }) {
   const dialog = useDialog()
   const language = useLanguage()
   const permission = usePermission()
@@ -45,7 +49,7 @@ export function usePermissionModeRequester(input?: { onClose?: () => void }) {
         dialog.close()
       }
 
-      void dialog.show(
+      void dialog[permissionModeDialogMethod(input?.nested)](
         () => (
           <DialogV2 fit>
             <DialogHeader hideClose>

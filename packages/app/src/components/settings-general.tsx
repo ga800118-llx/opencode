@@ -93,7 +93,7 @@ export const SettingsGeneral: Component = () => {
   const dialog = useDialog()
   const params = useParams()
   const settings = useSettings()
-  const requestMode = usePermissionModeRequester()
+  const requestMode = usePermissionModeRequester({ nested: true })
 
   const updater = useUpdaterAction()
 
