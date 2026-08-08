@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto"
 import path from "path"
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import type { FSUtil } from "../fs-util"
 import type { Global } from "../global"
@@ -100,6 +100,13 @@ export function updateState(
       Effect.mapError((cause) =>
         cause instanceof OperationError ? cause : new OperationError({ operation: "write", cause }),
       ),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterrupts(cause)) return Effect.failCause(cause)
+        const error = Cause.squash(cause)
+        return error instanceof OperationError && !Cause.hasDies(cause)
+          ? Effect.fail(error)
+          : Effect.fail(new OperationError({ operation: "write", cause: error }))
+      }),
     )
 }
 

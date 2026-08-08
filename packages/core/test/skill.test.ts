@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Layer, Logger } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer, Logger, PlatformError } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -12,7 +12,8 @@ import { Project } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
-import { project, type Installed } from "@opencode-ai/core/skill/management"
+import { project, updateState, type Installed } from "@opencode-ai/core/skill/management"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -79,6 +80,14 @@ function skillLayer(input: SkillLayerInput) {
   )
 }
 
+function stateDependencies(state: string) {
+  return Layer.fresh(
+    AppNodeBuilder.build(LayerNode.group([FSUtil.node, EffectFlock.node]), [
+      [Global.node, Global.layerWith({ state })],
+    ]),
+  )
+}
+
 function runSkill(
   input: SkillLayerInput,
   sources: readonly SkillV2.Source[],
@@ -93,6 +102,14 @@ function runSkill(
       effective: yield* skill.list(),
     }
   }).pipe(Effect.provide(skillLayer(input)))
+}
+
+function buildSkill(input: SkillLayerInput) {
+  return Layer.build(skillLayer(input)).pipe(Effect.map((context) => Context.get(context, SkillV2.Service)))
+}
+
+function register(skill: SkillV2.Interface, sources: readonly SkillV2.Source[]) {
+  return skill.transform((editor) => sources.forEach((source) => editor.source(source)))
 }
 
 function embedded(name: string, scope: "global" | "project", value: string) {
@@ -410,7 +427,198 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("shares global disable state across locations", () =>
+  it.live("serializes concurrent updates from two live services without losing IDs", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("shared-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const sources = [embedded("alpha", "project", "alpha"), embedded("beta", "project", "beta")]
+          const first = yield* buildSkill(input)
+          const second = yield* buildSkill(input)
+          yield* register(first, sources)
+          yield* register(second, sources)
+          const ids = (yield* first.management.list()).map((item) => item.id)
+
+          yield* Effect.all(
+            [first.management.setEnabled(ids[0], false), second.management.setEnabled(ids[1], false)],
+            { concurrency: "unbounded" },
+          )
+
+          expect(JSON.parse(yield* Effect.promise(() => fs.readFile(stateFile(input, "project"), "utf8")))).toEqual({
+            version: 1,
+            disabled: ids.toSorted(),
+          })
+        }),
+      ),
+    ),
+  )
+
+  it.live("maps an unwritable lock directory defect to OperationError", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) => {
+        if (process.platform === "win32") return Effect.void
+        const input: SkillLayerInput = {
+          state: path.join(tmp.path, "state"),
+          directory: path.join(tmp.path, "repo"),
+          projectID: Project.ID.make("project"),
+          projectRoot: path.join(tmp.path, "repo"),
+        }
+        return Effect.gen(function* () {
+          const skill = yield* buildSkill(input)
+          yield* register(skill, [embedded("local", "project", "local")])
+          const id = (yield* skill.management.list())[0].id
+          yield* Effect.promise(async () => {
+            await fs.mkdir(input.state, { recursive: true })
+            await fs.chmod(input.state, 0o500)
+          })
+          yield* Effect.addFinalizer(() => Effect.promise(() => fs.chmod(input.state, 0o700)).pipe(Effect.ignore))
+
+          const exit = yield* skill.management.setEnabled(id, false).pipe(Effect.exit)
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isSuccess(exit)) return
+          expect(Cause.hasFails(exit.cause)).toBe(true)
+          expect(Cause.hasDies(exit.cause)).toBe(false)
+          expect(Cause.squash(exit.cause)).toBeInstanceOf(SkillV2.OperationError)
+          expect(Cause.squash(exit.cause)).toMatchObject({ operation: "write" })
+        })
+      }),
+    ),
+  )
+
+  it.live("maps a lock release defect to OperationError", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const file = path.join(state, "skills", "global.json")
+          const lockMetadata = path.join(state, "locks", `${Hash.fast(file)}.lock`, "meta.json")
+          const releaseFailure = FSUtil.Service.of({
+            ...fsService,
+            rename: (from, to) =>
+              fsService.rename(from, to).pipe(Effect.andThen(fsService.remove(lockMetadata, { force: true }))),
+          })
+
+          const exit = yield* updateState(
+            releaseFailure,
+            flock,
+            file,
+            SkillV2.ManagementID.make("release-failure"),
+            false,
+          ).pipe(Effect.exit)
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isSuccess(exit)) return
+          expect(Cause.hasFails(exit.cause)).toBe(true)
+          expect(Cause.hasDies(exit.cause)).toBe(false)
+          expect(Cause.squash(exit.cause)).toBeInstanceOf(SkillV2.OperationError)
+          expect(Cause.squash(exit.cause)).toMatchObject({ operation: "write" })
+        }),
+      ),
+    ),
+  )
+
+  it.live("preserves interruption while waiting for the state lock", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.promise(() => tmpdir())
+      const context = yield* Layer.build(stateDependencies(path.join(tmp.path, "state")))
+      const fsService = Context.get(context, FSUtil.Service)
+      const flock = Context.get(context, EffectFlock.Service)
+      const file = path.join(tmp.path, "state", "skills", "global.json")
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const holder = yield* flock
+        .withLock(Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release))), file)
+        .pipe(Effect.forkScoped)
+      yield* Deferred.await(started)
+      const update = yield* updateState(fsService, flock, file, SkillV2.ManagementID.make("blocked"), false).pipe(
+        Effect.forkScoped,
+      )
+
+      yield* Fiber.interrupt(update)
+      const exit = yield* Fiber.await(update)
+      expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true)
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(holder)
+      yield* Effect.promise(() => tmp[Symbol.asyncDispose]())
+    }),
+  )
+
+  it.live("keeps old state and cleans temp files when atomic writes fail", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const context = yield* Layer.build(stateDependencies(path.join(tmp.path, "state")))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const file = path.join(tmp.path, "state", "skills", "global.json")
+          const oldID = SkillV2.ManagementID.make("old")
+          const newID = SkillV2.ManagementID.make("new")
+          const previous = JSON.stringify({ version: 1, disabled: [oldID] })
+          const failure = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "test",
+            pathOrDescriptor: file,
+          })
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.dirname(file), { recursive: true })
+            await fs.writeFile(file, previous)
+          })
+
+          const writeFailure = FSUtil.Service.of({
+            ...fsService,
+            writeFileString: (target, content, options) =>
+              target.startsWith(`${file}.`)
+                ? fsService.writeFileString(target, content, options).pipe(Effect.andThen(Effect.fail(failure)))
+                : fsService.writeFileString(target, content, options),
+          })
+          expect(yield* updateState(writeFailure, flock, file, newID, false).pipe(Effect.flip)).toBeInstanceOf(
+            SkillV2.OperationError,
+          )
+          expect(yield* Effect.promise(() => fs.readFile(file, "utf8"))).toBe(previous)
+          expect((yield* Effect.promise(() => fs.readdir(path.dirname(file)))).filter((name) => name.endsWith(".tmp"))).toEqual(
+            [],
+          )
+
+          const renameFailure = FSUtil.Service.of({
+            ...fsService,
+            rename: (from, to) => (to === file ? Effect.fail(failure) : fsService.rename(from, to)),
+          })
+          expect(yield* updateState(renameFailure, flock, file, newID, false).pipe(Effect.flip)).toBeInstanceOf(
+            SkillV2.OperationError,
+          )
+          expect(yield* Effect.promise(() => fs.readFile(file, "utf8"))).toBe(previous)
+          expect((yield* Effect.promise(() => fs.readdir(path.dirname(file)))).filter((name) => name.endsWith(".tmp"))).toEqual(
+            [],
+          )
+
+          yield* updateState(fsService, flock, file, newID, false)
+          expect((yield* Effect.promise(() => fs.stat(file))).mode & 0o777).toBe(0o600)
+        }),
+      ),
+    ),
+  )
+
+  it.live("refreshes a live location after another live location changes global state", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -430,9 +638,16 @@ describe("SkillV2", () => {
             projectRoot: path.join(tmp.path, "second"),
           }
           const sources = [embedded("shared", "global", "shared")]
-          const id = (yield* runSkill(first, sources)).management[0].id
-          yield* runSkill(first, sources, { id, enabled: false })
-          expect((yield* runSkill(second, sources)).management[0].status).toBe("disabled")
+          const firstSkill = yield* buildSkill(first)
+          const secondSkill = yield* buildSkill(second)
+          yield* register(firstSkill, sources)
+          yield* register(secondSkill, sources)
+          const initial = yield* firstSkill.management.list()
+          expect(initial[0].status).toBe("active")
+
+          yield* secondSkill.management.setEnabled(initial[0].id, false)
+          expect((yield* firstSkill.management.list())[0].status).toBe("disabled")
+          expect(yield* firstSkill.list()).toEqual([])
         }),
       ),
     ),
