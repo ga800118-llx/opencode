@@ -131,7 +131,7 @@ describe("SessionV2.history", () => {
     }),
   )
 
-  it.effect("returns durable permission mode creation and switch history", () =>
+  it.effect("returns durable permission mode switch history after nonstandard creation", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service
       const created = yield* session.create({ location, permissionMode: PermissionV2.Mode.make("auto") })
@@ -143,8 +143,7 @@ describe("SessionV2.history", () => {
       const page = yield* session.history({ sessionID: created.id, limit: 10 })
 
       expect(page.events).toMatchObject([
-        { type: "session.next.permission-mode.switched", durable: { seq: 1 }, data: { mode: "auto" } },
-        { type: "session.next.permission-mode.switched", durable: { seq: 2 }, data: { mode: "restricted" } },
+        { type: "session.next.permission-mode.switched", durable: { seq: 1 }, data: { mode: "restricted" } },
       ])
       expect(page.hasMore).toBe(false)
     }),

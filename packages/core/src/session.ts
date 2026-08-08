@@ -252,24 +252,10 @@ const layer = Layer.effect(
               cost: 0,
               tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
               time: { created: now, updated: now },
+              permissionMode: permissionMode === "standard" ? undefined : permissionMode,
             })
             const projected = yield* events
-              .publish(
-                SessionV1.Event.Created,
-                { sessionID, info },
-                permissionMode === "standard"
-                  ? { location: input.location }
-                  : {
-                      location: input.location,
-                      commit: () =>
-                        db
-                          .update(SessionTable)
-                          .set({ permission_mode: permissionMode })
-                          .where(eq(SessionTable.id, sessionID))
-                          .run()
-                          .pipe(Effect.orDie),
-                    },
-              )
+              .publish(SessionV1.Event.Created, { sessionID, info }, { location: input.location })
               .pipe(
                 Effect.as({ type: "created" } as const),
                 Effect.catchDefect((defect) => {
@@ -287,13 +273,6 @@ const layer = Layer.effect(
                 }),
               )
             if (projected.type === "existing") return projected.session
-            if (permissionMode !== "standard") {
-              yield* events.publish(SessionEvent.PermissionModeSwitched, {
-                sessionID,
-                timestamp: yield* DateTime.now,
-                mode: permissionMode,
-              })
-            }
             // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
             return yield* result.get(sessionID).pipe(Effect.orDie)
           }),

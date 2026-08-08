@@ -108,7 +108,81 @@ describe("SessionV2.create", () => {
     }),
   )
 
-  it.effect("seeds a nonstandard mode atomically and serializes a switch until creation completes", () =>
+  it.effect("stores nonstandard creation as one replayable durable fact without a follow-up publish", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const events = yield* EventV2.Service
+      const store = yield* SessionStore.Service
+      const failure = new Error("permission mode follow-up publish must not run")
+      const publish: EventV2.Interface["publish"] = (definition, data, options) =>
+        definition.type === SessionEvent.PermissionModeSwitched.type
+          ? Effect.die(failure)
+          : events.publish(definition, data, options)
+      const controlledLayer = AppNodeBuilder.build(SessionV2.node, [
+        [Database.node, Layer.succeed(Database.Service, database)],
+        [EventV2.node, Layer.succeed(EventV2.Service, EventV2.Service.of({ ...events, publish }))],
+        [ProjectV2.node, projects],
+        [SessionExecution.node, SessionExecution.noopLayer],
+        [SessionStore.node, Layer.succeed(SessionStore.Service, store)],
+        [SessionProjector.node, Layer.empty],
+      ])
+      const sessionID = SessionV2.ID.make("ses_replayable_initial_permission_mode")
+
+      const created = yield* Effect.gen(function* () {
+        const session = yield* SessionV2.Service
+        const input = { id: sessionID, location, permissionMode: PermissionV2.Mode.make("auto") }
+        const first = yield* session.create(input)
+        expect(yield* session.create(input)).toEqual(first)
+        return first
+      }).pipe(Effect.provide(Layer.fresh(controlledLayer)))
+      const serialized = (yield* database.db
+        .select()
+        .from(EventTable)
+        .where(eq(EventTable.aggregate_id, created.id))
+        .orderBy(asc(EventTable.seq))
+        .all()
+        .pipe(Effect.orDie)).map((event) => ({
+        id: event.id,
+        aggregateID: event.aggregate_id,
+        seq: event.seq,
+        type: event.type,
+        data: event.data,
+      }))
+      expect(serialized).toMatchObject([
+        {
+          seq: 0,
+          type: EventV2.versionedType(SessionV1.Event.Created.type, 1),
+          data: { info: { permissionMode: "auto" } },
+        },
+      ])
+
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const targetDatabase = Database.layerFromPath(path.join(tmp.path, "initial-permission-mode-target.sqlite"))
+      const targetLayer = AppNodeBuilder.build(
+        LayerNode.group([Database.node, EventV2.node, SessionProjector.node, SessionStore.node]),
+        [[Database.node, targetDatabase]],
+      )
+
+      yield* Effect.gen(function* () {
+        const db = (yield* Database.Service).db
+        const targetEvents = yield* EventV2.Service
+        const targetStore = yield* SessionStore.Service
+        yield* db
+          .insert(ProjectTable)
+          .values({ id: ProjectV2.ID.global, worktree: location.directory, sandboxes: [] })
+          .run()
+          .pipe(Effect.orDie)
+
+        expect(yield* targetEvents.replayAll(serialized)).toBe(created.id)
+        expect(yield* targetStore.get(created.id)).toMatchObject({ permissionMode: "auto" })
+      }).pipe(Effect.provide(Layer.fresh(targetLayer)))
+    }),
+  )
+
+  it.effect("creates a nonstandard mode atomically and serializes a switch until creation completes", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
       const events = yield* EventV2.Service
@@ -117,18 +191,16 @@ describe("SessionV2.create", () => {
       const continueInitialPublish = yield* Deferred.make<void>()
       const modePublishes = yield* Ref.make(0)
       const publish: EventV2.Interface["publish"] = (definition, data, options) => {
-        if (definition.type !== SessionEvent.PermissionModeSwitched.type)
-          return events.publish(definition, data, options)
-        return Ref.updateAndGet(modePublishes, (count) => count + 1).pipe(
-          Effect.flatMap((count) =>
-            count === 1
-              ? Deferred.succeed(initialPublishStarted, undefined).pipe(
-                  Effect.andThen(Deferred.await(continueInitialPublish)),
-                  Effect.andThen(events.publish(definition, data, options)),
-                )
-              : events.publish(definition, data, options),
-          ),
-        )
+        if (definition.type === SessionV1.Event.Created.type)
+          return Deferred.succeed(initialPublishStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(continueInitialPublish)),
+            Effect.andThen(events.publish(definition, data, options)),
+          )
+        if (definition.type === SessionEvent.PermissionModeSwitched.type)
+          return Ref.update(modePublishes, (count) => count + 1).pipe(
+            Effect.andThen(events.publish(definition, data, options)),
+          )
+        return events.publish(definition, data, options)
       }
       const controlledLayer = AppNodeBuilder.build(SessionV2.node, [
         [Database.node, Layer.succeed(Database.Service, database)],
@@ -149,19 +221,22 @@ describe("SessionV2.create", () => {
 
         expect(
           yield* database.db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie),
-        ).toMatchObject({ permission_mode: "auto" })
+        ).toBeUndefined()
 
         const switched = yield* session
           .switchPermissionMode({ sessionID, mode: PermissionV2.Mode.make("restricted") })
           .pipe(Effect.forkScoped)
         yield* Effect.yieldNow
-        expect(yield* Ref.get(modePublishes)).toBe(1)
+        expect(yield* Ref.get(modePublishes)).toBe(0)
 
         yield* Deferred.succeed(continueInitialPublish, undefined)
         expect(yield* Fiber.join(created)).toMatchObject({ permissionMode: "auto" })
         yield* Fiber.join(switched)
+        expect(yield* Ref.get(modePublishes)).toBe(1)
+        expect(
+          yield* database.db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie),
+        ).toMatchObject({ permission_mode: "restricted" })
         expect((yield* session.history({ sessionID, limit: 10 })).events).toMatchObject([
-          { type: "session.next.permission-mode.switched", data: { mode: "auto" } },
           { type: "session.next.permission-mode.switched", data: { mode: "restricted" } },
         ])
       }).pipe(Effect.provide(Layer.fresh(controlledLayer)))
@@ -254,12 +329,17 @@ describe("SessionV2.create", () => {
   it.effect("returns one recorded session to concurrent exact retries", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service
-      const input = { id, location }
+      const { db } = yield* Database.Service
+      const input = { id, location, permissionMode: PermissionV2.Mode.make("auto") }
 
       const created = yield* Effect.all([session.create(input), session.create(input)], { concurrency: "unbounded" })
 
       expect(created[1]).toEqual(created[0])
+      expect(created[0]?.permissionMode).toBe("auto")
       expect(yield* session.list()).toEqual([created[0]])
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, id)).all().pipe(Effect.orDie),
+      ).toHaveLength(1)
     }),
   )
 
@@ -307,9 +387,14 @@ describe("SessionV2.create", () => {
       const { db } = yield* Database.Service
       const created = yield* session.create({ location })
 
-      expect(
-        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, created.id)).all().pipe(Effect.orDie),
-      ).toMatchObject([{ type: EventV2.versionedType(SessionV1.Event.Created.type, 1) }])
+      const events = yield* db
+        .select()
+        .from(EventTable)
+        .where(eq(EventTable.aggregate_id, created.id))
+        .all()
+        .pipe(Effect.orDie)
+      expect(events).toMatchObject([{ type: EventV2.versionedType(SessionV1.Event.Created.type, 1) }])
+      expect((events[0]?.data.info as Record<string, unknown>).permissionMode).toBeUndefined()
     }),
   )
 
@@ -629,7 +714,7 @@ describe("SessionV2.create", () => {
       expect(yield* session.get(child.id)).toMatchObject({ permissionMode: "restricted" })
       expect(
         yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, child.id)).all().pipe(Effect.orDie),
-      ).toHaveLength(3)
+      ).toHaveLength(2)
     }),
   )
 

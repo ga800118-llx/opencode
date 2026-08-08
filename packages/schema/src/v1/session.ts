@@ -10,6 +10,7 @@ import { NonNegativeInt, optional, statics } from "../schema"
 import { ascending } from "../identifier"
 import { SessionID } from "../session-id"
 import { WorkspaceID } from "../workspace-id"
+import { Permission } from "../permission"
 import { PermissionV1 } from "./permission"
 
 const Timestamp = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
@@ -563,6 +564,7 @@ export const SessionInfo = Schema.Struct({
     compacting: optional(NonNegativeInt),
     archived: optional(Schema.Finite),
   }),
+  permissionMode: optional(Permission.Mode),
   permission: optional(PermissionV1.Ruleset),
   revert: optional(SessionRevert),
 }).annotate({ identifier: "Session" })
