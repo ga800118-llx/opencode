@@ -153,10 +153,10 @@ describe("isDirectoryAutoAccepting", () => {
 })
 
 describe("modeAutoRespondsPermission", () => {
-  test("inherits auto from the parent task", () => {
+  test("does not inherit a parent runtime override into an existing task", () => {
     const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
 
-    expect(modeAutoRespondsPermission({ root: "auto" }, sessions, permission("child"))).toBe(true)
+    expect(modeAutoRespondsPermission({ root: "auto" }, sessions, permission("child"))).toBe(false)
   })
 
   test("does not respond for standard or restricted tasks", () => {
@@ -175,10 +175,19 @@ describe("modeAutoRespondsPermission", () => {
   test("uses server session modes when no runtime override exists", () => {
     const sessions = [
       { ...session({ id: "root" }), permissionMode: "auto" as const },
-      session({ id: "child", parentID: "root" }),
+      { ...session({ id: "child", parentID: "root" }), permissionMode: "auto" as const },
     ]
 
     expect(modeAutoRespondsPermission({}, sessions, permission("child"))).toBe(true)
+  })
+
+  test("treats a known child without a stored mode as effective standard", () => {
+    const sessions = [
+      { ...session({ id: "root" }), permissionMode: "auto" as const },
+      session({ id: "child", parentID: "root" }),
+    ]
+
+    expect(modeAutoRespondsPermission({}, sessions, permission("child"))).toBe(false)
   })
 
   test("defaults old V2 tasks without a mode to standard", () => {

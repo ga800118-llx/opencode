@@ -140,15 +140,20 @@ const retryImmediately: typeof retry = async (task, options = {}) => {
   }
 }
 
-function setup(sessions: Record<string, Session>) {
+function setup(sessions: Record<string, Session | (Session | Promise<Session>)[]>) {
   const get: unknown[] = []
   const messages: unknown[] = []
+  const getCount = new Map<string, number>()
   const client = {
     session: {
       get: async (input: unknown) => {
         get.push(input)
         const id = (input as { sessionID: string }).sessionID
-        return { data: sessions[id] }
+        const source = sessions[id]
+        if (!Array.isArray(source)) return { data: source }
+        const index = getCount.get(id) ?? 0
+        getCount.set(id, index + 1)
+        return { data: await (source[index] ?? source.at(-1)) }
       },
       messages: async (input: unknown) => {
         messages.push(input)
@@ -162,13 +167,14 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
-  test("projects only current permission mode switch events into session info", () => {
-    const ctx = setup({ child: session("child") })
-    ctx.store.remember({
+  test("projects only current permission mode switch events into session info", async () => {
+    const current = {
       ...session("child"),
-      permissionMode: "restricted",
+      permissionMode: "restricted" as const,
       time: { created: 1, updated: 10 },
-    })
+    }
+    const ctx = setup({ child: current })
+    ctx.store.remember(current)
     const apply = (created: number) =>
       ctx.store.applyV2({
         id: `evt_permission_mode_${created}`,
@@ -182,9 +188,42 @@ describe("server session", () => {
 
     expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "restricted", time: { updated: 10 } })
 
+    apply(10)
+    await Bun.sleep(0)
+
+    expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "restricted", time: { updated: 10 } })
+
     apply(11)
 
     expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "auto", time: { updated: 11 } })
+  })
+
+  test("does not let an older in-flight session response replace a newer permission mode event", async () => {
+    const stale = Promise.withResolvers<Session>()
+    const auto = { ...session("child"), permissionMode: "auto" as const, time: { created: 1, updated: 10 } }
+    const restricted = {
+      ...session("child"),
+      permissionMode: "restricted" as const,
+      time: { created: 1, updated: 20 },
+    }
+    const ctx = setup({ child: [stale.promise, restricted] })
+    ctx.store.remember(auto)
+
+    const older = ctx.store.resolve("child", { force: true })
+    ctx.store.applyV2({
+      id: "evt_permission_mode_restricted",
+      type: "session.next.permission-mode.switched",
+      durable: { aggregateID: "child", seq: 2, version: 1 },
+      location: { directory: "/repo" },
+      data: { timestamp: 20, sessionID: "child", mode: "restricted" },
+    })
+    const refreshed = ctx.store.resolve("child", { force: true })
+    stale.resolve(auto)
+
+    expect(await older).toMatchObject({ permissionMode: "restricted", time: { updated: 20 } })
+    expect(await refreshed).toMatchObject({ permissionMode: "restricted", time: { updated: 20 } })
+    expect(ctx.get).toHaveLength(2)
+    expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "restricted", time: { updated: 20 } })
   })
 
   test("projects V2 session events into current and legacy message state", () => {

@@ -385,7 +385,11 @@ export function createServerPermissionState(
   function sessions(directory?: string) {
     const info = Object.values(input.sync.session.data.info).filter((session) => !!session)
     if (!directory) return info
-    return [...info, ...input.sync.child(directory, { bootstrap: false })[0].session]
+    const result = new Map(
+      input.sync.child(directory, { bootstrap: false })[0].session.map((session) => [session.id, session]),
+    )
+    info.forEach((session) => result.set(session.id, session))
+    return [...result.values()]
   }
 
   function supportsModes() {

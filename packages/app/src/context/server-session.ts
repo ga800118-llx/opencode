@@ -36,6 +36,7 @@ type PermissionModeSwitchedCurrentEvent = {
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const permissionModeRisk = { restricted: 0, standard: 1, auto: 2 } as const
 const cmpMessage = (a: Message, b: Message) => a.time.created - b.time.created || cmp(a.id, b.id)
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 const initialMessagePageSize = 20
@@ -240,6 +241,7 @@ export function createServerSession(
   }
   const seen = new Set<string>()
   const infoSeen = new Set<string>()
+  const infoRevisions = new Map<string, number>()
   const pinned = new Map<string, number>()
   const generations = new Map<string, object>()
   const generation = (sessionID: string) => {
@@ -268,6 +270,7 @@ export function createServerSession(
   }
 
   const remember = (session: ProjectedSession) => {
+    infoRevisions.set(session.id, (infoRevisions.get(session.id) ?? 0) + 1)
     setData("info", session.id, reconcile(session))
     infoSeen.delete(session.id)
     infoSeen.add(session.id)
@@ -303,6 +306,7 @@ export function createServerSession(
       }
       stale.forEach((sessionID) => infoSeen.delete(sessionID))
       stale.forEach((sessionID) => generations.delete(sessionID))
+      stale.forEach((sessionID) => infoRevisions.delete(sessionID))
       setData(
         "info",
         produce((draft) => stale.forEach((sessionID) => delete draft[sessionID])),
@@ -311,12 +315,18 @@ export function createServerSession(
     return session
   }
 
-  const resolve = (sessionID: string, options?: { force?: boolean }) => {
+  const resolve = (sessionID: string, options?: { force?: boolean }): Promise<Session> => {
     const cached = data.info[sessionID]
     if (cached && !options?.force) return Promise.resolve(cached)
     const pending = requests.get(sessionID)
-    if (pending) return pending
+    if (pending && !options?.force) return pending
+    if (pending)
+      return pending.then(
+        () => resolve(sessionID, { force: true }),
+        () => resolve(sessionID, { force: true }),
+      )
     const active = generation(sessionID)
+    const revision = infoRevisions.get(sessionID) ?? 0
     const request = sessionApi
       ? sessionApi.get({ sessionID }).then(normalizeSessionInfo)
       : client.session.get({ sessionID }).then((result) => {
@@ -325,6 +335,7 @@ export function createServerSession(
         })
     const resolved = request.then((result) => {
       if (generations.get(sessionID) !== active) return result
+      if ((infoRevisions.get(sessionID) ?? 0) !== revision) return data.info[sessionID] ?? result
       return remember(result)
     })
     requests.set(sessionID, resolved)
@@ -495,6 +506,7 @@ export function createServerSession(
     }
     sessionIDs.forEach((sessionID) => {
       generations.delete(sessionID)
+      infoRevisions.delete(sessionID)
       clearOptimistic(sessionID)
       requests.delete(sessionID)
       inflight.delete(sessionID)
@@ -950,6 +962,14 @@ export function createServerSession(
     if (event.type === "session.next.permission-mode.switched") {
       const info = data.info[sessionID]
       if (!info || event.data.timestamp < info.time.updated) return
+      const current = info.permissionMode ?? "standard"
+      if (event.data.timestamp === info.time.updated && current !== event.data.mode) {
+        const permissionMode =
+          permissionModeRisk[current] < permissionModeRisk[event.data.mode] ? current : event.data.mode
+        remember({ ...info, permissionMode })
+        void resolve(sessionID, { force: true }).catch(() => {})
+        return
+      }
       remember({
         ...info,
         permissionMode: event.data.mode,

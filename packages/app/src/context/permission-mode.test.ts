@@ -328,6 +328,18 @@ describe("V2 permission mode state", () => {
     expect(harness.replies).toEqual([])
   })
 
+  test("prefers the authoritative restricted projection over a stale directory auto record", async () => {
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "auto", directoryPermissionMode: "auto" })
+
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
   test("does not send a queued switch after the permission state is disposed", async () => {
     const gate = Promise.withResolvers<void>()
     const harness = setup({
@@ -591,6 +603,7 @@ function setup(input: {
   supportsPermissionModes?: boolean
   permissionModeCapability?: Promise<boolean>
   permissionMode?: Permission.Mode
+  directoryPermissionMode?: Permission.Mode
   pending?: PermissionRequest[]
   switchMode?: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
   list?: () => Promise<{ data: ReturnType<typeof currentPermission>[] }>
@@ -603,6 +616,7 @@ function setup(input: {
     directory: "/project",
     permissionMode: input.permissionMode,
   } as ProjectedSession
+  const directoryRecord = { ...record, permissionMode: input.directoryPermissionMode ?? input.permissionMode }
   const pending = input.pending ?? []
   let authoritativeMode = input.permissionMode
   const replies: unknown[] = []
@@ -637,7 +651,7 @@ function setup(input: {
         resolve: async () => ({ session: record, root: record }),
       },
     },
-    child: () => [{ session: [record], config: { permission: {} } }],
+    child: () => [{ session: [directoryRecord], config: { permission: {} } }],
   } as unknown as ServerSync
   const sdk = {
     scope: `permission-mode-test-${scope++}`,

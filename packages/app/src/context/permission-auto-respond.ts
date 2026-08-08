@@ -83,7 +83,12 @@ export function lineagePermissionMode(
 ) {
   const byID = new Map(session.map((item) => [item.id, item]))
   return sessionLineage(session, permission.sessionID)
-    .map((id) => taskMode[id] ?? byID.get(id)?.permissionMode)
+    .map((id) => {
+      const override = taskMode[id]
+      if (override !== undefined) return override
+      const item = byID.get(id)
+      if (item) return item.permissionMode ?? "standard"
+    })
     .find((item): item is Permission.Mode => item !== undefined)
 }
 
