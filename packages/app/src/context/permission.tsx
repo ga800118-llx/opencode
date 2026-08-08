@@ -323,7 +323,8 @@ export function createServerPermissionState(
   const RESPONDED_TTL_MS = 60 * 60 * 1000
   const responded = new Map<string, number>()
   const enableVersion = new Map<string, number>()
-  const modeSwitch = new Map<string, { version: number; mode: Permission.Mode }>()
+  const modeSwitch = new Map<string, number>()
+  const modeEventGeneration = new Map<string, number>()
   const modeQueue = new Map<string, Promise<void>>()
   const meta = { disposed: false }
 
@@ -339,18 +340,17 @@ export function createServerPermissionState(
     }
   }
 
+  const reply = (request: Parameters<PermissionRespondFn>[0]) =>
+    input.sdk.api.permission.reply({
+      sessionID: request.sessionID,
+      requestID: request.permissionID,
+      reply: request.response,
+      location: request.directory ? { directory: request.directory } : undefined,
+    })
+
   const respond: PermissionRespondFn = (request) => {
     if (meta.disposed) return
-    input.sdk.api.permission
-      .reply({
-        sessionID: request.sessionID,
-        requestID: request.permissionID,
-        reply: request.response,
-        location: request.directory ? { directory: request.directory } : undefined,
-      })
-      .catch(() => {
-        responded.delete(request.permissionID)
-      })
+    void reply(request).catch(() => responded.delete(request.permissionID))
   }
 
   const list = async (directory: string) => {
@@ -369,11 +369,18 @@ export function createServerPermissionState(
     responded.set(permission.id, now)
     pruneResponded(now)
     if (hit) return
-    respond({
+    const request = {
       sessionID: permission.sessionID,
       permissionID: permission.id,
-      response: "once",
+      response: "once" as const,
       directory,
+    }
+    void reply(request).catch(() => {
+      if (meta.disposed || !isPending(permission) || !shouldAutoRespond(permission, directory)) {
+        responded.delete(permission.id)
+        return
+      }
+      return reply(request).catch(() => responded.delete(permission.id))
     })
   }
 
@@ -410,9 +417,8 @@ export function createServerPermissionState(
 
   function autoResponseTaskMode() {
     const result = { ...taskMode }
-    modeSwitch.forEach((switching, sessionID) => {
-      if (switching.mode === "auto") return
-      result[sessionID] = switching.mode
+    modeSwitch.forEach((_version, sessionID) => {
+      result[sessionID] = "standard"
     })
     return result
   }
@@ -520,15 +526,17 @@ export function createServerPermissionState(
     const sessionID = value.sessionID
     const key = acceptKey(sessionID, value.directory)
     const version = bumpEnableVersion(sessionID, value.directory)
-    modeSwitch.set(sessionID, { version, mode: value.mode })
+    modeSwitch.set(sessionID, version)
+    const attempt = { eventGeneration: 0 }
     const request = (modeQueue.get(sessionID) ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() =>
-        (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi).switchPermissionMode({
+      .then(() => {
+        attempt.eventGeneration = modeEventGeneration.get(sessionID) ?? 0
+        return (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi).switchPermissionMode({
           sessionID,
           mode: value.mode,
-        }),
-      )
+        })
+      })
     const queued = request.then(
       () => undefined,
       () => undefined,
@@ -539,22 +547,19 @@ export function createServerPermissionState(
       .then(
         () => {
           if (meta.disposed) return Promise.resolve()
-          if (modeSwitch.get(sessionID)?.version !== version) return Promise.resolve()
-          setTaskMode(sessionID, value.mode)
+          if ((modeEventGeneration.get(sessionID) ?? 0) === attempt.eventGeneration) {
+            setTaskMode(sessionID, value.mode)
+          }
+          if (modeSwitch.get(sessionID) !== version) return Promise.resolve()
           modeSwitch.delete(sessionID)
-          if (value.mode !== "auto") return Promise.resolve()
-          return respondPendingForMode(sessionID, value.directory, key, version)
+          if (mode(sessionID, value.directory) !== "auto") return Promise.resolve()
+          return respondPendingForMode(sessionID, value.directory, key, enableVersion.get(key) ?? version)
         },
         (error: unknown) => {
-          if (modeSwitch.get(sessionID)?.version !== version) throw error
+          if (modeSwitch.get(sessionID) !== version) throw error
           modeSwitch.delete(sessionID)
-          setTaskMode(
-            produce((draft) => {
-              delete draft[sessionID]
-            }),
-          )
           if (!meta.disposed && mode(sessionID, value.directory) === "auto") {
-            void respondPendingForMode(sessionID, value.directory, key, version)
+            void respondPendingForMode(sessionID, value.directory, key, enableVersion.get(key) ?? version)
           }
           throw error
         },
@@ -574,11 +579,12 @@ export function createServerPermissionState(
     if (event?.type !== "session.next.permission-mode.switched") return
     if (!isPermissionModeSwitched(event.properties)) return
     const properties = event.properties
-    if (modeSwitch.has(properties.sessionID)) return
+    modeEventGeneration.set(properties.sessionID, (modeEventGeneration.get(properties.sessionID) ?? 0) + 1)
     const directory = e.name === "global" ? sessionDirectory(properties.sessionID) : e.name
     const key = acceptKey(properties.sessionID, directory)
     const version = bumpEnableVersion(properties.sessionID, directory)
     setTaskMode(properties.sessionID, properties.mode)
+    if (modeSwitch.has(properties.sessionID)) return
     if (properties.mode !== "auto") return
     if (directory) {
       void respondPendingForMode(properties.sessionID, directory, key, version)

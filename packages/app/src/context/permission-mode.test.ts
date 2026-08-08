@@ -154,6 +154,109 @@ describe("V2 permission mode state", () => {
     expect(harness.state.mode("session", "/project")).toBe("restricted")
   })
 
+  test("keeps auto responses disabled until the latest queued auto switch succeeds", async () => {
+    const first = Promise.withResolvers<void>()
+    const second = Promise.withResolvers<void>()
+    const requests = [first, second]
+    const request = permission("permission", "session")
+    const harness = setup({
+      permissionMode: "auto",
+      switchMode: () => requests.shift()!.promise,
+    })
+    await Bun.sleep(0)
+
+    const restricted = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    await Bun.sleep(0)
+    const auto = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.replies).toEqual([])
+    expect(harness.switches).toEqual([{ sessionID: "session", mode: "restricted" }])
+
+    first.resolve()
+    await restricted
+    await Bun.sleep(0)
+    expect(harness.switches).toEqual([
+      { sessionID: "session", mode: "restricted" },
+      { sessionID: "session", mode: "auto" },
+    ])
+    expect(harness.replies).toEqual([])
+
+    second.resolve()
+    await auto
+    await Bun.sleep(0)
+    expect(harness.replies).toHaveLength(1)
+  })
+
+  test("keeps the last confirmed queued mode when the latest switch fails", async () => {
+    const first = Promise.withResolvers<void>()
+    const second = Promise.withResolvers<void>()
+    const requests = [first, second]
+    const harness = setup({
+      permissionMode: "auto",
+      switchMode: () => requests.shift()!.promise,
+    })
+    await Bun.sleep(0)
+
+    const restricted = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    await Bun.sleep(0)
+    const auto = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    harness.ask(permission("permission", "session"))
+
+    first.resolve()
+    await restricted
+    await Bun.sleep(0)
+    second.reject(new Error("latest switch failed"))
+    await expect(auto).rejects.toThrow("latest switch failed")
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
+  test("keeps a newer cross-window mode when an older local switch resolves", async () => {
+    const gate = Promise.withResolvers<void>()
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "standard", switchMode: () => gate.promise })
+
+    const changing = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    await Bun.sleep(0)
+    harness.switchEvent("restricted")
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+
+    gate.resolve()
+    await changing
+    await Bun.sleep(0)
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
+  test("uses an own mode event while the matching local request is unresolved", async () => {
+    const gate = Promise.withResolvers<void>()
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "standard", switchMode: () => gate.promise })
+
+    const changing = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    await Bun.sleep(0)
+    harness.switchEvent("auto")
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+    expect(harness.replies).toEqual([])
+
+    gate.resolve()
+    await changing
+    await Bun.sleep(0)
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+    expect(harness.replies).toHaveLength(1)
+  })
+
   test("entering auto responds to existing pending requests once", async () => {
     const request = permission("permission", "session")
     const harness = setup({ permissionMode: "standard", pending: [request, request] })
@@ -169,6 +272,45 @@ describe("V2 permission mode state", () => {
         location: { directory: "/project" },
       },
     ])
+  })
+
+  test("retries an auto reply once after a transient failure", async () => {
+    let attempts = 0
+    const harness = setup({
+      permissionMode: "auto",
+      reply: () => {
+        attempts++
+        if (attempts === 1) return Promise.reject(new Error("temporary reply failure"))
+        return Promise.resolve()
+      },
+    })
+    await Bun.sleep(0)
+
+    harness.ask(permission("permission", "session"))
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+
+    expect(attempts).toBe(2)
+    expect(harness.replies).toHaveLength(2)
+  })
+
+  test("bounds repeated auto reply failures to two attempts", async () => {
+    let attempts = 0
+    const harness = setup({
+      permissionMode: "auto",
+      reply: () => {
+        attempts++
+        return Promise.reject(new Error("reply failed"))
+      },
+    })
+    await Bun.sleep(0)
+
+    harness.ask(permission("permission", "session"))
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+
+    expect(attempts).toBe(2)
+    expect(harness.replies).toHaveLength(2)
   })
 
   test("waits for capability before deciding against legacy auto-accept", async () => {
@@ -364,6 +506,7 @@ function setup(input: {
   pending?: PermissionRequest[]
   switchMode?: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
   list?: () => Promise<{ data: ReturnType<typeof currentPermission>[] }>
+  reply?: (input: unknown) => Promise<void>
 }) {
   const record = {
     id: "session",
@@ -413,7 +556,7 @@ function setup(input: {
       permission: {
         reply: (value: unknown) => {
           replies.push(value)
-          return Promise.resolve()
+          return input.reply?.(value) ?? Promise.resolve()
         },
         request: {
           list: input.list ?? (() => Promise.resolve({ data: pending.map(currentPermission) })),

@@ -175,13 +175,16 @@ export function PermissionModeControl(props: {
                     value={option.id}
                     closeOnSelect
                     style={{ height: "auto", "min-height": "48px", padding: "8px 10px" }}
-                    classList={{
-                      "[&_[data-slot=menu-v2-item-content]]:items-start": true,
-                      "[&_[data-slot=menu-v2-item-content]]:text-v2-state-fg-warning": option.id === "auto",
-                    }}
+                    class="[&_[data-slot=menu-v2-item-content]]:items-start"
                   >
                     <span class="flex min-w-0 flex-col gap-1">
-                      <span class="whitespace-nowrap text-[13px] font-[530] leading-4">{option.label}</span>
+                      <span
+                        data-permission-mode-label={option.id}
+                        class="whitespace-nowrap text-[13px] font-[530] leading-4"
+                        classList={{ "text-v2-state-fg-warning": option.id === "auto" }}
+                      >
+                        {option.label}
+                      </span>
                       <span class="text-[11px] font-[440] leading-4 text-v2-text-text-muted">
                         {option.description}
                       </span>
