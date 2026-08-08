@@ -1,6 +1,5 @@
-import { NodeFileSystem } from "@effect/platform-node"
 import { dirname, isAbsolute, join, relative, resolve as pathResolve, sep } from "path"
-import { constants, realpathSync } from "fs"
+import { realpathSync } from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
 import { Context, Effect, FileSystem, Layer, Schema } from "effect"
@@ -11,13 +10,6 @@ import { makeGlobalNode } from "./effect/app-node"
 import { filesystem } from "./effect/app-node-platform"
 
 export namespace FSUtil {
-  export type RenameNoFollowInput = {
-    readonly sourceRoot: string
-    readonly source: string
-    readonly destinationRoot: string
-    readonly destination: string
-  }
-
   export class FileSystemError extends Schema.TaggedErrorClass<FileSystemError>()("FileSystemError", {
     method: Schema.String,
     cause: Schema.optional(Schema.Defect()),
@@ -44,8 +36,6 @@ export namespace FSUtil {
     readonly writeJson: (path: string, data: unknown, mode?: number) => Effect.Effect<void, Error>
     readonly ensureDir: (path: string) => Effect.Effect<void, Error>
     readonly removeEmptyDirectory: (path: string) => Effect.Effect<void, Error>
-    readonly renameNoFollowSupported: boolean
-    readonly renameNoFollow: (input: RenameNoFollowInput) => Effect.Effect<void, Error>
     readonly writeWithDirs: (path: string, content: string | Uint8Array, mode?: number) => Effect.Effect<void, Error>
     readonly readDirectoryEntries: (path: string) => Effect.Effect<DirEntry[], Error>
     readonly resolve: (path: string) => Effect.Effect<string>
@@ -59,101 +49,6 @@ export namespace FSUtil {
   export class Service extends Context.Service<Service, Interface>()("@opencode/FileSystem") {}
 
   export const use = serviceUse(Service)
-
-  function relativePathSegments(value: string) {
-    const segments = value.split(sep)
-    if (
-      value.length === 0 ||
-      isAbsolute(value) ||
-      value.includes("\0") ||
-      segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")
-    ) {
-      throw new Error(`Unsafe relative path: ${value}`)
-    }
-    return segments
-  }
-
-  const RenameSymbols = {
-    openat: { args: ["i32", "ptr", "i32", "i32"], returns: "i32" },
-    renameat: { args: ["i32", "ptr", "i32", "ptr"], returns: "i32" },
-    close: { args: ["i32"], returns: "i32" },
-  } as const
-
-  async function renameNoFollowNative(input: RenameNoFollowInput, libraryPath: string) {
-    const source = relativePathSegments(input.source)
-    const destination = relativePathSegments(input.destination)
-    const descriptorRoot = process.platform === "darwin" ? "/dev/fd" : "/proc/self/fd"
-    await using sourceRoot = await NFS.open(
-      input.sourceRoot,
-      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-    )
-    await using destinationRoot = await NFS.open(
-      input.destinationRoot,
-      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-    )
-    const roots = await Promise.all([
-      NFS.realpath(`${descriptorRoot}/${sourceRoot.fd}`),
-      NFS.realpath(`${descriptorRoot}/${destinationRoot.fd}`),
-    ])
-    if (roots[0] !== pathResolve(input.sourceRoot) || roots[1] !== pathResolve(input.destinationRoot)) {
-      throw new Error("Directory capability does not match the requested root")
-    }
-
-    const { dlopen, ptr } = await import("bun:ffi")
-    const library = dlopen(libraryPath, RenameSymbols)
-    const opened: number[] = []
-    const openParent = (root: number, segments: string[]) => {
-      return segments.slice(0, -1).reduce((parent, segment) => {
-        const name = Buffer.from(`${segment}\0`)
-        const descriptor = library.symbols.openat(
-          parent,
-          ptr(name),
-          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-          0,
-        )
-        if (descriptor < 0) throw new Error(`Failed to open path segment without following links: ${segment}`)
-        opened.push(descriptor)
-        return descriptor
-      }, root)
-    }
-    try {
-      const from = Buffer.from(`${source.at(-1)}\0`)
-      const to = Buffer.from(`${destination.at(-1)}\0`)
-      const result = library.symbols.renameat(
-        openParent(sourceRoot.fd, source),
-        ptr(from),
-        openParent(destinationRoot.fd, destination),
-        ptr(to),
-      )
-      if (result !== 0) throw new Error("Handle-relative rename failed")
-    } finally {
-      opened.toReversed().forEach((descriptor) => library.symbols.close(descriptor))
-      library.close()
-    }
-  }
-
-  async function renameNoFollowLibrary() {
-    if (process.platform !== "darwin" && process.platform !== "linux") return
-    const architecture = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : undefined
-    const candidates =
-      process.platform === "darwin"
-        ? ["/usr/lib/libSystem.B.dylib"]
-        : [
-            "libc.so.6",
-            ...(architecture ? [`libc.musl-${architecture}.so.1`, `/lib/ld-musl-${architecture}.so.1`] : []),
-          ]
-    const ffi = await import("bun:ffi").catch(() => undefined)
-    if (!ffi) return
-    return candidates.find((candidate) => {
-      try {
-        const library = ffi.dlopen(candidate, RenameSymbols)
-        library.close()
-        return true
-      } catch {
-        return false
-      }
-    })
-  }
 
   const layer = Layer.effect(
     Service,
@@ -233,18 +128,6 @@ export namespace FSUtil {
         yield* Effect.tryPromise({
           try: () => NFS.rmdir(path),
           catch: (cause) => new FileSystemError({ method: "removeEmptyDirectory", cause }),
-        })
-      })
-
-      const renameNoFollowLibraryPath = yield* Effect.promise(renameNoFollowLibrary)
-      const renameNoFollowSupported = renameNoFollowLibraryPath !== undefined
-      const renameNoFollow = Effect.fn("FileSystem.renameNoFollow")(function* (input: RenameNoFollowInput) {
-        if (renameNoFollowLibraryPath === undefined) {
-          return yield* new FileSystemError({ method: "renameNoFollow", cause: "unsupported platform" })
-        }
-        yield* Effect.tryPromise({
-          try: () => renameNoFollowNative(input, renameNoFollowLibraryPath),
-          catch: (cause) => new FileSystemError({ method: "renameNoFollow", cause }),
         })
       })
 
@@ -333,8 +216,6 @@ export namespace FSUtil {
         writeJson,
         ensureDir,
         removeEmptyDirectory,
-        renameNoFollowSupported,
-        renameNoFollow,
         writeWithDirs,
         findUp,
         up,

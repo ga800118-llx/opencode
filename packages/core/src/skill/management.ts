@@ -9,6 +9,7 @@ import { Project } from "../project"
 import { AbsolutePath } from "../schema"
 import type { EffectFlock } from "../util/effect-flock"
 import { Hash } from "../util/hash"
+import { SkillSafeMove } from "./safe-move"
 
 export type Installed = {
   source: Skill.Source
@@ -41,9 +42,7 @@ export class UnsafePathError extends Schema.TaggedErrorClass<UnsafePathError>()(
 
 export type ManagementError = NotFoundError | OperationError | ProtectedError | UnsafePathError
 
-export type DeletionTarget =
-  | { readonly target: AbsolutePath }
-  | { readonly blocked: typeof Skill.DeleteBlocked.Type }
+export type DeletionTarget = { readonly target: AbsolutePath } | { readonly blocked: typeof Skill.DeleteBlocked.Type }
 
 type VerifiedDeletionTarget = {
   readonly target: AbsolutePath
@@ -82,9 +81,7 @@ export function statePaths(global: Global.Interface, location: Location.Interfac
 }
 
 export function readState(fs: FSUtil.Interface, file: string) {
-  return readStateForMutation(fs, file).pipe(
-    Effect.catch(() => warn(file)),
-  )
+  return readStateForMutation(fs, file).pipe(Effect.catch(() => warn(file)))
 }
 
 export function updateState(
@@ -113,14 +110,22 @@ export function updateState(
   )
 }
 
-export function deleteTarget(entry: Installed, fs: FSUtil.Interface): Effect.Effect<DeletionTarget> {
-  return resolveDeleteTarget(entry, fs).pipe(Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })))
+export function deleteTarget(
+  entry: Installed,
+  fs: FSUtil.Interface,
+  safeMove: SkillSafeMove.Interface,
+): Effect.Effect<DeletionTarget> {
+  return resolveDeleteTarget(entry, fs, safeMove).pipe(
+    Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })),
+  )
 }
 
 function resolveDeleteTarget(
   entry: Installed,
   fs: FSUtil.Interface,
+  safeMove: SkillSafeMove.Interface,
   knownSourceReal?: string,
+  knownAvailable?: boolean,
 ): Effect.Effect<DeletionTarget, FSUtil.Error> {
   const sourceInfo = source(entry.source)
   if (sourceInfo.type === "builtin") return Effect.succeed({ blocked: "builtin" })
@@ -130,16 +135,17 @@ function resolveDeleteTarget(
   if (entry.source.origin?.type !== "config-directory" && entry.source.origin?.type !== "config-file") {
     return Effect.succeed({ blocked: "plugin" })
   }
-  if (!fs.renameNoFollowSupported) return Effect.succeed({ blocked: "unsafe" })
 
   const sourceRoot = path.resolve(entry.source.path)
   const skillFile = path.resolve(entry.info.location)
   const candidate = path.basename(skillFile) === "SKILL.md" ? path.dirname(skillFile) : skillFile
   if (candidate === sourceRoot || !FSUtil.contains(sourceRoot, candidate)) return Effect.succeed({ blocked: "unsafe" })
   return Effect.gen(function* () {
+    if (!(knownAvailable ?? (yield* safeMove.available()))) return { blocked: "unsafe" as const }
     const sourceReal = knownSourceReal ?? (yield* fs.realPath(sourceRoot))
     const candidateReal = yield* fs.realPath(candidate)
-    if (candidateReal === sourceReal || !FSUtil.contains(sourceReal, candidateReal)) return { blocked: "unsafe" as const }
+    if (candidateReal === sourceReal || !FSUtil.contains(sourceReal, candidateReal))
+      return { blocked: "unsafe" as const }
     if (sourceReal !== sourceRoot || candidateReal !== candidate) return { blocked: "unsafe" as const }
     return { target: AbsolutePath.make(candidate) }
   })
@@ -148,9 +154,10 @@ function resolveDeleteTarget(
 function requireDeleteTarget(
   entry: Installed,
   fs: FSUtil.Interface,
+  safeMove: SkillSafeMove.Interface,
   installationID: Skill.ManagementID,
 ): Effect.Effect<VerifiedDeletionTarget, ManagementError> {
-  return resolveDeleteTarget(entry, fs).pipe(
+  return resolveDeleteTarget(entry, fs, safeMove).pipe(
     Effect.mapError((cause) => new OperationError({ operation: "delete", cause })),
     Effect.flatMap((resolution): Effect.Effect<VerifiedDeletionTarget, ProtectedError | UnsafePathError> => {
       if ("target" in resolution) {
@@ -173,17 +180,31 @@ function requireDeleteTarget(
   )
 }
 
-export function management(entries: readonly Installed[], disabled: DisabledState, fs: FSUtil.Interface) {
+export function management(
+  entries: readonly Installed[],
+  disabled: DisabledState,
+  fs: FSUtil.Interface,
+  safeMove: SkillSafeMove.Interface,
+) {
   return Effect.gen(function* () {
+    const available = entries.some(
+      (entry) =>
+        entry.source.type === "directory" &&
+        (entry.source.origin?.type === "config-directory" || entry.source.origin?.type === "config-file"),
+    )
+      ? yield* safeMove.available()
+      : false
     const roots = new Map<string, string | undefined>()
     const targets = yield* Effect.forEach(entries, (entry) => {
       const skillSource = entry.source
       if (
         skillSource.type !== "directory" ||
         (skillSource.origin?.type !== "config-directory" && skillSource.origin?.type !== "config-file") ||
-        !fs.renameNoFollowSupported
+        !available
       ) {
-        return deleteTarget(entry, fs)
+        return resolveDeleteTarget(entry, fs, safeMove, undefined, available).pipe(
+          Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })),
+        )
       }
       const key = Skill.Source.key(skillSource)
       return Effect.gen(function* () {
@@ -196,7 +217,7 @@ export function management(entries: readonly Installed[], disabled: DisabledStat
         }
         const canonical = roots.get(key)
         if (canonical === undefined) return { blocked: "unsafe" as const }
-        return yield* resolveDeleteTarget(entry, fs, canonical).pipe(
+        return yield* resolveDeleteTarget(entry, fs, safeMove, canonical, available).pipe(
           Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })),
         )
       })
@@ -207,6 +228,7 @@ export function management(entries: readonly Installed[], disabled: DisabledStat
 
 export function remove(
   fs: FSUtil.Interface,
+  safeMove: SkillSafeMove.Interface,
   flock: EffectFlock.Interface,
   global: Global.Interface,
   file: string,
@@ -215,24 +237,25 @@ export function remove(
 ) {
   const installationID = id(entry)
   return Effect.gen(function* () {
-    yield* requireDeleteTarget(entry, fs, installationID)
+    yield* requireDeleteTarget(entry, fs, safeMove, installationID)
     return yield* withDeleteLock(
       flock,
       file,
       Effect.gen(function* () {
         const current = refresh ? (yield* refresh()).find((installation) => id(installation) === installationID) : entry
         if (!current) return yield* new NotFoundError({ id: installationID })
-        const verified = yield* requireDeleteTarget(current, fs, installationID)
+        const verified = yield* requireDeleteTarget(current, fs, safeMove, installationID)
         const previous = yield* readStateRecord(fs, file)
         const disabled = new Set(previous.disabled)
         const stateChanged = disabled.delete(installationID)
         const stateTouched = yield* Ref.make(false)
+        const moved = yield* Ref.make(false)
 
         const deletedAt = new Date().toISOString()
         const record = `${Date.now()}-${installationID.slice(0, 12)}-${randomUUID()}`
         const final = path.join(global.state, "skills", "trash", record)
         const staging = `${final}.staging`
-        const transaction = Effect.gen(function* () {
+        const setup = Effect.gen(function* () {
           yield* fs.makeDirectory(path.dirname(final), { recursive: true })
           yield* fs.makeDirectory(staging)
           yield* fs.writeFileString(
@@ -240,24 +263,46 @@ export function remove(
             JSON.stringify({ id: installationID, originalPath: verified.target, deletedAt }, null, 2) + "\n",
             { flag: "wx", mode: 0o600 },
           )
-          yield* fs.renameNoFollow({
-            sourceRoot: verified.sourceRoot,
-            source: verified.relative,
-            destinationRoot: staging,
-            destination: "payload",
-          })
-          yield* fs.rename(staging, final)
-          if (!stateChanged) return
-          yield* Ref.set(stateTouched, true)
-          yield* writeStateForMutation(fs, file, disabled, "delete")
         })
-        return yield* withCompensation(
-          transaction,
-          rollbackRemoval(fs, verified, staging, final, stateTouched, file, previous.content),
-        ).pipe(
+        const transaction = withCompensation(
+          setup.pipe(
+            Effect.andThen(
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const handle = yield* safeMove
+                    .open({
+                      sourceRoot: verified.sourceRoot,
+                      source: verified.relative,
+                      destinationRoot: staging,
+                      destination: "payload",
+                    })
+                    .pipe(Effect.mapError((error) => safeMoveError(installationID, error)))
+                  return yield* withCompensation(
+                    Effect.gen(function* () {
+                      yield* handle.move.pipe(Effect.mapError((error) => safeMoveError(installationID, error)))
+                      yield* Ref.set(moved, true)
+                      yield* fs.rename(staging, final)
+                      if (!stateChanged) return
+                      yield* Ref.set(stateTouched, true)
+                      yield* writeStateForMutation(fs, file, disabled, "delete")
+                    }),
+                    rollbackRemoval(fs, handle, moved, staging, final, stateTouched, file, previous.content),
+                  )
+                }),
+              ),
+            ),
+          ),
+          Ref.get(moved).pipe(
+            Effect.flatMap((didMove) => (didMove ? Effect.void : fs.remove(staging, { recursive: true, force: true }))),
+          ),
+        )
+        return yield* transaction.pipe(
           Effect.as(verified.target),
           Effect.mapError((cause) =>
-            cause instanceof OperationError && cause.operation === "delete"
+            cause instanceof NotFoundError ||
+            cause instanceof ProtectedError ||
+            cause instanceof UnsafePathError ||
+            (cause instanceof OperationError && cause.operation === "delete")
               ? cause
               : new OperationError({ operation: "delete", cause }),
           ),
@@ -276,11 +321,7 @@ export function remove(
   })
 }
 
-export function project(
-  entries: readonly Installed[],
-  disabled: DisabledState,
-  targets?: readonly DeletionTarget[],
-) {
+export function project(entries: readonly Installed[], disabled: DisabledState, targets?: readonly DeletionTarget[]) {
   const identified = entries.map((entry) => ({ entry, id: id(entry) }))
   const active = new Map(
     identified
@@ -337,9 +378,7 @@ function writeStateForMutation(
     fs,
     file,
     JSON.stringify({ version: 1, disabled: Array.from(disabled).toSorted() }, null, 2) + "\n",
-  ).pipe(
-    Effect.mapError((cause) => new OperationError({ operation, cause })),
-  )
+  ).pipe(Effect.mapError((cause) => new OperationError({ operation, cause })))
 }
 
 function restoreState(fs: FSUtil.Interface, file: string, content: string | undefined) {
@@ -433,27 +472,36 @@ function withCompensation<A, E, R, E2, R2>(
   )
 }
 
-function rollback(fs: FSUtil.Interface, target: VerifiedDeletionTarget, staging: string, final: string) {
+function rollback(
+  fs: FSUtil.Interface,
+  handle: SkillSafeMove.Handle,
+  moved: Ref.Ref<boolean>,
+  staging: string,
+  final: string,
+) {
   return Effect.gen(function* () {
-    const container = (yield* fs.exists(path.join(final, "payload"))) ? final : staging
-    const payload = path.join(container, "payload")
-    if (!(yield* fs.exists(payload))) {
+    if (!(yield* Ref.get(moved))) {
       yield* fs.remove(staging, { recursive: true, force: true })
       return
     }
-    yield* fs.renameNoFollow({
-      sourceRoot: container,
-      source: "payload",
-      destinationRoot: target.sourceRoot,
-      destination: target.relative,
-    })
+    yield* handle.rollback
+    const container = (yield* fs.exists(final)) ? final : staging
     yield* fs.remove(container, { recursive: true, force: true })
   })
 }
 
+function safeMoveError(installationID: Skill.ManagementID, error: SkillSafeMove.SafeMoveError): ManagementError {
+  if (error.reason === "not-found") return new NotFoundError({ id: installationID })
+  if (error.reason === "unsafe" || error.reason === "unsupported") {
+    return new UnsafePathError({ id: installationID, reason: "unsafe" })
+  }
+  return new OperationError({ operation: "delete", cause: error })
+}
+
 function rollbackRemoval(
   fs: FSUtil.Interface,
-  target: VerifiedDeletionTarget,
+  handle: SkillSafeMove.Handle,
+  moved: Ref.Ref<boolean>,
   staging: string,
   final: string,
   stateTouched: Ref.Ref<boolean>,
@@ -461,7 +509,7 @@ function rollbackRemoval(
   content: string | undefined,
 ) {
   return Effect.gen(function* () {
-    const payload = yield* rollback(fs, target, staging, final).pipe(Effect.exit)
+    const payload = yield* rollback(fs, handle, moved, staging, final).pipe(Effect.exit)
     const state = (yield* Ref.get(stateTouched))
       ? yield* restoreState(fs, file, content).pipe(Effect.exit)
       : Exit.succeed(undefined)
@@ -474,9 +522,7 @@ function rollbackRemoval(
 }
 
 function warn(file: string) {
-  return Effect.logWarning("failed to read skill state", { path: file }).pipe(
-    Effect.as(new Set<Skill.ManagementID>()),
-  )
+  return Effect.logWarning("failed to read skill state", { path: file }).pipe(Effect.as(new Set<Skill.ManagementID>()))
 }
 
 function isDisabled(entry: Installed, installationID: Skill.ManagementID, disabled: DisabledState) {
@@ -525,7 +571,8 @@ function source(input: Skill.Source): typeof Skill.ManagementSource.Type {
       type: "plugin",
       scope: input.origin.scope,
       value:
-        input.origin.value ?? (input.type === "directory" ? input.path : input.type === "url" ? input.url : input.skill.name),
+        input.origin.value ??
+        (input.type === "directory" ? input.path : input.type === "url" ? input.url : input.skill.name),
     }
   }
   if (input.origin.type === "builtin") {

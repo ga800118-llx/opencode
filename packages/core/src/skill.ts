@@ -28,6 +28,7 @@ import {
   type Installed,
   type ManagementError,
 } from "./skill/management"
+import { SkillSafeMove } from "./skill/safe-move"
 import { State } from "./state"
 import { EffectFlock } from "./util/effect-flock"
 
@@ -85,10 +86,7 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
   readonly management: {
     readonly list: () => Effect.Effect<ManagementInfo[]>
-    readonly setEnabled: (
-      id: ManagementID,
-      enabled: boolean,
-    ) => Effect.Effect<ManagementInfo[], ManagementError>
+    readonly setEnabled: (id: ManagementID, enabled: boolean) => Effect.Effect<ManagementInfo[], ManagementError>
     readonly remove: (id: ManagementID) => Effect.Effect<ManagementInfo[], ManagementError>
   }
 }
@@ -103,6 +101,7 @@ const layer = Layer.effect(
     const global = yield* Global.Service
     const location = yield* Location.Service
     const flock = yield* EffectFlock.Service
+    const safeMove = yield* SkillSafeMove.Service
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -175,7 +174,7 @@ const layer = Layer.effect(
       return effective(yield* installed(), yield* disabled())
     })
     const managementList = Effect.fn("SkillV2.management.list")(function* () {
-      return yield* management(yield* installed(), yield* disabled(), fs)
+      return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
     })
 
     return Service.of({
@@ -199,7 +198,7 @@ const layer = Layer.effect(
         remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
-          yield* remove(fs, flock, global, paths[scope(installation.source)], installation, installed)
+          yield* remove(fs, safeMove, flock, global, paths[scope(installation.source)], installation, installed)
           cache.delete(Source.key(installation.source))
           return yield* managementList()
         }),
@@ -211,5 +210,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [SkillDiscovery.node, FSUtil.node, Global.node, Location.node, EffectFlock.node],
+  deps: [SkillDiscovery.node, FSUtil.node, Global.node, Location.node, EffectFlock.node, SkillSafeMove.node],
 })

@@ -189,8 +189,9 @@ describe("util.effect-flock", () => {
         .pipe(Effect.andThen(flock.withLock(Effect.void, key, dir)))
         .pipe(Effect.forkScoped)
       yield* Deferred.await(attempting)
+      yield* Effect.sleep("2 millis")
 
-      yield* Fiber.interrupt(contender).pipe(Effect.timeout("1 second"))
+      yield* Fiber.interrupt(contender).pipe(Effect.timeout("100 millis"))
       const interrupted = yield* Fiber.await(contender)
       expect(Exit.isFailure(interrupted)).toBe(true)
       expect(Exit.isFailure(interrupted) && Cause.hasInterrupts(interrupted.cause)).toBe(true)
@@ -239,7 +240,11 @@ describe("util.effect-flock", () => {
       const lockDir = lock(dir, key)
 
       const result = yield* flock
-        .withLock(Effect.promise(() => fs.rm(path.join(lockDir, "meta.json"))), key, dir)
+        .withLock(
+          Effect.promise(() => fs.rm(path.join(lockDir, "meta.json"))),
+          key,
+          dir,
+        )
         .pipe(Effect.exit)
       expect(Exit.isFailure(result)).toBe(true)
       expect(Exit.isFailure(result) ? Cause.pretty(result.cause) : "").toContain("metadata missing")
@@ -506,9 +511,9 @@ describe("util.effect-flock", () => {
       const filesystem = FSUtil.Service.of({
         ...fsService,
         makeDirectory: (target, options) =>
-          fsService.makeDirectory(target, options).pipe(
-            Effect.tapError(() => (target === breaker ? Deferred.succeed(attempted, undefined) : Effect.void)),
-          ),
+          fsService
+            .makeDirectory(target, options)
+            .pipe(Effect.tapError(() => (target === breaker ? Deferred.succeed(attempted, undefined) : Effect.void))),
       })
       const layer = Layer.fresh(
         AppNodeBuilder.build(EffectFlock.node, [
@@ -538,6 +543,56 @@ describe("util.effect-flock", () => {
       expect(Exit.isSuccess(yield* Fiber.await(owner).pipe(Effect.timeout("1 second")))).toBe(true)
       expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
       yield* flock.withLock(Effect.void, key, dir).pipe(Effect.timeout("1 second"))
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "recovers an empty breaker after a transient EBUSY during release",
+    Effect.gen(function* () {
+      const fsService = yield* FSUtil.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:release-empty-breaker-busy"
+      const lockDir = lock(dir, key)
+      const breaker = lockDir + ".breaker"
+      const calls = { value: 0 }
+      const filesystem = FSUtil.Service.of({
+        ...fsService,
+        removeEmptyDirectory: (target) => {
+          if (target !== breaker || calls.value > 0) return fsService.removeEmptyDirectory(target)
+          calls.value++
+          return Effect.fail(
+            new FSUtil.FileSystemError({
+              method: "removeEmptyDirectory",
+              cause: Object.assign(new Error("transient busy"), { code: "EBUSY" }),
+            }),
+          )
+        },
+      })
+      const layer = Layer.fresh(
+        AppNodeBuilder.build(EffectFlock.node, [
+          [Global.node, testGlobal],
+          [FSUtil.node, Layer.succeed(FSUtil.Service, filesystem)],
+        ]),
+      )
+      const context = yield* Layer.build(layer)
+      const flock = Context.get(context, EffectFlock.Service)
+
+      yield* flock
+        .withLock(
+          Effect.promise(() => fs.mkdir(breaker)),
+          key,
+          dir,
+        )
+        .pipe(Effect.timeout("1 second"))
+      expect(calls.value).toBe(1)
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
+      expect(yield* Effect.promise(() => exists(breaker))).toBe(false)
+
+      yield* flock.withLock(Effect.void, key, dir).pipe(Effect.timeout("1 second"))
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
+      expect(yield* Effect.promise(() => exists(breaker))).toBe(false)
       yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
     }),
   )

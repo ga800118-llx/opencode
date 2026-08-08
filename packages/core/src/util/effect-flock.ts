@@ -114,11 +114,20 @@ export namespace EffectFlock {
 
       const forceRemove = (target: string) => fs.remove(target, { recursive: true }).pipe(Effect.ignore)
 
+      const errorCode = (error: FSUtil.Error) => {
+        const cause = error.cause
+        return cause instanceof Error && "code" in cause ? cause.code : undefined
+      }
+
       const removeEmptyBreaker = (target: string) =>
-        fs.removeEmptyDirectory(target).pipe(
+        Effect.suspend(() => fs.removeEmptyDirectory(target)).pipe(
+          Effect.retry({
+            while: (error) => errorCode(error) === "EBUSY",
+            times: 4,
+            schedule: releaseSchedule,
+          }),
           Effect.catch((error) => {
-            const cause = error.cause
-            const code = cause instanceof Error && "code" in cause ? cause.code : undefined
+            const code = errorCode(error)
             return code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST" ? Effect.void : Effect.die(error)
           }),
         )
@@ -129,14 +138,17 @@ export namespace EffectFlock {
         Effect.gen(function* () {
           const generation = yield* safeStat(handle.tokenPath)
           if (generation) {
-            yield* fs.remove(handle.tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
+            yield* fs.remove(handle.tokenPath).pipe(
+              Effect.catchIf(isPathGone, () => Effect.void),
+              Effect.orDie,
+            )
           }
           yield* removeEmptyBreaker(handle.path)
         })
 
       const tryAcquireBreaker = (breakerPath: string) =>
         Effect.gen(function* () {
-          const created = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
+          const create = fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
             Effect.as(true),
             Effect.catchIf(
               (error) => error.reason._tag === "AlreadyExists",
@@ -144,6 +156,16 @@ export namespace EffectFlock {
             ),
             Effect.orDie,
           )
+          const initial = yield* create
+          if (!initial) {
+            const entries = yield* fs.readDirectory(breakerPath).pipe(
+              Effect.catchIf(isPathGone, () => Effect.succeed([] as string[])),
+              Effect.orDie,
+            )
+            if (entries.length !== 0) return
+            yield* removeEmptyBreaker(breakerPath)
+          }
+          const created = initial || (yield* create)
           if (!created) return
 
           const token = randomUUID()
@@ -172,10 +194,7 @@ export namespace EffectFlock {
 
       const releaseBreaker = (handle: BreakerHandle) => removeBreakerGeneration(handle)
 
-      const withBreaker = <A, E, R>(
-        handle: BreakerHandle,
-        body: Effect.Effect<A, E, R>,
-      ): Effect.Effect<A, E, R> =>
+      const withBreaker = <A, E, R>(handle: BreakerHandle, body: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
         Effect.scoped(
           Effect.gen(function* () {
             yield* fs
@@ -222,7 +241,10 @@ export namespace EffectFlock {
             const tokenPath = path.join(breakerPath, entry)
             const info = yield* safeStat(tokenPath)
             if (info && wall() - mtimeMs(info) > STALE_MS) {
-              yield* fs.remove(tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
+              yield* fs.remove(tokenPath).pipe(
+                Effect.catchIf(isPathGone, () => Effect.void),
+                Effect.orDie,
+              )
             }
           }),
         )
@@ -335,14 +357,14 @@ export namespace EffectFlock {
                 Effect.catch(() => Effect.succeed(undefined)),
               )
               const current = yield* fs.readFileString(handle.metaPath).pipe(
-                Effect.map((raw) => ({ raw } as const)),
+                Effect.map((raw) => ({ raw }) as const),
                 Effect.catchIf(isPathGone, () => Effect.succeed({ missing: true } as const)),
                 Effect.catch((error) => Effect.succeed({ error } as const)),
               )
               const metadata =
                 "raw" in current
                   ? yield* Effect.try({
-                      try: () => ({ token: decodeMeta(current.raw).token } as const),
+                      try: () => ({ token: decodeMeta(current.raw).token }) as const,
                       catch: (cause) => new ReleaseError({ detail: "metadata invalid", cause }),
                     }).pipe(Effect.catch((error) => Effect.succeed({ error } as const)))
                   : current
@@ -359,7 +381,7 @@ export namespace EffectFlock {
       const release = (handle: Handle) =>
         Effect.gen(function* () {
           const initial = yield* fs.readFileString(handle.metaPath).pipe(
-            Effect.map((raw) => ({ raw } as const)),
+            Effect.map((raw) => ({ raw }) as const),
             Effect.catch((error) =>
               Effect.succeed({
                 error: isPathGone(error) ? new ReleaseError({ detail: "metadata missing" }) : error,
@@ -372,7 +394,7 @@ export namespace EffectFlock {
             try: () => decodeMeta(initial.raw),
             catch: (cause) => new ReleaseError({ detail: "metadata invalid", cause }),
           }).pipe(
-            Effect.map((value) => ({ value } as const)),
+            Effect.map((value) => ({ value }) as const),
             Effect.catch((error) => Effect.succeed({ error } as const)),
           )
           if ("error" in parsed) return yield* releaseOwned(handle, parsed.error)
