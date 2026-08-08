@@ -91,8 +91,7 @@ export function disableProviderPatch(providerID: string, disabledProviders: read
 
 export function defaultModelPatch(profile: ProductProviderProfile, modelID: string) {
   const valid = profile.models.some((model) => model.id === modelID)
-  const tested = profile.test?.modelID === modelID && profile.test.classification === "agent-capable"
-  if (!valid || !tested) throw new Error("Only an agent-capable tested model can be the default.")
+  if (!valid) throw new Error("The default model must belong to this profile.")
   return Object.freeze({ model: `${profile.providerID}/${modelID}` })
 }
 

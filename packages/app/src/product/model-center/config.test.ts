@@ -111,9 +111,15 @@ describe("model profile config serialization", () => {
     expect(JSON.stringify(config)).not.toContain("Authorization-Extra")
   })
 
-  test("refuses to make an untested model the agent default", () => {
-    expect(() => defaultModelPatch(profile, "manual-coder")).toThrow(
-      "Only an agent-capable tested model can be the default.",
+  test("allows an untested profile model as the default", () => {
+    expect(defaultModelPatch(profile, "manual-coder")).toEqual({
+      model: `${profile.providerID}/manual-coder`,
+    })
+  })
+
+  test("refuses to make a model outside the profile the default", () => {
+    expect(() => defaultModelPatch(profile, "missing-coder")).toThrow(
+      "The default model must belong to this profile.",
     )
   })
 })
