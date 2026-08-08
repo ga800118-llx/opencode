@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { isSessionNotFoundError, isUnauthorizedError, OpenCode } from "../src"
+import { isSessionNotFoundError, isSkillManagementNotFoundError, isUnauthorizedError, OpenCode } from "../src"
 
 test("exposes every standard HTTP API group", () => {
   const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
@@ -188,6 +188,50 @@ test("session methods use the public HTTP contract", async () => {
   })
 })
 
+test("skill management methods use the public HTTP contract", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = []
+  const id = "skill /?#"
+  const client = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      requests.push({ url, init })
+      if (init?.method === "DELETE") {
+        return Response.json(
+          { _tag: "SkillManagementNotFoundError", id, message: "Skill installation not found." },
+          { status: 404 },
+        )
+      }
+      return Response.json(skillManagementResponse)
+    },
+  })
+  const location = { directory: "/tmp/project", workspace: "wrk_test" }
+
+  await client.skills.managementList({ location })
+  await client.skills.managementSetEnabled({ id, location, enabled: false })
+  try {
+    await client.skills.managementRemove({ id, location })
+    throw new Error("Expected request to fail")
+  } catch (error) {
+    expect(isSkillManagementNotFoundError(error)).toBe(true)
+  }
+
+  expect(requests.map((request) => [request.init?.method, new URL(request.url).pathname])).toEqual([
+    ["GET", "/api/skill/management"],
+    ["PATCH", "/api/skill/management/skill%20%2F%3F%23"],
+    ["DELETE", "/api/skill/management/skill%20%2F%3F%23"],
+  ])
+  expect(
+    requests.map((request) => {
+      const url = new URL(request.url)
+      return [url.searchParams.get("location[directory]"), url.searchParams.get("location[workspace]")]
+    }),
+  ).toEqual(Array.from({ length: 3 }, () => [location.directory, location.workspace]))
+  const body = requests.find((request) => request.init?.method === "PATCH")?.init?.body
+  if (typeof body !== "string") throw new Error("Expected JSON request body")
+  expect(JSON.parse(body)).toEqual({ enabled: false })
+})
+
 test("middleware errors remain declared client errors", async () => {
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",
@@ -252,6 +296,15 @@ const admission = {
     delivery: "steer",
     timeCreated: 1_717_171_717_000,
   },
+}
+
+const skillManagementResponse = {
+  location: {
+    directory: "/tmp/project",
+    workspaceID: "wrk_test",
+    project: { id: "project", directory: "/tmp/project" },
+  },
+  data: [],
 }
 
 const modelSwitchedMessage = {

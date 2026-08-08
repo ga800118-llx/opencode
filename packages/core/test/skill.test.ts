@@ -690,6 +690,74 @@ describe("SkillV2", () => {
     )
   })
 
+  it.live("rolls back native deletion when securing recovery metadata fails", () => {
+    if (process.platform === "win32") return Effect.void
+    return Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const state = path.join(tmp.path, "state")
+          const context = yield* Layer.build(stateDependencies(state))
+          const fsService = Context.get(context, FSUtil.Service)
+          const flock = Context.get(context, EffectFlock.Service)
+          const sourceRoot = path.join(tmp.path, "skills")
+          const target = path.join(sourceRoot, "review")
+          yield* Effect.promise(() => fs.mkdir(target, { recursive: true }))
+          yield* Effect.promise(() => write(sourceRoot, "review", "Failed metadata permissions"))
+          const descriptor = { value: undefined as number | undefined }
+          const safeMove = SkillSafeMove.make({
+            fchmod: (value) => {
+              descriptor.value = value
+              return os.constants.errno.EIO
+            },
+          })
+          if (!(yield* safeMove.available())) return
+          const entry: Installed = {
+            source: SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(sourceRoot),
+              origin: { type: "config-directory", scope: "global", value: sourceRoot },
+            }),
+            info: SkillV2.Info.make({
+              name: "review",
+              location: AbsolutePath.make(path.join(target, "SKILL.md")),
+              content: "Failed metadata permissions",
+            }),
+          }
+
+          const error = yield* remove(
+            fsService,
+            safeMove,
+            flock,
+            Global.make({ state }),
+            path.join(state, "skills", "global.json"),
+            entry,
+          ).pipe(Effect.flip)
+
+          expect(error).toBeInstanceOf(SkillV2.OperationError)
+          expect(error).toMatchObject({ operation: "delete" })
+          expect(descriptor.value).toBeNumber()
+          const metadataDescriptor = descriptor.value
+          if (metadataDescriptor === undefined) throw new Error("Expected metadata descriptor")
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(`/dev/fd/${metadataDescriptor}`).then(
+                () => false,
+                () => true,
+              ),
+            ),
+          ).toBe(true)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(target, "SKILL.md"), "utf8"))).toContain(
+            "Failed metadata permissions",
+          )
+          expect(yield* Effect.promise(() => fs.readdir(path.join(state, "skills", "trash")))).toEqual([])
+        }),
+      ),
+    )
+  })
+
   it.live("treats lock release failure after commit as successful deletion and clears the source cache", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

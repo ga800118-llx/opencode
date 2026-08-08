@@ -11,6 +11,7 @@ import {
   Prompt,
   Session,
   SessionMessage,
+  Skill,
 } from "../src/effect"
 
 test("sessions.get returns the decoded Effect projection", async () => {
@@ -193,6 +194,56 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(result.message).toEqual(expect.objectContaining({ id: "msg_model", type: "model-switched" }))
 })
 
+test("skill management methods retain the Effect HTTP contract", async () => {
+  const requests: Array<{
+    method: string
+    url: string
+    query: Record<string, string>
+    body: unknown
+  }> = []
+  const id = Skill.ManagementID.make("skill /?#")
+  const httpClient = HttpClient.make((request) => {
+    requests.push({
+      method: request.method,
+      url: request.url,
+      query: Object.fromEntries(request.urlParams.params),
+      body: request.body._tag === "Uint8Array" ? JSON.parse(new TextDecoder().decode(request.body.body)) : undefined,
+    })
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        request.method === "DELETE"
+          ? Response.json(
+              { _tag: "SkillManagementNotFoundError", id, message: "Skill installation not found." },
+              { status: 404 },
+            )
+          : Response.json(skillManagementResponse),
+      ),
+    )
+  })
+  const error = await Effect.gen(function* () {
+    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+    const location = { directory: "/tmp/project", workspace: "wrk_test" }
+    yield* client.skills.managementList({ location })
+    yield* client.skills.managementSetEnabled({ id, location, enabled: false })
+    return yield* client.skills.managementRemove({ id, location }).pipe(Effect.flip)
+  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+
+  expect(error._tag).toBe("SkillManagementNotFoundError")
+  expect(requests.map((request) => [request.method, request.url])).toEqual([
+    ["GET", "http://localhost:3000/api/skill/management"],
+    ["PATCH", "http://localhost:3000/api/skill/management/skill%20%2F%3F%23"],
+    ["DELETE", "http://localhost:3000/api/skill/management/skill%20%2F%3F%23"],
+  ])
+  expect(requests.map((request) => request.query)).toEqual(
+    Array.from({ length: 3 }, () => ({
+      "location[directory]": "/tmp/project",
+      "location[workspace]": "wrk_test",
+    })),
+  )
+  expect(requests[1].body).toEqual({ enabled: false })
+})
+
 test("sessions.history retains the typed SessionNotFoundError", async () => {
   const httpClient = HttpClient.make((request) =>
     Effect.succeed(
@@ -248,6 +299,15 @@ const admission = {
     delivery: "steer",
     timeCreated: 1_717_171_717_000,
   },
+}
+
+const skillManagementResponse = {
+  location: {
+    directory: "/tmp/project",
+    workspaceID: "wrk_test",
+    project: { id: "project", directory: "/tmp/project" },
+  },
+  data: [],
 }
 
 const modelSwitchedMessage = {

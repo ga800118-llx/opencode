@@ -15,6 +15,8 @@ export type PrepareInput = {
   readonly final: string
 }
 
+type FchmodHook = (descriptor: number, mode: number) => number | undefined
+
 export type Hooks = {
   readonly beforeSourceRename?: Effect.Effect<void>
   readonly afterSourceRename?: Effect.Effect<void>
@@ -24,6 +26,7 @@ export type Hooks = {
   readonly beforeStagingOpen?: Effect.Effect<void>
   readonly beforeStagingStat?: Effect.Effect<void>
   readonly probeLibrary?: () => Promise<string | undefined>
+  readonly fchmod?: FchmodHook
 }
 
 export class SafeMoveError extends Schema.TaggedErrorClass<SafeMoveError>()("SkillSafeMove.Error", {
@@ -159,7 +162,7 @@ export function make(hooks: Hooks = {}): Interface {
       }
       const capability = yield* Effect.acquireRelease(
         Effect.tryPromise({
-          try: () => prepareCapability(input, library),
+          try: () => prepareCapability(input, library, hooks.fchmod),
           catch: normalizeError,
         }),
         (capability) => Effect.sync(capability.close),
@@ -269,7 +272,7 @@ function libraryCandidates() {
   return ["libc.so.6", ...(architecture ? [`libc.musl-${architecture}.so.1`, `/lib/ld-musl-${architecture}.so.1`] : [])]
 }
 
-async function openNative(libraryPath: string): Promise<Native> {
+async function openNative(libraryPath: string, fchmod?: FchmodHook): Promise<Native> {
   const { dlopen, read } = await import("bun:ffi")
   if (process.platform === "darwin") {
     const library = dlopen(libraryPath, DarwinSymbols)
@@ -281,7 +284,7 @@ async function openNative(libraryPath: string): Promise<Native> {
     return {
       openAt: (directory, name, flags, mode = 0) => result(library.symbols.openat(directory, name, flags, mode), errno),
       makeDirectoryAt: (directory, name, mode) => unit(library.symbols.mkdirat(directory, name, mode), errno),
-      fchmod: (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno),
+      fchmod: withFchmodHook(fchmod, (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno)),
       stat: (descriptor, buffer) => unit(library.symbols.fstat(descriptor, buffer), errno),
       statAt: (directory, name, buffer) =>
         unit(library.symbols.fstatat(directory, name, buffer, AtSymlinkNoFollow), errno),
@@ -306,7 +309,7 @@ async function openNative(libraryPath: string): Promise<Native> {
   return {
     openAt: (directory, name, flags, mode = 0) => result(library.symbols.openat(directory, name, flags, mode), errno),
     makeDirectoryAt: (directory, name, mode) => unit(library.symbols.mkdirat(directory, name, mode), errno),
-    fchmod: (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno),
+    fchmod: withFchmodHook(fchmod, (descriptor, mode) => unit(library.symbols.fchmod(descriptor, mode), errno)),
     stat: (descriptor, buffer) => unit(library.symbols.fstat(descriptor, buffer), errno),
     statAt: (directory, name, buffer) =>
       unit(library.symbols.fstatat(directory, name, buffer, AtSymlinkNoFollow), errno),
@@ -338,8 +341,16 @@ function unit(value: number, errno: () => number): Result<void> {
   return { ok: false, errno: errno() }
 }
 
-async function prepareCapability(input: PrepareInput, libraryPath: string): Promise<Capability> {
-  const native = await openNative(libraryPath)
+function withFchmodHook(hook: FchmodHook | undefined, fallback: Native["fchmod"]): Native["fchmod"] {
+  if (!hook) return fallback
+  return (descriptor, mode) => {
+    const errno = hook(descriptor, mode)
+    return errno === undefined ? { ok: true, value: undefined } : { ok: false, errno }
+  }
+}
+
+async function prepareCapability(input: PrepareInput, libraryPath: string, fchmod?: FchmodHook): Promise<Capability> {
+  const native = await openNative(libraryPath, fchmod)
   const descriptors: number[] = []
   try {
     const source = resolveInput(input.sourceRoot, input.source)
@@ -478,7 +489,9 @@ async function prepareCapability(input: PrepareInput, libraryPath: string): Prom
       writeMetadata: (metadata) => {
         const current = requireStaging()
         const metadataDescriptor = unwrap(
-          native.openAt(current.descriptor, metadataName, MetadataFlags, 0o600),
+          // Bun FFI does not reliably preserve variadic openat modes. Create conservatively, then enforce the
+          // final owner-only read/write mode through fixed-arity fchmod on the held descriptor.
+          native.openAt(current.descriptor, metadataName, MetadataFlags, 0o400),
           "failed to create recovery metadata",
         )
         try {
