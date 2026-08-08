@@ -15,10 +15,8 @@ import { WorkspaceV2 } from "../workspace"
 import { SessionContextEpoch } from "./context-epoch"
 import { MessageTable, PartTable, SessionInputTable, SessionMessageTable, SessionTable } from "./sql"
 import type { DeepMutable } from "../schema"
-import type { Permission } from "@opencode-ai/schema/permission"
 
 type DatabaseService = Database.Interface["db"]
-type SessionInfo = SessionV1.SessionInfo & { permissionMode?: Permission.Mode }
 
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
@@ -43,7 +41,7 @@ function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] |
   return { cost: value.cost as Usage["cost"], tokens: value.tokens as Usage["tokens"] }
 }
 
-function sessionRow(info: SessionInfo): typeof SessionTable.$inferInsert {
+function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
     project_id: info.projectID,
@@ -70,7 +68,6 @@ function sessionRow(info: SessionInfo): typeof SessionTable.$inferInsert {
     tokens_cache_write: (info.tokens ?? { cache: { write: 0 } }).cache.write,
     revert: info.revert ? { ...info.revert, messageID: SessionMessage.ID.make(info.revert.messageID) } : null,
     permission: info.permission ? [...info.permission] : undefined,
-    permission_mode: info.permissionMode,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,

@@ -13,6 +13,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
+import { fromRow } from "@opencode-ai/core/session/info"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { Prompt } from "@opencode-ai/core/session/prompt"
 import { SessionMessageUpdater } from "@opencode-ai/core/session/message-updater"
@@ -22,7 +23,6 @@ import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { testEffect } from "./lib/effect"
 import { Snapshot } from "@opencode-ai/core/snapshot"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
 
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, SessionProjector.node])))
 const sessionsLayer = AppNodeBuilder.build(SessionV2.node, [[SessionExecution.node, SessionExecution.noopLayer]])
@@ -45,7 +45,7 @@ const assistantRow = (
 }
 
 describe("SessionProjector", () => {
-  it.effect("projects permission mode from extended legacy session info", () =>
+  it.effect("projects durable permission mode switches", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
       yield* db
@@ -53,27 +53,33 @@ describe("SessionProjector", () => {
         .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
         .run()
         .pipe(Effect.orDie)
-      const info = {
-        id: sessionID,
-        slug: "test",
-        projectID: Project.ID.global,
-        directory: AbsolutePath.make("/project"),
-        title: "test",
-        version: "test",
-        permissionMode: "auto" as const,
-        time: { created: 0, updated: 0 },
-      }
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: Project.ID.global,
+          slug: "test",
+          directory: "/project",
+          title: "test",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+      const timestamp = DateTime.makeUnsafe(42)
 
-      yield* EventV2.Service.use((service) => service.publish(SessionV1.Event.Created, { sessionID, info }))
+      yield* EventV2.Service.use((service) =>
+        service.publish(SessionEvent.PermissionModeSwitched, { sessionID, timestamp, mode: "auto" }),
+      )
 
-      expect(
-        yield* db
-          .select({ permissionMode: SessionTable.permission_mode })
-          .from(SessionTable)
-          .where(eq(SessionTable.id, sessionID))
-          .get()
-          .pipe(Effect.orDie),
-      ).toEqual({ permissionMode: "auto" })
+      const row = yield* db
+        .select()
+        .from(SessionTable)
+        .where(eq(SessionTable.id, sessionID))
+        .get()
+        .pipe(Effect.orDie)
+      if (!row) return yield* Effect.die("Projected Session row is missing")
+      expect(row).toMatchObject({ permission_mode: "auto", time_updated: DateTime.toEpochMillis(timestamp) })
+      expect(fromRow(row).permissionMode).toBe("auto")
     }),
   )
 
