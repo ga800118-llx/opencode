@@ -11,7 +11,7 @@ import { SessionStore } from "./session/store"
 import { Wildcard } from "./util/wildcard"
 import { PermissionSaved } from "./permission/saved"
 
-export { Effect, Rule, Ruleset } from "@opencode-ai/schema/permission"
+export { Effect, Mode, Rule, Ruleset } from "@opencode-ai/schema/permission"
 const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "deny" }]
 
 export const ID = Permission.ID

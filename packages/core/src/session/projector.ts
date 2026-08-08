@@ -347,6 +347,14 @@ const layer = Layer.effectDiscard(
         yield* run(db, event)
       }),
     )
+    yield* events.project(SessionEvent.PermissionModeSwitched, (event) =>
+      db
+        .update(SessionTable)
+        .set({ permission_mode: event.data.mode, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+        .where(eq(SessionTable.id, event.data.sessionID))
+        .run()
+        .pipe(Effect.orDie),
+    )
     yield* events.project(SessionEvent.Prompted, (event) =>
       Effect.gen(function* () {
         if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")

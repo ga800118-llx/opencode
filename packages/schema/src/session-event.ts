@@ -6,6 +6,7 @@ import { Event } from "./event"
 import { ProviderMetadata, ToolContent } from "./llm"
 import { Delivery } from "./session-delivery"
 import { Model } from "./model"
+import { Permission } from "./permission"
 import { DateTimeUtcFromMillis, NonNegativeInt, RelativePath } from "./schema"
 import { FileAttachment, Prompt } from "./prompt"
 import { SessionID } from "./session-id"
@@ -72,6 +73,16 @@ export const ModelSwitched = Event.define({
   },
 })
 export type ModelSwitched = typeof ModelSwitched.Type
+
+export const PermissionModeSwitched = Event.define({
+  type: "session.next.permission-mode.switched",
+  ...options,
+  schema: {
+    ...Base,
+    mode: Permission.Mode,
+  },
+})
+export type PermissionModeSwitched = typeof PermissionModeSwitched.Type
 
 export const Moved = Event.define({
   type: "session.next.moved",
@@ -448,6 +459,7 @@ export namespace RevertEvent {
 export const DurableDefinitions = Event.inventory(
   AgentSwitched,
   ModelSwitched,
+  PermissionModeSwitched,
   Moved,
   Prompted,
   PromptAdmitted,
@@ -479,6 +491,7 @@ export const DurableDefinitions = Event.inventory(
 export const Definitions = Event.inventory(
   AgentSwitched,
   ModelSwitched,
+  PermissionModeSwitched,
   Moved,
   Prompted,
   PromptAdmitted,

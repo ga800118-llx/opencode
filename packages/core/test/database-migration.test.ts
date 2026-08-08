@@ -70,6 +70,9 @@ describe("DatabaseMigration", () => {
           name: "session",
         })
         expect(
+          yield* db.get(sql`SELECT name FROM pragma_table_info('session') WHERE name = 'permission_mode'`),
+        ).toEqual({ name: "permission_mode" })
+        expect(
           yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_input'`),
         ).toEqual({ name: "session_input" })
         expect(

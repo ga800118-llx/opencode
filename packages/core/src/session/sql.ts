@@ -13,6 +13,7 @@ import { WorkspaceV2 } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { SystemContext } from "../system-context/index"
 import { AgentV2 } from "../agent"
+import type { Permission } from "@opencode-ai/schema/permission"
 import type { Revert } from "@opencode-ai/schema/revert"
 
 type SessionMessageData = Omit<(typeof SessionMessage.Message)["Encoded"], "type" | "id">
@@ -48,6 +49,7 @@ export const SessionTable = sqliteTable(
     tokens_cache_write: integer().notNull().default(0),
     revert: text({ mode: "json" }).$type<Revert.State>(),
     permission: text({ mode: "json" }).$type<PermissionV1.Ruleset>(),
+    permission_mode: text().$type<Permission.Mode>(),
     agent: text(),
     model: text({ mode: "json" }).$type<{
       id: string
