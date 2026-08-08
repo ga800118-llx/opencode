@@ -172,11 +172,10 @@ describe("server session", () => {
     const apply = (created: number) =>
       ctx.store.applyV2({
         id: `evt_permission_mode_${created}`,
-        created,
         type: "session.next.permission-mode.switched",
         durable: { aggregateID: "child", seq: created, version: 1 },
         location: { directory: "/repo" },
-        data: { sessionID: "child", mode: "auto" },
+        data: { timestamp: created, sessionID: "child", mode: "auto" },
       })
 
     apply(9)

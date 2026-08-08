@@ -28,12 +28,11 @@ type MessageApi = ServerApi["message"]
 type ProjectedSession = Session & { readonly permissionMode?: Permission.Mode }
 type PermissionModeSwitchedCurrentEvent = {
   readonly id: string
-  readonly created: number
   readonly metadata?: Readonly<Record<string, unknown>>
   readonly type: "session.next.permission-mode.switched"
   readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
   readonly location?: { readonly directory: string; readonly workspaceID?: string }
-  readonly data: { readonly sessionID: string; readonly mode: Permission.Mode }
+  readonly data: { readonly timestamp: number; readonly sessionID: string; readonly mode: Permission.Mode }
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -950,11 +949,11 @@ export function createServerSession(
     const sessionID = event.data.sessionID
     if (event.type === "session.next.permission-mode.switched") {
       const info = data.info[sessionID]
-      if (!info || event.created < info.time.updated) return
+      if (!info || event.data.timestamp < info.time.updated) return
       remember({
         ...info,
         permissionMode: event.data.mode,
-        time: { ...info.time, updated: event.created },
+        time: { ...info.time, updated: event.data.timestamp },
       })
       return
     }
