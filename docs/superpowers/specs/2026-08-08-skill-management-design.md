@@ -98,15 +98,15 @@ new location creates a new installation identity.
 
 Skill sources will retain enough registration metadata to classify an entry:
 
-| Source | Scope | Display | Delete |
-| --- | --- | --- | --- |
-| Built-in embedded Skill | Global | Built-in | No |
-| Directory from global config directories | Global | Global | When safely owned |
-| Directory from project config directories | Project | Project | When safely owned |
-| Path declared by a global config document | Global | Custom path | When safely owned |
-| Path declared by a project config document | Project | Custom path | When safely owned |
-| URL declared by global or project config | Declaring scope | Remote | No |
-| Source registered without ownership metadata | Inferred scope | Plugin | No |
+| Source                                       | Scope           | Display     | Delete            |
+| -------------------------------------------- | --------------- | ----------- | ----------------- |
+| Built-in embedded Skill                      | Global          | Built-in    | No                |
+| Directory from global config directories     | Global          | Global      | When safely owned |
+| Directory from project config directories    | Project         | Project     | When safely owned |
+| Path declared by a global config document    | Global          | Custom path | When safely owned |
+| Path declared by a project config document   | Project         | Custom path | When safely owned |
+| URL declared by global or project config     | Declaring scope | Remote      | No                |
+| Source registered without ownership metadata | Inferred scope  | Plugin      | No                |
 
 The configuration Skill plugin supplies authoritative scope and ownership
 metadata. For third-party plugin sources that omit metadata, the manager may
@@ -171,11 +171,33 @@ for a local directory source.
   linked targets are not deletable.
 - Built-in, URL, plugin-owned, and unknown sources are never deletable.
 
+On supported macOS and Linux architectures, mutation preparation opens and
+holds the source-root chain, source entry, and recovery parent by descriptor.
+Moves and recovery finalization are descriptor-relative and use the platform's
+atomic no-replace rename. The operation rechecks directory-entry identities
+before each move and verifies the moved source, staging record, metadata, and
+payload identities before state is committed. Runtimes without a successfully
+probed no-replace capability report these entries as unsafe and do not offer
+deletion.
+
+POSIX does not provide a rename operation that also compares the source inode.
+Therefore, a same-permission, non-cooperating process replacing the final source
+entry between the last identity check and the rename syscall is outside the hard
+security boundary. The implementation detects that race immediately after the
+move and performs an uninterruptible no-replace rollback. If the original name
+has concurrently become occupied, it never overwrites the new entry and retains
+the moved payload in the recovery area while reporting deletion failure. This
+model protects against symlink and ancestor redirection, directory replacement,
+destination overwrite, and ordinary concurrent mutation without claiming that
+the final POSIX syscall window can be eliminated.
+
 The delete operation first moves the target beneath
 `Global.state/skills/trash/` and records the original path, installation ID,
 and deletion timestamp. The UI does not expose restore in this version, but the
 operation remains recoverable from the state directory. If the move cannot be
-completed, the original Skill remains in place and the API reports failure.
+completed, compensation restores the original Skill when its name remains free.
+If an independent process occupies that name, the payload remains in recovery
+and the API reports failure rather than overwriting either object.
 
 Every deletion requires a confirmation dialog naming the Skill and showing the
 target path. The dialog explains that the item will be removed from GUaI Code
