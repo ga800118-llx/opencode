@@ -30,7 +30,13 @@ const denied = SkillV2.Info.make({
 
 const layer = (list: () => SkillV2.Info[]) =>
   AppNodeBuilder.build(SkillGuidance.node, [
-    [SkillV2.node, Layer.mock(SkillV2.Service, { list: () => Effect.succeed(list()) })],
+    [
+      SkillV2.node,
+      Layer.mock(SkillV2.Service, {
+        list: () => Effect.succeed(list()),
+        management: { list: () => Effect.succeed([]) },
+      }),
+    ],
   ])
 
 describe("SkillGuidance", () => {

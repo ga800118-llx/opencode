@@ -10,6 +10,7 @@ import { FSUtil } from "./fs-util"
 import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
+import { effective, project, type Installed } from "./skill/management"
 import { State } from "./state"
 
 export const DirectorySource = Skill.DirectorySource
@@ -26,6 +27,18 @@ export type Source = typeof Source.Type
 
 export const Info = Skill.Info
 export type Info = Skill.Info
+
+export const ManagementID = Skill.ManagementID
+export type ManagementID = Skill.ManagementID
+
+export const ManagementStatus = Skill.ManagementStatus
+export type ManagementStatus = typeof ManagementStatus.Type
+
+export const ManagementSource = Skill.ManagementSource
+export type ManagementSource = typeof ManagementSource.Type
+
+export const ManagementInfo = Skill.ManagementInfo
+export type ManagementInfo = Skill.ManagementInfo
 
 export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
   skills.filter((skill) => PermissionV2.evaluate("skill", skill.name, agent.permissions).effect !== "deny")
@@ -49,6 +62,9 @@ export type Draft = {
 export interface Interface extends State.Transformable<Draft> {
   readonly sources: () => Effect.Effect<Source[]>
   readonly list: () => Effect.Effect<Info[]>
+  readonly management: {
+    readonly list: () => Effect.Effect<ManagementInfo[]>
+  }
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Skill") {}
@@ -111,15 +127,19 @@ const layer = Layer.effect(
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
     const cache = new Map<string, Info[]>()
-    const list = Effect.fn("SkillV2.list")(function* () {
-      const skills = new Map<string, Info>()
+    const installed = Effect.fn("SkillV2.installed")(function* () {
+      const skills: Installed[] = []
       for (const source of state.get().sources) {
         const key = Source.key(source)
         const loaded = cache.get(key) ?? (yield* load(source))
         cache.set(key, loaded)
-        for (const skill of loaded) skills.set(skill.name, skill)
+        skills.push(...loaded.map((info) => ({ source, info })))
       }
-      return Array.from(skills.values())
+      return skills
+    })
+    const disabled = new Set<ManagementID>()
+    const list = Effect.fn("SkillV2.list")(function* () {
+      return effective(yield* installed(), disabled)
     })
 
     return Service.of({
@@ -129,6 +149,11 @@ const layer = Layer.effect(
         return state.get().sources
       }),
       list,
+      management: {
+        list: Effect.fn("SkillV2.management.list")(function* () {
+          return project(yield* installed(), disabled)
+        }),
+      },
     })
   }),
 )

@@ -124,6 +124,15 @@ describe("SkillV2", () => {
             { type: "directory", path: AbsolutePath.make(first) },
             { type: "directory", path: AbsolutePath.make(second) },
           ])
+          const managed = yield* skill.management.list()
+          expect(managed.map((item) => ({ description: item.description, name: item.name, status: item.status }))).toEqual([
+            { description: undefined, name: "foo", status: "active" },
+            { description: "First", name: "review", status: "shadowed" },
+            { description: "Second", name: "review", status: "active" },
+          ])
+          expect(managed.every((item) => !("content" in item))).toBe(true)
+          expect(managed.map((item) => item.id)).toEqual((yield* skill.management.list()).map((item) => item.id))
+          expect(new Set(managed.map((item) => item.id)).size).toBe(3)
           expect(yield* skill.list()).toEqual([
             SkillV2.Info.make({
               name: "foo",
@@ -137,6 +146,34 @@ describe("SkillV2", () => {
               location: AbsolutePath.make(path.join(second, "review", "SKILL.md")),
               content: "# review",
             },
+          ])
+        }),
+      ),
+    ),
+  )
+
+  it.live("classifies origin-free directories as nondeletable project plugin sources", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(tmp.path, "local"), { recursive: true })
+            await write(tmp.path, "local", "Local plugin skill")
+          })
+
+          const skill = yield* SkillV2.Service
+          yield* skill.transform((editor) => editor.source({ type: "directory", path: AbsolutePath.make(tmp.path) }))
+
+          expect(yield* skill.management.list()).toEqual([
+            expect.objectContaining({
+              name: "local",
+              source: { type: "plugin", scope: "project", value: AbsolutePath.make(tmp.path) },
+              deletable: false,
+              deleteBlocked: "plugin",
+            }),
           ])
         }),
       ),
