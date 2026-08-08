@@ -7,11 +7,26 @@ import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
 import { FSUtil } from "./fs-util"
+import { Global } from "./global"
+import { Location } from "./location"
 import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
-import { effective, project, type Installed } from "./skill/management"
+import {
+  effective,
+  id,
+  NotFoundError,
+  OperationError,
+  project,
+  readState,
+  scope,
+  statePaths,
+  updateState,
+  type Installed,
+  type ManagementError,
+} from "./skill/management"
 import { State } from "./state"
+import { EffectFlock } from "./util/effect-flock"
 
 export const DirectorySource = Skill.DirectorySource
 export type DirectorySource = Skill.DirectorySource
@@ -40,6 +55,9 @@ export type ManagementSource = typeof ManagementSource.Type
 export const ManagementInfo = Skill.ManagementInfo
 export type ManagementInfo = Skill.ManagementInfo
 
+export { NotFoundError, OperationError }
+export type { ManagementError }
+
 export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
   skills.filter((skill) => PermissionV2.evaluate("skill", skill.name, agent.permissions).effect !== "deny")
 
@@ -64,6 +82,10 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
   readonly management: {
     readonly list: () => Effect.Effect<ManagementInfo[]>
+    readonly setEnabled: (
+      id: ManagementID,
+      enabled: boolean,
+    ) => Effect.Effect<ManagementInfo[], ManagementError>
   }
 }
 
@@ -74,6 +96,9 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const discovery = yield* SkillDiscovery.Service
     const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
+    const location = yield* Location.Service
+    const flock = yield* EffectFlock.Service
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -137,9 +162,16 @@ const layer = Layer.effect(
       }
       return skills
     })
-    const disabled = new Set<ManagementID>()
+    const paths = statePaths(global, location)
+    const disabled = Effect.fn("SkillV2.disabled")(function* () {
+      const states = yield* Effect.all([readState(fs, paths.global), readState(fs, paths.project)])
+      return { global: states[0], project: states[1] }
+    })
     const list = Effect.fn("SkillV2.list")(function* () {
-      return effective(yield* installed(), disabled)
+      return effective(yield* installed(), yield* disabled())
+    })
+    const managementList = Effect.fn("SkillV2.management.list")(function* () {
+      return project(yield* installed(), yield* disabled())
     })
 
     return Service.of({
@@ -150,12 +182,23 @@ const layer = Layer.effect(
       }),
       list,
       management: {
-        list: Effect.fn("SkillV2.management.list")(function* () {
-          return project(yield* installed(), disabled)
+        list: managementList,
+        setEnabled: Effect.fn("SkillV2.management.setEnabled")(function* (
+          installationID: ManagementID,
+          enabled: boolean,
+        ) {
+          const installation = (yield* installed()).find((entry) => id(entry) === installationID)
+          if (!installation) return yield* new NotFoundError({ id: installationID })
+          yield* updateState(fs, flock, paths[scope(installation.source)], installationID, enabled)
+          return yield* managementList()
         }),
       },
     })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillDiscovery.node, FSUtil.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [SkillDiscovery.node, FSUtil.node, Global.node, Location.node, EffectFlock.node],
+})

@@ -1,15 +1,19 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Logger } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Global } from "@opencode-ai/core/global"
+import { Location } from "@opencode-ai/core/location"
+import { Project } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
 import { project, type Installed } from "@opencode-ai/core/skill/management"
+import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
@@ -24,9 +28,94 @@ const discovery = Layer.succeed(
     },
   }),
 )
-const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [[SkillDiscovery.node, discovery]]),
+const testServices = Layer.unwrap(
+  Effect.acquireRelease(
+    Effect.promise(() => tmpdir()),
+    (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+  ).pipe(
+    Effect.map((tmp) =>
+      AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [
+        [SkillDiscovery.node, discovery],
+        [Global.node, Global.layerWith({ state: path.join(tmp.path, "state") })],
+        [
+          Location.node,
+          Layer.succeed(
+            Location.Service,
+            Location.Service.of({
+              directory: AbsolutePath.make(tmp.path),
+              project: { id: Project.ID.global, directory: AbsolutePath.make(tmp.path) },
+            }),
+          ),
+        ],
+      ]),
+    ),
+  ),
 )
+const it = testEffect(testServices)
+
+type SkillLayerInput = {
+  state: string
+  directory: string
+  projectID: Project.ID
+  projectRoot: string
+}
+
+function skillLayer(input: SkillLayerInput) {
+  return Layer.fresh(
+    AppNodeBuilder.build(SkillV2.node, [
+      [SkillDiscovery.node, discovery],
+      [Global.node, Global.layerWith({ state: input.state })],
+      [
+        Location.node,
+        Layer.succeed(
+          Location.Service,
+          Location.Service.of({
+            directory: AbsolutePath.make(input.directory),
+            project: { id: input.projectID, directory: AbsolutePath.make(input.projectRoot) },
+          }),
+        ),
+      ],
+    ]),
+  )
+}
+
+function runSkill(
+  input: SkillLayerInput,
+  sources: readonly SkillV2.Source[],
+  operation?: { id: SkillV2.ManagementID; enabled: boolean },
+) {
+  return Effect.gen(function* () {
+    const skill = yield* SkillV2.Service
+    yield* skill.transform((editor) => sources.forEach((source) => editor.source(source)))
+    if (operation) yield* skill.management.setEnabled(operation.id, operation.enabled)
+    return {
+      management: yield* skill.management.list(),
+      effective: yield* skill.list(),
+    }
+  }).pipe(Effect.provide(skillLayer(input)))
+}
+
+function embedded(name: string, scope: "global" | "project", value: string) {
+  return SkillV2.EmbeddedSource.make({
+    type: "embedded",
+    skill: SkillV2.Info.make({
+      name,
+      location: AbsolutePath.make(`/skills/${value}/${name}.md`),
+      content: value,
+    }),
+    origin: { type: "builtin", scope, value },
+  })
+}
+
+function stateFile(input: SkillLayerInput, scope: "global" | "project") {
+  if (scope === "global") return path.join(input.state, "skills", "global.json")
+  const key = Hash.sha256(
+    input.projectID === Project.ID.global
+      ? [input.projectID, input.projectRoot, input.directory].join("\0")
+      : [input.projectID, input.projectRoot].join("\0"),
+  )
+  return path.join(input.state, "skills", "projects", `${key}.json`)
+}
 
 function write(directory: string, name: string, description: string) {
   return fs.writeFile(
@@ -97,7 +186,7 @@ describe("SkillV2", () => {
         },
       ]
 
-      const managed = project(entries, new Set())
+      const managed = project(entries, { global: new Set(), project: new Set() })
       expect(managed.map((item) => ({ deleteBlocked: item.deleteBlocked, source: item.source }))).toEqual([
         { deleteBlocked: "builtin", source: { type: "builtin", scope: "global", value: "builtin" } },
         {
@@ -224,6 +313,291 @@ describe("SkillV2", () => {
           ])
         }),
       ),
+    ),
+  )
+
+  it.live("disables the active duplicate and re-enables it with original precedence", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const first = path.join(tmp.path, "first")
+          const second = path.join(tmp.path, "second")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(first, "review"), { recursive: true })
+            await fs.mkdir(path.join(second, "review"), { recursive: true })
+            await write(first, "review", "First")
+            await write(second, "review", "Second")
+          })
+          const sources = [
+            SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(first),
+              origin: { type: "config-directory", scope: "project", value: first },
+            }),
+            SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(second),
+              origin: { type: "config-directory", scope: "global", value: second },
+            }),
+          ]
+          const initial = yield* runSkill(input, sources)
+          const active = initial.management.find((item) => item.status === "active")!
+
+          const disabled = yield* runSkill(input, sources, { id: active.id, enabled: false })
+          expect(disabled.management.map((item) => item.status)).toEqual(["active", "disabled"])
+          expect(disabled.effective.map((item) => item.description)).toEqual(["First"])
+          expect(JSON.parse(yield* Effect.promise(() => fs.readFile(stateFile(input, "global"), "utf8")))).toEqual({
+            version: 1,
+            disabled: [active.id],
+          })
+
+          const enabled = yield* runSkill(input, sources, { id: active.id, enabled: true })
+          expect(enabled.management.map((item) => item.status)).toEqual(["shadowed", "active"])
+          expect(enabled.effective.map((item) => item.description)).toEqual(["Second"])
+        }),
+      ),
+    ),
+  )
+
+  it.live("persists sorted global and project state across fresh services", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo", "packages", "core"),
+            projectID: Project.ID.make("git-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const sources = [
+            embedded("alpha", "project", "alpha"),
+            embedded("beta", "project", "beta"),
+            embedded("global", "global", "global"),
+          ]
+          const initial = yield* runSkill(input, sources)
+          const ids = initial.management.map((item) => item.id)
+          yield* runSkill(input, sources, { id: ids[1], enabled: false })
+          yield* runSkill(input, sources, { id: ids[0], enabled: false })
+          yield* runSkill(input, sources, { id: ids[2], enabled: false })
+
+          expect(JSON.parse(yield* Effect.promise(() => fs.readFile(stateFile(input, "project"), "utf8")))).toEqual({
+            version: 1,
+            disabled: [ids[0], ids[1]].toSorted(),
+          })
+          expect(JSON.parse(yield* Effect.promise(() => fs.readFile(stateFile(input, "global"), "utf8")))).toEqual({
+            version: 1,
+            disabled: [ids[2]],
+          })
+          expect((yield* runSkill(input, sources)).management.map((item) => item.status)).toEqual([
+            "disabled",
+            "disabled",
+            "disabled",
+          ])
+        }),
+      ),
+    ),
+  )
+
+  it.live("shares global disable state across locations", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const first: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "first"),
+            projectID: Project.ID.make("first"),
+            projectRoot: path.join(tmp.path, "first"),
+          }
+          const second = {
+            ...first,
+            directory: path.join(tmp.path, "second"),
+            projectID: Project.ID.make("second"),
+            projectRoot: path.join(tmp.path, "second"),
+          }
+          const sources = [embedded("shared", "global", "shared")]
+          const id = (yield* runSkill(first, sources)).management[0].id
+          yield* runSkill(first, sources, { id, enabled: false })
+          expect((yield* runSkill(second, sources)).management[0].status).toBe("disabled")
+        }),
+      ),
+    ),
+  )
+
+  it.live("isolates project state across distinct Git projects", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const first: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "first"),
+            projectID: Project.ID.make("first"),
+            projectRoot: path.join(tmp.path, "first"),
+          }
+          const second = {
+            ...first,
+            directory: path.join(tmp.path, "second"),
+            projectID: Project.ID.make("second"),
+            projectRoot: path.join(tmp.path, "second"),
+          }
+          const sources = [embedded("local", "project", "shared-installation")]
+          const id = (yield* runSkill(first, sources)).management[0].id
+          yield* runSkill(first, sources, { id, enabled: false })
+          expect((yield* runSkill(second, sources)).management[0].status).toBe("active")
+        }),
+      ),
+    ),
+  )
+
+  it.live("shares project state across opened directories in one Git project", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const first: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo", "packages", "first"),
+            projectID: Project.ID.make("shared-git-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const second = { ...first, directory: path.join(tmp.path, "repo", "packages", "second") }
+          const sources = [embedded("local", "project", "shared-installation")]
+          const id = (yield* runSkill(first, sources)).management[0].id
+          yield* runSkill(first, sources, { id, enabled: false })
+          expect((yield* runSkill(second, sources)).management[0].status).toBe("disabled")
+          expect(stateFile(first, "project")).toBe(stateFile(second, "project"))
+        }),
+      ),
+    ),
+  )
+
+  it.live("isolates non-Git global projects by opened directory", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const first: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "first"),
+            projectID: Project.ID.global,
+            projectRoot: path.parse(tmp.path).root,
+          }
+          const second = { ...first, directory: path.join(tmp.path, "second") }
+          const sources = [embedded("local", "project", "shared-installation")]
+          const id = (yield* runSkill(first, sources)).management[0].id
+          yield* runSkill(first, sources, { id, enabled: false })
+          expect((yield* runSkill(second, sources)).management[0].status).toBe("active")
+          expect(stateFile(first, "project")).not.toBe(stateFile(second, "project"))
+        }),
+      ),
+    ),
+  )
+
+  it.live("keeps source scope authoritative over stale IDs in the other state file", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const sources = [embedded("moved", "global", "moved")]
+          const id = (yield* runSkill(input, sources)).management[0].id
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.dirname(stateFile(input, "project")), { recursive: true })
+            await fs.writeFile(stateFile(input, "project"), JSON.stringify({ version: 1, disabled: [id] }))
+          })
+          expect((yield* runSkill(input, sources)).management[0].status).toBe("active")
+        }),
+      ),
+    ),
+  )
+
+  it.live("warns for malformed state and treats malformed or missing state as enabled", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.dirname(stateFile(input, "global")), { recursive: true })
+            await fs.writeFile(stateFile(input, "global"), "{private malformed content")
+          })
+          const logs: unknown[] = []
+          const logger = Logger.make((options) => logs.push(options.message))
+          const result = yield* runSkill(input, [
+            embedded("global", "global", "global"),
+            embedded("project", "project", "project"),
+          ]).pipe(Effect.provide(Logger.layer([logger])))
+
+          expect(result.management.map((item) => item.status)).toEqual(["active", "active"])
+          expect(JSON.stringify(logs)).toContain(stateFile(input, "global"))
+          expect(JSON.stringify(logs)).not.toContain("private malformed content")
+        }),
+      ),
+    ),
+  )
+
+  it.live("fails missing installation mutations without writing state", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) => {
+        const input: SkillLayerInput = {
+          state: path.join(tmp.path, "state"),
+          directory: path.join(tmp.path, "repo"),
+          projectID: Project.ID.make("project"),
+          projectRoot: path.join(tmp.path, "repo"),
+        }
+        return Effect.gen(function* () {
+          const error = yield* Effect.flip(
+            runSkill(input, [embedded("known", "project", "known")], {
+              id: SkillV2.ManagementID.make("missing"),
+              enabled: false,
+            }),
+          )
+          expect(error).toBeInstanceOf(SkillV2.NotFoundError)
+          if (!(error instanceof SkillV2.NotFoundError)) return
+          expect(error.id).toBe(SkillV2.ManagementID.make("missing"))
+          expect(yield* Effect.promise(() => fs.stat(path.join(input.state, "skills")).then(() => true, () => false))).toBe(
+            false,
+          )
+        })
+      }),
     ),
   )
 

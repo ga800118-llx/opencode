@@ -34,7 +34,10 @@ const layer = (list: () => SkillV2.Info[]) =>
       SkillV2.node,
       Layer.mock(SkillV2.Service, {
         list: () => Effect.succeed(list()),
-        management: { list: () => Effect.succeed([]) },
+        management: {
+          list: () => Effect.succeed([]),
+          setEnabled: () => Effect.die("unused"),
+        },
       }),
     ],
   ])
