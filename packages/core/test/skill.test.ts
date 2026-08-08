@@ -39,6 +39,30 @@ description: ${description}
 }
 
 describe("SkillV2", () => {
+  it.live("retains source origin metadata", () =>
+    Effect.gen(function* () {
+      const skill = yield* SkillV2.Service
+      yield* skill.transform((editor) =>
+        editor.source(
+          SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make("/repo/.opencode/skills"),
+            origin: {
+              scope: "project",
+              type: "config-directory",
+              value: "/repo/.opencode",
+            },
+          }),
+        ),
+      )
+      expect(yield* skill.sources()).toContainEqual({
+        type: "directory",
+        path: AbsolutePath.make("/repo/.opencode/skills"),
+        origin: { scope: "project", type: "config-directory", value: "/repo/.opencode" },
+      })
+    }),
+  )
+
   it.live("registers sources and resolves later source precedence", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
