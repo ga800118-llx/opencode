@@ -61,6 +61,7 @@ describe("V2 permission mode state", () => {
   test("keeps draft defaults and auto confirmation local", async () => {
     const harness = setup({})
 
+    expect(harness.state.supportsModes()).toBe(true)
     expect(harness.state.mode(undefined, "/project")).toBe("standard")
     expect(harness.state.autoConfirmed("/project")).toBe(false)
 
@@ -169,6 +170,29 @@ describe("V2 permission mode state", () => {
     expect(harness.state.mode("session", "/project")).toBe("standard")
     expect(harness.switches).toEqual([])
   })
+
+  test("keeps legacy auto-accept behavior on V2 servers without the capability", async () => {
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "restricted", supportsPermissionModes: false })
+
+    expect(harness.state.supportsModes()).toBe(false)
+    harness.state.enableAutoAccept("session", "/project")
+    harness.ask(request)
+    await Bun.sleep(0)
+
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+    expect(harness.replies).toEqual([
+      {
+        sessionID: "session",
+        requestID: "permission",
+        reply: "once",
+        location: { directory: "/project" },
+      },
+    ])
+
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    expect(harness.switches).toEqual([])
+  })
 })
 
 function permission(id: string, sessionID: string): PermissionRequest {
@@ -186,6 +210,7 @@ function currentPermission(request: PermissionRequest) {
 
 function setup(input: {
   protocol?: "v1" | "v2"
+  supportsPermissionModes?: boolean
   permissionMode?: Permission.Mode
   pending?: PermissionRequest[]
   switchMode?: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
@@ -219,6 +244,7 @@ function setup(input: {
     scope: `permission-mode-test-${scope++}`,
     protocol: Promise.resolve(input.protocol ?? "v2"),
     protocolKind: () => input.protocol ?? "v2",
+    supportsPermissionModes: () => input.supportsPermissionModes ?? true,
     api: {
       session: {
         switchPermissionMode: (value: { sessionID: string; mode: Permission.Mode }) => {

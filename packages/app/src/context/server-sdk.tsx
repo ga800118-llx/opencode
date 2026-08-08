@@ -11,7 +11,11 @@ import { ServerConnection, useServer } from "./server"
 import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerScope } from "@/utils/server-scope"
-import { detectServerProtocol, type ServerProtocol } from "@/utils/server-protocol"
+import {
+  detectPermissionModeCapability,
+  detectServerProtocol,
+  type ServerProtocol,
+} from "@/utils/server-protocol"
 import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
 import { normalizeProductEvent, type ProductEvent } from "@/product/events"
 
@@ -175,6 +179,7 @@ type ServerSDKBase = {
   scope: ServerScope
   protocol: Promise<ServerProtocol>
   protocolKind: Accessor<ServerProtocol | undefined>
+  supportsPermissionModes: Accessor<boolean>
   url: string
   client: ReturnType<typeof createSdkForServer>
   api: CompatibleApi
@@ -213,6 +218,10 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   const protocol = detectServerProtocol(server.http, platform.fetch ?? globalThis.fetch)
   const [protocolKind] = createResource(
     () => protocol,
+    (value) => value,
+  )
+  const [permissionModeCapability] = createResource(
+    () => detectPermissionModeCapability(server.http, platform.fetch ?? globalThis.fetch, protocol),
     (value) => value,
   )
   const emitter = createGlobalEmitter<{
@@ -358,6 +367,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     scope,
     protocol,
     protocolKind,
+    supportsPermissionModes: () => permissionModeCapability() === true,
     url: server.http.url,
     client: sdk,
     api,

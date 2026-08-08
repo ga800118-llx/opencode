@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { detectServerProtocol } from "./server-protocol"
+import {
+  detectPermissionModeCapability,
+  detectServerProtocol,
+  hasPermissionModeCapability,
+} from "./server-protocol"
 
 const server = { url: "http://localhost:4096" }
 const json = (value: unknown, status = 200) =>
@@ -36,5 +40,78 @@ describe("detectServerProtocol", () => {
     })
 
     expect(await detectServerProtocol(server, fetcher)).toBe("v1")
+  })
+})
+
+describe("hasPermissionModeCapability", () => {
+  test("recognizes only the permission-mode POST operation", () => {
+    expect(
+      hasPermissionModeCapability({
+        paths: {
+          "/api/session/{sessionID}/permission-mode": {
+            post: { operationId: "v2.session.switchPermissionMode" },
+          },
+        },
+      }),
+    ).toBe(true)
+    expect(
+      hasPermissionModeCapability({
+        paths: {
+          "/api/session/{sessionID}/permission-mode": { get: {} },
+        },
+      }),
+    ).toBe(false)
+    expect(hasPermissionModeCapability({ paths: [] })).toBe(false)
+  })
+})
+
+describe("detectPermissionModeCapability", () => {
+  test("does not probe OpenAPI for V1 servers", async () => {
+    const paths: string[] = []
+    const fetcher = mockFetch((input) => {
+      paths.push(new URL(input instanceof Request ? input.url : input).pathname)
+      return Promise.resolve(json({}))
+    })
+
+    expect(await detectPermissionModeCapability(server, fetcher, "v1")).toBe(false)
+    expect(paths).toEqual([])
+  })
+
+  test("recognizes the current V2 permission-mode operation", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/api/session/{sessionID}/permission-mode": {
+              post: { operationId: "v2.session.switchPermissionMode" },
+            },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectPermissionModeCapability(server, fetcher, "v2")).toBe(true)
+  })
+
+  test("rejects an older V2 OpenAPI document without the POST operation", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/api/session/{sessionID}/permission-mode": { get: {} },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectPermissionModeCapability(server, fetcher, "v2")).toBe(false)
+  })
+
+  test("rejects missing or malformed OpenAPI documents", async () => {
+    const missing = mockFetch(() => Promise.resolve(json({}, 404)))
+    const malformed = mockFetch(() => Promise.resolve(json({ paths: [] })))
+
+    expect(await detectPermissionModeCapability(server, missing, "v2")).toBe(false)
+    expect(await detectPermissionModeCapability(server, malformed, "v2")).toBe(false)
   })
 })

@@ -346,7 +346,7 @@ export function createServerPermissionState(
   }
 
   function supportsModes() {
-    return input.sdk.protocolKind() === "v2"
+    return input.sdk.protocolKind() === "v2" && input.sdk.supportsPermissionModes()
   }
 
   function projectMode(directory: string) {

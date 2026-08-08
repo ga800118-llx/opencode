@@ -3,6 +3,8 @@ import { authTokenFromCredentials } from "./server"
 
 export type ServerProtocol = "v1" | "v2"
 
+const permissionModePath = "/api/session/{sessionID}/permission-mode"
+
 function headers(server: ServerConnection.HttpBase) {
   if (!server.password) return
   return {
@@ -21,6 +23,17 @@ async function probe(server: ServerConnection.HttpBase, fetch: typeof globalThis
   return value
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+export function hasPermissionModeCapability(openapi: unknown) {
+  if (!isRecord(openapi) || !isRecord(openapi.paths)) return false
+  const path = openapi.paths[permissionModePath]
+  if (!isRecord(path)) return false
+  return isRecord(path.post)
+}
+
 export async function detectServerProtocol(
   server: ServerConnection.HttpBase,
   fetch: typeof globalThis.fetch,
@@ -32,4 +45,15 @@ export async function detectServerProtocol(
   if (current && "pid" in current && typeof current.pid === "number") return "v2"
   if (current && "healthy" in current && current.healthy === true) return "v1"
   return "v2"
+}
+
+export async function detectPermissionModeCapability(
+  server: ServerConnection.HttpBase,
+  fetch: typeof globalThis.fetch,
+  protocol: Promise<ServerProtocol> | ServerProtocol,
+) {
+  if ((await protocol) !== "v2") return false
+
+  const openapi = await probe(server, fetch, "/openapi.json").catch(() => undefined)
+  return hasPermissionModeCapability(openapi)
 }
