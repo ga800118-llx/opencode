@@ -119,7 +119,7 @@ describe("model profile config serialization", () => {
 
   test("refuses to make a model outside the profile the default", () => {
     expect(() => defaultModelPatch(profile, "missing-coder")).toThrow(
-      "The default model must belong to this profile.",
+      /^The default model must belong to this profile\.$/,
     )
   })
 })
