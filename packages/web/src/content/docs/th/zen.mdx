@@ -9,9 +9,9 @@ export const email = `mailto:${config.email}`
 
 OpenCode Zen คือรายการโมเดลที่ผ่านการทดสอบและยืนยันแล้วโดยทีม OpenCode
 
-Zen ทำงานเหมือน provider อื่น ๆ ใน OpenCode คุณล็อกอินเข้า OpenCode Zen แล้วรับ
+Zen ทำงานเหมือน provider อื่น ๆ ใน Guai Code คุณล็อกอินเข้า OpenCode Zen แล้วรับ
 API key ของคุณได้เลย มันเป็น **ทางเลือกทั้งหมด** และคุณไม่จำเป็นต้องใช้มันเพื่อใช้งาน
-OpenCode
+Guai Code
 
 ---
 
@@ -20,7 +20,7 @@ OpenCode
 ปัจจุบันมีโมเดลจำนวนมาก แต่มีเพียงไม่กี่โมเดลเท่านั้นที่ทำงานได้ดีในฐานะ coding agent นอกจากนี้ provider ส่วนใหญ่ยังถูกตั้งค่าแตกต่างกันมาก จึงทำให้ประสิทธิภาพและคุณภาพที่ได้ต่างกันมากเช่นกัน
 
 :::tip
-เราได้ทดสอบโมเดลและ provider ที่คัดมาแล้วกลุ่มหนึ่งซึ่งทำงานได้ดีกับ OpenCode
+เราได้ทดสอบโมเดลและ provider ที่คัดมาแล้วกลุ่มหนึ่งซึ่งทำงานได้ดีกับ Guai Code
 :::
 
 ดังนั้นหากคุณใช้โมเดลผ่านอะไรอย่าง OpenRouter คุณจะไม่มีทางแน่ใจได้ว่าคุณกำลังได้โมเดลเวอร์ชันที่ดีที่สุดที่คุณต้องการจริง ๆ
@@ -37,7 +37,7 @@ OpenCode Zen คือ AI gateway ที่ให้คุณเข้าถึ�
 
 ## วิธีการทำงาน
 
-OpenCode Zen ทำงานเหมือน provider อื่น ๆ ใน OpenCode
+OpenCode Zen ทำงานเหมือน provider อื่น ๆ ใน Guai Code
 
 1. คุณลงชื่อเข้าใช้ **<a href={console}>OpenCode Zen</a>** เพิ่มรายละเอียดการเรียกเก็บเงิน แล้วคัดลอก API key ของคุณ
 2. รันคำสั่ง `/connect` ใน TUI เลือก OpenCode Zen แล้ววาง API key ของคุณ
@@ -114,7 +114,7 @@ OpenCode Zen ทำงานเหมือน provider อื่น ๆ ใน 
 | Nemotron 3 Ultra Free  | nemotron-3-ultra-free  | `https://opencode.ai/zen/v1/chat/completions`             | `@ai-sdk/openai-compatible` |
 | DeepSeek V4 Flash Free | deepseek-v4-flash-free | `https://opencode.ai/zen/v1/chat/completions`             | `@ai-sdk/openai-compatible` |
 
-[model id](/docs/config/#models) ใน OpenCode config ของคุณใช้รูปแบบ `opencode/<model-id>` ตัวอย่างเช่น สำหรับ GPT 5.5 คุณจะใช้ `opencode/gpt-5.5` ใน config ของคุณ
+[model id](/docs/config/#models) ใน Guai Code config ของคุณใช้รูปแบบ `opencode/<model-id>` ตัวอย่างเช่น สำหรับ GPT 5.5 คุณจะใช้ `opencode/gpt-5.5` ใน config ของคุณ
 
 ---
 
@@ -203,7 +203,7 @@ https://opencode.ai/zen/v1/models
 | GPT 5 Codex                       | $1.07  | $8.50   | $0.107      | -            |
 | GPT 5 Nano                        | $0.05  | $0.40   | $0.005      | -            |
 
-คุณอาจสังเกตเห็น[โมเดลต้นทุนต่ำ](/docs/config/#models) เช่น Haiku, Nano หรือ Flash ในประวัติการใช้งานของคุณ OpenCode ใช้โมเดลเหล่านี้เพื่อสร้างชื่อเซสชัน
+คุณอาจสังเกตเห็น[โมเดลต้นทุนต่ำ](/docs/config/#models) เช่น Haiku, Nano หรือ Flash ในประวัติการใช้งานของคุณ Guai Code ใช้โมเดลเหล่านี้เพื่อสร้างชื่อเซสชัน
 
 :::note
 ค่าธรรมเนียมบัตรเครดิตจะถูกส่งต่อในราคาทุน (4.4% + $0.30 ต่อธุรกรรม); เราไม่ได้คิดค่าใช้จ่ายเพิ่มจากนั้น
@@ -328,4 +328,4 @@ Admins สามารถเปิดหรือปิดโมเดลบา�
 1. **Benchmark** โมเดล/provider ที่ดีที่สุดสำหรับ coding agents
 2. เข้าถึงตัวเลือกที่มี **คุณภาพสูงสุด** โดยไม่ลดประสิทธิภาพหรือ route ไปยัง provider ที่ถูกกว่า
 3. ส่งต่อ **การลดราคา** ด้วยการขายในราคาทุน ดังนั้น markup เพียงอย่างเดียวคือเพื่อครอบคลุมค่าธรรมเนียมการประมวลผลของเรา
-4. ทำให้เกิด **no lock-in** โดยให้คุณใช้มันร่วมกับ coding agent อื่น ๆ ได้ และยังเปิดให้คุณใช้ provider อื่น ๆ กับ OpenCode ได้เสมอ
+4. ทำให้เกิด **no lock-in** โดยให้คุณใช้มันร่วมกับ coding agent อื่น ๆ ได้ และยังเปิดให้คุณใช้ provider อื่น ๆ กับ Guai Code ได้เสมอ

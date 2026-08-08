@@ -1,31 +1,31 @@
 ---
 title: GitLab
-description: Koristite OpenCode u GitLab problemima i zahtjevima za spajanje.
+description: Koristite Guai Code u GitLab problemima i zahtjevima za spajanje.
 ---
 
-OpenCode se integriše sa vašim GitLab radnim tokom kroz vaš GitLab CI/CD cevovod ili sa GitLab Duo.
-U oba slučaja, OpenCode će se pokrenuti na vašim GitLab pokretačima.
+Guai Code se integriše sa vašim GitLab radnim tokom kroz vaš GitLab CI/CD cevovod ili sa GitLab Duo.
+U oba slučaja, Guai Code će se pokrenuti na vašim GitLab pokretačima.
 
 ---
 
 ## GitLab CI
 
-OpenCode radi u redovnom GitLab cevovodu. Možete ga ugraditi u cjevovod kao [CI komponenta](https://docs.gitlab.com/ee/ci/components/)
-Ovdje koristimo CI/CD komponentu kreiranu u zajednici za OpenCode — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
+Guai Code radi u redovnom GitLab cevovodu. Možete ga ugraditi u cjevovod kao [CI komponenta](https://docs.gitlab.com/ee/ci/components/)
+Ovdje koristimo CI/CD komponentu kreiranu u zajednici za Guai Code — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
 
 ---
 
 ### Funkcije
 
-- **Koristite prilagođenu konfiguraciju po poslu**: Konfigurirajte OpenCode s prilagođenim konfiguracijskim direktorijem, na primjer `./config/#custom-directory` da omogućite ili onemogućite funkcionalnost po OpenCode pozivanju.
-- **Minimalno podešavanje**: CI komponenta postavlja OpenCode u pozadini, samo trebate kreirati OpenCode konfiguraciju i početnu prompt.
+- **Koristite prilagođenu konfiguraciju po poslu**: Konfigurirajte Guai Code s prilagođenim konfiguracijskim direktorijem, na primjer `./config/#custom-directory` da omogućite ili onemogućite funkcionalnost po Guai Code pozivanju.
+- **Minimalno podešavanje**: CI komponenta postavlja Guai Code u pozadini, samo trebate kreirati Guai Code konfiguraciju i početnu prompt.
 - **Fleksibilno**: CI komponenta podržava nekoliko ulaza za prilagođavanje njenog ponašanja
 
 ---
 
 ### Podešavanje
 
-1. Sačuvajte JSON za autentifikaciju OpenCode kao CI varijable okruženja tipa datoteke pod **Postavke** > **CI/CD** > **Varijable**. Obavezno ih označite kao "Maskirane i skrivene".
+1. Sačuvajte JSON za autentifikaciju Guai Code kao CI varijable okruženja tipa datoteke pod **Postavke** > **CI/CD** > **Varijable**. Obavezno ih označite kao "Maskirane i skrivene".
 2. Dodajte sljedeće u svoju `.gitlab-ci.yml` datoteku.
 
 ```yaml title=".gitlab-ci.yml"
@@ -44,23 +44,23 @@ Za više unosa i slučajeva upotrebe [pogledajte dokumente docs](https://gitlab.
 
 ## GitLab Duo
 
-OpenCode se integriše sa vašim GitLab tokovom rada.
-Spomenite `@opencode` u komentaru i OpenCode će izvršiti zadatke unutar vašeg GitLab CI cevovoda.
+Guai Code se integriše sa vašim GitLab tokovom rada.
+Spomenite `@opencode` u komentaru i Guai Code će izvršiti zadatke unutar vašeg GitLab CI cevovoda.
 
 ---
 
 ### Funkcije
 
-- **Problemi trijaže**: Zamolite OpenCode da ispita problem i objasni vam ga.
-- **Popravi i implementiraj**: Zamolite OpenCode da popravi problem ili implementira funkciju.
+- **Problemi trijaže**: Zamolite Guai Code da ispita problem i objasni vam ga.
+- **Popravi i implementiraj**: Zamolite Guai Code da popravi problem ili implementira funkciju.
   To će kreirati novu granu i pokrenuti zahtjev za spajanje s promjenama.
-- **Secure**: OpenCode radi na vašim GitLab pokretačima.
+- **Secure**: Guai Code radi na vašim GitLab pokretačima.
 
 ---
 
 ### Podešavanje
 
-OpenCode radi u vašem GitLab CI/CD cevovodu, evo šta će vam trebati da ga postavite:
+Guai Code radi u vašem GitLab CI/CD cevovodu, evo šta će vam trebati da ga postavite:
 :::tip
 Pogledajte [**GitLab dokumente**](https://docs.gitlab.com/user/duo_agent_platform/agent_assistant/) za ažurirane upute.
 :::
@@ -155,7 +155,7 @@ Možete vidjeti [GitLab CLI agenti docs](https://docs.gitlab.com/user/duo_agent_
 
 ### Primjeri
 
-Evo nekoliko primjera kako možete koristiti OpenCode u GitLab.
+Evo nekoliko primjera kako možete koristiti Guai Code u GitLab.
 :::tip
 Možete konfigurirati da koristite drugu frazu okidača od `@opencode`.
 :::
@@ -167,7 +167,7 @@ Možete konfigurirati da koristite drugu frazu okidača od `@opencode`.
   @opencode explain this issue
 ```
 
-OpenCode će pročitati problem i odgovoriti jasnim objašnjenjem.
+Guai Code će pročitati problem i odgovoriti jasnim objašnjenjem.
 
 - **Reši problem**
   U izdanju GitLaba recite:
@@ -176,7 +176,7 @@ OpenCode će pročitati problem i odgovoriti jasnim objašnjenjem.
   @opencode fix this
 ```
 
-OpenCode će kreirati novu granu, implementirati promjene i otvoriti zahtjev za spajanje s promjenama.
+Guai Code će kreirati novu granu, implementirati promjene i otvoriti zahtjev za spajanje s promjenama.
 
 - **Pregledajte zahtjeve za pridruživanje**
   Ostavite sljedeći komentar na zahtjev za spajanje GitLab-a.
@@ -185,4 +185,4 @@ OpenCode će kreirati novu granu, implementirati promjene i otvoriti zahtjev za 
   @opencode review this merge request
 ```
 
-OpenCode će pregledati zahtjev za spajanje i dati povratne informacije.
+Guai Code će pregledati zahtjev za spajanje i dati povratne informacije.

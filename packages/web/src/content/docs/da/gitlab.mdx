@@ -1,33 +1,33 @@
 ---
 title: GitLab
-description: Brug OpenCode i GitLab-problemer og Merge Requests.
+description: Brug Guai Code i GitLab-problemer og Merge Requests.
 ---
 
-OpenCode integreres med din GitLab-arbejdsgang gennem din GitLab CI/CD-pipeline eller med GitLab Duo.
+Guai Code integreres med din GitLab-arbejdsgang gennem din GitLab CI/CD-pipeline eller med GitLab Duo.
 
-I begge tilfælde vil OpenCode køre på dine GitLab-løbere.
+I begge tilfælde vil Guai Code køre på dine GitLab-løbere.
 
 ---
 
 ## GitLab CI
 
-OpenCode fungerer i en almindelig GitLab-pipeline. Du kan bygge det ind i en pipeline som en [CI component](https://docs.gitlab.com/ee/ci/components/)
+Guai Code fungerer i en almindelig GitLab-pipeline. Du kan bygge det ind i en pipeline som en [CI component](https://docs.gitlab.com/ee/ci/components/)
 
-Her bruger vi en community-skabt CI/CD-komponent til OpenCode — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
+Her bruger vi en community-skabt CI/CD-komponent til Guai Code — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
 
 ---
 
 ### Funktioner
 
-- **Brug brugerdefineret konfiguration pr. job**: Konfigurer OpenCode med en brugerdefineret konfigurationsmappe, for eksempel `./config/#custom-directory` for at aktivere eller deaktivere funktionalitet pr. OpenCode påkald.
-- **Minimal opsætning**: CI-komponenten sætter OpenCode op i baggrunden, du behøver kun at oprette OpenCode-konfigurationen og den indledende prompt.
+- **Brug brugerdefineret konfiguration pr. job**: Konfigurer Guai Code med en brugerdefineret konfigurationsmappe, for eksempel `./config/#custom-directory` for at aktivere eller deaktivere funktionalitet pr. Guai Code påkald.
+- **Minimal opsætning**: CI-komponenten sætter Guai Code op i baggrunden, du behøver kun at oprette Guai Code-konfigurationen og den indledende prompt.
 - **Fleksibel**: CI-komponenten understøtter flere input til at tilpasse dens adfærd
 
 ---
 
 ### Opsætning
 
-1. Gem din OpenCode-autentificering JSON som en filtype CI-miljøvariabel under **Indstillinger** > **CI/CD** > **Variabler**. Sørg for at markere dem som "Maskede og skjulte".
+1. Gem din Guai Code-autentificering JSON som en filtype CI-miljøvariabel under **Indstillinger** > **CI/CD** > **Variabler**. Sørg for at markere dem som "Maskede og skjulte".
 2. Tilføj følgende til din `.gitlab-ci.yml` fil.
 
    ```yaml title=".gitlab-ci.yml"
@@ -46,23 +46,23 @@ For flere input og use cases [check out the docs](https://gitlab.com/explore/cat
 
 ## GitLab Duo
 
-OpenCode integreres med din GitLab-arbejdsgang.
-Nævn `@opencode` i en kommentar, og OpenCode vil udføre opgaver i din GitLab CI-pipeline.
+Guai Code integreres med din GitLab-arbejdsgang.
+Nævn `@opencode` i en kommentar, og Guai Code vil udføre opgaver i din GitLab CI-pipeline.
 
 ---
 
 ### Funktioner
 
-- **Triageproblemer**: Bed OpenCode om at undersøge et problem og forklare dig det.
-- **Ret og implementer**: Bed OpenCode om at løse et problem eller implementere en funktion.
+- **Triageproblemer**: Bed Guai Code om at undersøge et problem og forklare dig det.
+- **Ret og implementer**: Bed Guai Code om at løse et problem eller implementere en funktion.
   Det vil oprette en ny branch og rejse en Merge Request med ændringer.
-- **Sikker**: OpenCode kører på dine GitLab-løbere.
+- **Sikker**: Guai Code kører på dine GitLab-løbere.
 
 ---
 
 ### Opsætning
 
-OpenCode kører i din GitLab CI/CD pipeline, her er hvad du skal bruge for at konfigurere det:
+Guai Code kører i din GitLab CI/CD pipeline, her er hvad du skal bruge for at konfigurere det:
 
 :::tip
 Tjek [**GitLab docs**](https://docs.gitlab.com/user/duo_agent_platform/agent_assistant/) for opdaterede instruktioner.
@@ -158,7 +158,7 @@ Du kan henvise til [GitLab CLI agents docs](https://docs.gitlab.com/user/duo_age
 
 ### Eksempler
 
-Her er nogle eksempler på, hvordan du kan bruge OpenCode i GitLab.
+Her er nogle eksempler på, hvordan du kan bruge Guai Code i GitLab.
 
 :::tip
 Du kan konfigurere til at bruge en anden udløsersætning end `@opencode`.
@@ -172,7 +172,7 @@ Du kan konfigurere til at bruge en anden udløsersætning end `@opencode`.
   @opencode explain this issue
   ```
 
-  OpenCode vil læse spørgsmålet og svare med en klar forklaring.
+  Guai Code vil læse spørgsmålet og svare med en klar forklaring.
 
 - **Løs et problem**
 
@@ -182,7 +182,7 @@ Du kan konfigurere til at bruge en anden udløsersætning end `@opencode`.
   @opencode fix this
   ```
 
-  OpenCode vil oprette en ny branch, implementere ændringer og åbne en Merge Request med ændringer.
+  Guai Code vil oprette en ny branch, implementere ændringer og åbne en Merge Request med ændringer.
 
 - **Gennemgå Merge Requests**
 
@@ -192,4 +192,4 @@ Du kan konfigurere til at bruge en anden udløsersætning end `@opencode`.
   @opencode review this merge request
   ```
 
-  OpenCode vil gennemgå din Merge Request og give feedback.
+  Guai Code vil gennemgå din Merge Request og give feedback.

@@ -1,33 +1,33 @@
 ---
 title: GitLab
-description: استخدم OpenCode في مشكلات GitLab وطلبات الدمج.
+description: استخدم Guai Code في مشكلات GitLab وطلبات الدمج.
 ---
 
-يتكامل OpenCode مع سير عمل GitLab لديك عبر خط أنابيب GitLab CI/CD أو عبر GitLab Duo.
+يتكامل Guai Code مع سير عمل GitLab لديك عبر خط أنابيب GitLab CI/CD أو عبر GitLab Duo.
 
-في كلتا الحالتين، سيعمل OpenCode على مشغّلات GitLab لديك.
+في كلتا الحالتين، سيعمل Guai Code على مشغّلات GitLab لديك.
 
 ---
 
 ## GitLab CI
 
-يعمل OpenCode ضمن خط أنابيب GitLab عادي. يمكنك دمجه في الخط كمكوّن [CI](https://docs.gitlab.com/ee/ci/components/).
+يعمل Guai Code ضمن خط أنابيب GitLab عادي. يمكنك دمجه في الخط كمكوّن [CI](https://docs.gitlab.com/ee/ci/components/).
 
-هنا نستخدم مكوّن CI/CD أنشأه المجتمع لـ OpenCode — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
+هنا نستخدم مكوّن CI/CD أنشأه المجتمع لـ Guai Code — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
 
 ---
 
 ### الميزات
 
-- **استخدام إعدادات مخصّصة لكل مهمة**: يمكنك إعداد OpenCode باستخدام دليل إعدادات مخصّص، مثل `./config/#custom-directory`، لتفعيل الوظائف أو تعطيلها في كل تشغيل لـ OpenCode.
-- **إعداد بسيط**: يقوم مكوّن CI بإعداد OpenCode في الخلفية؛ كل ما عليك هو إنشاء إعدادات OpenCode والمطالبة (prompt) الأولية.
+- **استخدام إعدادات مخصّصة لكل مهمة**: يمكنك إعداد Guai Code باستخدام دليل إعدادات مخصّص، مثل `./config/#custom-directory`، لتفعيل الوظائف أو تعطيلها في كل تشغيل لـ Guai Code.
+- **إعداد بسيط**: يقوم مكوّن CI بإعداد Guai Code في الخلفية؛ كل ما عليك هو إنشاء إعدادات Guai Code والمطالبة (prompt) الأولية.
 - **مرن**: يدعم مكوّن CI عدة مُدخلات لتخصيص سلوكه.
 
 ---
 
 ### الإعداد
 
-1. احفظ JSON مصادقة OpenCode كمتغيرات بيئة CI من نوع File ضمن **Settings** > **CI/CD** > **Variables**. تأكد من تعيينها على "Masked and hidden".
+1. احفظ JSON مصادقة Guai Code كمتغيرات بيئة CI من نوع File ضمن **Settings** > **CI/CD** > **Variables**. تأكد من تعيينها على "Masked and hidden".
 2. أضف ما يلي إلى ملف `.gitlab-ci.yml`.
 
    ```yaml title=".gitlab-ci.yml"
@@ -46,23 +46,23 @@ description: استخدم OpenCode في مشكلات GitLab وطلبات الد�
 
 ## GitLab Duo
 
-يتكامل OpenCode مع سير عمل GitLab لديك.
-اذكر `@opencode` في تعليق، وسينفّذ OpenCode المهام ضمن خط أنابيب GitLab CI لديك.
+يتكامل Guai Code مع سير عمل GitLab لديك.
+اذكر `@opencode` في تعليق، وسينفّذ Guai Code المهام ضمن خط أنابيب GitLab CI لديك.
 
 ---
 
 ### الميزات
 
-- **فرز المشكلات**: اطلب من OpenCode النظر في مشكلة وشرحها لك.
-- **الإصلاح والتنفيذ**: اطلب من OpenCode إصلاح مشكلة أو تنفيذ ميزة.
+- **فرز المشكلات**: اطلب من Guai Code النظر في مشكلة وشرحها لك.
+- **الإصلاح والتنفيذ**: اطلب من Guai Code إصلاح مشكلة أو تنفيذ ميزة.
   سيُنشئ فرعًا جديدًا ويرفع طلب دمج بالتغييرات.
-- **آمن**: يعمل OpenCode على مشغّلات GitLab لديك.
+- **آمن**: يعمل Guai Code على مشغّلات GitLab لديك.
 
 ---
 
 ### الإعداد
 
-يعمل OpenCode ضمن خط أنابيب GitLab CI/CD لديك، وإليك ما ستحتاجه لإعداده:
+يعمل Guai Code ضمن خط أنابيب GitLab CI/CD لديك، وإليك ما ستحتاجه لإعداده:
 
 :::tip
 اطّلع على [**وثائق GitLab**](https://docs.gitlab.com/user/duo_agent_platform/agent_assistant/) للحصول على تعليمات محدّثة.
@@ -158,7 +158,7 @@ description: استخدم OpenCode في مشكلات GitLab وطلبات الد�
 
 ### أمثلة
 
-فيما يلي بعض الأمثلة على كيفية استخدام OpenCode في GitLab.
+فيما يلي بعض الأمثلة على كيفية استخدام Guai Code في GitLab.
 
 :::tip
 يمكنك ضبطه لاستخدام عبارة تشغيل مختلفة عن `@opencode`.
@@ -172,7 +172,7 @@ description: استخدم OpenCode في مشكلات GitLab وطلبات الد�
   @opencode explain this issue
   ```
 
-  سيقرأ OpenCode المشكلة ويرد بشرح واضح.
+  سيقرأ Guai Code المشكلة ويرد بشرح واضح.
 
 - **إصلاح مشكلة**
 
@@ -182,7 +182,7 @@ description: استخدم OpenCode في مشكلات GitLab وطلبات الد�
   @opencode fix this
   ```
 
-  سيُنشئ OpenCode فرعًا جديدًا، وينفّذ التغييرات، ويفتح طلب دمج بالتغييرات.
+  سيُنشئ Guai Code فرعًا جديدًا، وينفّذ التغييرات، ويفتح طلب دمج بالتغييرات.
 
 - **مراجعة طلبات الدمج**
 
@@ -192,4 +192,4 @@ description: استخدم OpenCode في مشكلات GitLab وطلبات الد�
   @opencode review this merge request
   ```
 
-  سيُراجع OpenCode طلب الدمج ويقدّم ملاحظات.
+  سيُراجع Guai Code طلب الدمج ويقدّم ملاحظات.
