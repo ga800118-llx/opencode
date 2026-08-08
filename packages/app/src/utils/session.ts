@@ -1,7 +1,11 @@
 import type { SessionApi, SessionInfo, SessionListInput } from "@opencode-ai/client/promise"
+import type { Permission } from "@opencode-ai/schema/permission"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
-export function normalizeSessionInfo(input: SessionInfo | Session): Session {
+type CurrentSessionInfo = SessionInfo & { readonly permissionMode?: Permission.Mode }
+type NormalizedSession = Session & { readonly permissionMode?: Permission.Mode }
+
+export function normalizeSessionInfo(input: CurrentSessionInfo | Session): NormalizedSession {
   if (!("location" in input)) return input
   return {
     id: input.id,
@@ -16,6 +20,7 @@ export function normalizeSessionInfo(input: SessionInfo | Session): Session {
     title: input.title,
     agent: input.agent,
     model: input.model,
+    permissionMode: input.permissionMode,
     version: "",
     time: input.time,
     revert: input.revert && {

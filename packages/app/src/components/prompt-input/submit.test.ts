@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { SessionInfo } from "@opencode-ai/client/promise"
+import type { Permission } from "@opencode-ai/schema/permission"
 import { createStore } from "solid-js/store"
 import type { Prompt, PromptStore } from "@/context/prompt"
 import type { ModelSelection } from "@/context/local"
@@ -11,6 +12,9 @@ import type {
   ProductShellInput,
   ProductTaskAdapter,
 } from "@/product/contracts"
+import type { CompatibleApi } from "@/utils/server-compat"
+import { createProductTaskAdapter } from "@/product/task-adapter"
+import { normalizeSessionInfo } from "@/utils/session"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
@@ -46,6 +50,8 @@ let search: { draftId?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 let permissionServer = "server-a"
+let supportsPermissionModes = false
+let projectPermissionModes: Record<string, Permission.Mode> = {}
 let createSessionGate: Promise<void> | undefined
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
@@ -162,6 +168,7 @@ beforeAll(async () => {
   mock.module("@opencode-ai/ui/toast", () => ({
     Toast: { Region: () => null },
     showToast: () => 0,
+    toaster: { create: () => 0 },
   }))
 
   mock.module("@opencode-ai/core/util/encode", () => ({
@@ -187,6 +194,12 @@ beforeAll(async () => {
 
   mock.module("@/context/permission", () => {
     const state = (server: string) => ({
+      projectMode(directory: string) {
+        return projectPermissionModes[directory] ?? "standard"
+      },
+      supportsModes() {
+        return supportsPermissionModes
+      },
       enableAutoAccept(sessionID: string, directory: string) {
         enabledAutoAccept.push({ server, sessionID, directory })
       },
@@ -331,6 +344,8 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   permissionServer = "server-a"
+  supportsPermissionModes = false
+  projectPermissionModes = {}
   createSessionGate = undefined
   serverSessionSyncs = 0
   directSessionCalls = 0
@@ -372,11 +387,13 @@ describe("prompt submit worktree selection", () => {
         agent: "agent",
         directory: "/repo/worktree-a",
         model: { modelID: "model", providerID: "provider", variant: undefined },
+        permissionMode: "standard",
       },
       {
         agent: "agent",
         directory: "/repo/worktree-b",
         model: { modelID: "model", providerID: "provider", variant: undefined },
+        permissionMode: "standard",
       },
     ])
     expect(sentShell).toEqual([
@@ -454,6 +471,35 @@ describe("prompt submit worktree selection", () => {
     expect(enabledAutoAccept).toEqual([{ server: "server-a", sessionID: "session-1", directory: "/repo/worktree-a" }])
   })
 
+  test("creates a V2 task atomically with the selected project's auto mode", async () => {
+    supportsPermissionModes = true
+    projectPermissionModes["/repo/worktree-a"] = "auto"
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => true,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(sessionCreateInputs[0]).toMatchObject({ directory: "/repo/worktree-a", permissionMode: "auto" })
+    expect(enabledAutoAccept).toEqual([])
+  })
+
   test("promotes drafts using the selected project's server", async () => {
     search = { draftId: "draft-1" }
     const submit = createPromptSubmit({
@@ -523,9 +569,7 @@ describe("prompt submit worktree selection", () => {
       model: { providerID: "provider", modelID: "model", variant: "high" },
     })
     expect(promptInputs[0]?.messageID).toStartWith("msg_")
-    expect(promptInputs[0]?.parts).toEqual([
-      { id: expect.stringMatching(/^prt_/), type: "text", text: "ls" },
-    ])
+    expect(promptInputs[0]?.parts).toEqual([{ id: expect.stringMatching(/^prt_/), type: "text", text: "ls" }])
     expect(directSessionCalls).toBe(0)
   })
 
@@ -631,5 +675,58 @@ describe("prompt submit worktree selection", () => {
     expect(storedSessions["/repo/worktree-a"]).toHaveLength(1)
     expect(storedSessions["/repo/worktree-a"]?.[0]).toMatchObject({ id: "session-1", title: "New session 1" })
     expect(optimisticSeeded).toEqual([true])
+  })
+})
+
+describe("task creation contracts", () => {
+  test("forwards permission mode through the product adapter", async () => {
+    const calls: unknown[] = []
+    const api = {
+      session: {
+        create: async (input: unknown) => {
+          calls.push(input)
+          return {
+            id: "session",
+            projectID: "project",
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            time: { created: 1, updated: 1 },
+            title: "Task",
+            location: { directory: "/repo" },
+          } as SessionInfo
+        },
+      },
+    } as unknown as CompatibleApi
+
+    await createProductTaskAdapter(api).create({
+      directory: "/repo",
+      agent: "agent",
+      model: { modelID: "model", providerID: "provider" },
+      permissionMode: "restricted",
+    })
+
+    expect(calls).toEqual([
+      {
+        agent: "agent",
+        model: { id: "model", providerID: "provider", variant: undefined },
+        permissionMode: "restricted",
+        location: { directory: "/repo" },
+      },
+    ])
+  })
+
+  test("preserves permission mode while normalizing a current session", () => {
+    const session = normalizeSessionInfo({
+      id: "session",
+      projectID: "project",
+      permissionMode: "auto",
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1, updated: 1 },
+      title: "Task",
+      location: { directory: "/repo" },
+    })
+
+    expect(session.permissionMode).toBe("auto")
   })
 })

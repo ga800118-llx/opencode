@@ -1,3 +1,5 @@
+import type { Permission } from "@opencode-ai/schema/permission"
+
 export type ProductTaskID = string
 export type ProductMessageID = string
 export type ProductOperationID = string
@@ -118,6 +120,7 @@ export type ProductCreateTaskInput = {
   readonly directory: ProductDirectory
   readonly agent: string
   readonly model: ProductModelSelection
+  readonly permissionMode: Permission.Mode
 }
 
 export type ProductCreateTaskOutput<SessionRecord = unknown> = {

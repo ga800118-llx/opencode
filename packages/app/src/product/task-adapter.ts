@@ -1,10 +1,13 @@
 import type { SessionInfo } from "@opencode-ai/client/promise"
+import type { Permission } from "@opencode-ai/schema/permission"
 import type { AgentPartInput, FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Event } from "@opencode-ai/schema/event"
 import { Identifier } from "@/utils/id"
 import type { CompatibleApi } from "@/utils/server-compat"
 import type {
   ProductFilePart,
+  ProductCreateTaskInput,
+  ProductCreateTaskOutput,
   ProductPromptPart,
   ProductTaskAdapter,
   ProductTextPart,
@@ -17,24 +20,35 @@ export type ProductTaskAdapterIDs = {
 }
 
 type LegacyPart = (TextPartInput | FilePartInput | AgentPartInput) & { readonly id: string }
+type CompatibleCreateTaskInput = Omit<ProductCreateTaskInput, "permissionMode"> & {
+  readonly permissionMode?: Permission.Mode
+}
+type CompatibleTaskAdapter = Omit<ProductTaskAdapter<SessionInfo>, "create"> & {
+  readonly create: (input: CompatibleCreateTaskInput) => Promise<ProductCreateTaskOutput<SessionInfo>>
+}
+type PermissionModeSessionApi = Omit<CompatibleApi["session"], "create"> & {
+  readonly create: (
+    input: NonNullable<Parameters<CompatibleApi["session"]["create"]>[0]> & {
+      readonly permissionMode?: Permission.Mode
+    },
+  ) => ReturnType<CompatibleApi["session"]["create"]>
+}
 
-export function createProductTaskAdapter(
-  api: CompatibleApi,
-  ids: ProductTaskAdapterIDs = {},
-): ProductTaskAdapter<SessionInfo> {
+export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAdapterIDs = {}): CompatibleTaskAdapter {
   const messageID = ids.messageID ?? (() => Identifier.ascending("message"))
   const operationID = ids.operationID ?? (() => Event.ID.create())
 
   return {
     async create(input) {
       const record = await normalizeCall(() =>
-        api.session.create({
+        (api.session as PermissionModeSessionApi).create({
           agent: input.agent,
           model: {
             id: input.model.modelID,
             providerID: input.model.providerID,
             variant: input.model.variant,
           },
+          permissionMode: input.permissionMode,
           location: { directory: input.directory },
         }),
       )

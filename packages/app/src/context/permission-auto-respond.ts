@@ -1,4 +1,5 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import type { Permission } from "@opencode-ai/schema/permission"
 
 export function acceptKey(sessionID: string, directory?: string) {
   if (!directory) return sessionID
@@ -35,6 +36,25 @@ function sessionLineage(session: { id: string; parentID?: string }[], sessionID:
   }
 
   return ids
+}
+
+export function modeAutoRespondsPermission(
+  taskMode: Record<string, Permission.Mode>,
+  session: { id: string; parentID?: string; permissionMode?: Permission.Mode }[],
+  permission: { sessionID: string },
+) {
+  return lineagePermissionMode(taskMode, session, permission) === "auto"
+}
+
+export function lineagePermissionMode(
+  taskMode: Record<string, Permission.Mode>,
+  session: { id: string; parentID?: string; permissionMode?: Permission.Mode }[],
+  permission: { sessionID: string },
+) {
+  const byID = new Map(session.map((item) => [item.id, item]))
+  return sessionLineage(session, permission.sessionID)
+    .map((id) => taskMode[id] ?? byID.get(id)?.permissionMode)
+    .find((item): item is Permission.Mode => item !== undefined)
 }
 
 export function autoRespondsPermission(

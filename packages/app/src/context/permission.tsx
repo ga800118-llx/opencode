@@ -2,6 +2,7 @@ import { createEffect, createMemo, createRoot, getOwner, onCleanup } from "solid
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
+import type { Permission } from "@opencode-ai/schema/permission"
 import { Persist, persisted } from "@/utils/persist"
 import type { ServerSDK } from "@/context/server-sdk"
 import type { ServerSync } from "./server-sync"
@@ -19,8 +20,17 @@ import {
   directoryAcceptKey,
   isDirectoryAutoAccepting,
   autoRespondsPermission,
+  lineagePermissionMode,
+  modeAutoRespondsPermission,
   sessionAutoAccept,
 } from "./permission-auto-respond"
+import {
+  migratePermissionModes,
+  normalizePermissionMode,
+  normalizePermissionModes,
+  projectPermissionMode,
+  taskPermissionMode,
+} from "./permission-mode"
 
 type PermissionRespondFn = (input: {
   sessionID: string
@@ -28,6 +38,10 @@ type PermissionRespondFn = (input: {
   response: "once" | "always" | "reject"
   directory?: string
 }) => void
+
+type PermissionModeSessionApi = {
+  switchPermissionMode(input: { sessionID: string; mode: Permission.Mode }): Promise<unknown>
+}
 
 function isNonAllowRule(rule: unknown) {
   if (!rule) return false
@@ -50,6 +64,21 @@ function hasPermissionPromptRules(permission: unknown) {
 
   const config = permission as Record<string, unknown>
   return Object.values(config).some(isNonAllowRule)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function normalizeBooleanRecord(value: unknown, directoryOnly = false) {
+  if (!isRecord(value)) return {} as Record<string, boolean>
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, enabled]) => {
+      if (typeof enabled !== "boolean") return []
+      if (directoryOnly && !key.endsWith("/*")) return []
+      return [[key, enabled]]
+    }),
+  )
 }
 
 export const { use: usePermission, provider: PermissionProvider } = createSimpleContext({
@@ -155,6 +184,24 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       respond(input: Parameters<PermissionRespondFn>[0]) {
         selected().respond(input)
       },
+      projectMode(directory: string) {
+        return selected().projectMode(directory)
+      },
+      mode(sessionID: string | undefined, directory: string) {
+        return selected().mode(sessionID, directory)
+      },
+      setMode(input: { sessionID?: string; directory: string; mode: Permission.Mode }) {
+        return selected().setMode(input)
+      },
+      autoConfirmed(directory: string) {
+        return selected().autoConfirmed(directory)
+      },
+      confirmAuto(directory: string) {
+        selected().confirmAuto(directory)
+      },
+      supportsModes() {
+        return selected().supportsModes()
+      },
       autoResponds(permission: PermissionRequest, directory?: string) {
         return selected().autoResponds(permission, directory)
       },
@@ -187,29 +234,39 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 type PermissionState = ReturnType<typeof createServerPermissionState>
 type PermissionEvent = Parameters<Parameters<ServerSDK["event"]["listen"]>[0]>[0]
 
-function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }) {
-  const [store, setStore, _, ready] = persisted(
+export function createServerPermissionState(
+  input: { sdk: ServerSDK; sync: ServerSync },
+  options: { persist?: typeof persisted } = {},
+) {
+  const [store, setStore, _, ready] = (options.persist ?? persisted)(
     {
-      ...Persist.serverGlobal(input.sdk.scope, "permission", ["permission.v3"]),
+      ...Persist.serverGlobal(input.sdk.scope, "permission", ["permission.v4"]),
       migrate(value) {
-        if (!value || typeof value !== "object" || Array.isArray(value)) return value
+        if (!isRecord(value)) return value
 
-        const data = value as Record<string, unknown>
-        if (data.autoAccept) return value
+        const data = value
+        const autoAccept = normalizeBooleanRecord(
+          isRecord(data.autoAccept) ? data.autoAccept : data.autoAcceptEdits,
+        )
 
         return {
           ...data,
-          autoAccept:
-            typeof data.autoAcceptEdits === "object" && data.autoAcceptEdits && !Array.isArray(data.autoAcceptEdits)
-              ? data.autoAcceptEdits
-              : {},
+          autoAccept,
+          mode: {
+            ...migratePermissionModes(autoAccept),
+            ...normalizePermissionModes(data.mode),
+          },
+          autoConfirmed: normalizeBooleanRecord(data.autoConfirmed, true),
         }
       },
     },
     createStore({
       autoAccept: {} as Record<string, boolean>,
+      mode: {} as Record<string, Permission.Mode>,
+      autoConfirmed: {} as Record<string, boolean>,
     }),
   )
+  const [taskMode, setTaskMode] = createStore<Record<string, Permission.Mode>>({})
 
   function enableConfiguredDirectory(directory: string) {
     if (input.sdk.protocolKind() !== "v1") return
@@ -229,6 +286,7 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
   const RESPONDED_TTL_MS = 60 * 60 * 1000
   const responded = new Map<string, number>()
   const enableVersion = new Map<string, number>()
+  const modeSwitch = new Map<string, { version: number; mode: Permission.Mode }>()
   const meta = { disposed: false }
 
   function pruneResponded(now: number) {
@@ -287,6 +345,35 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
     return [...info, ...input.sync.child(directory, { bootstrap: false })[0].session]
   }
 
+  function supportsModes() {
+    return input.sdk.protocolKind() === "v2"
+  }
+
+  function projectMode(directory: string) {
+    return projectPermissionMode(store.mode, directory)
+  }
+
+  function serverMode(sessionID: string, directory: string) {
+    const session = sessions(directory).find((session) => session.id === sessionID)
+    if (!session || !("permissionMode" in session)) return undefined
+    return normalizePermissionMode(session.permissionMode)
+  }
+
+  function mode(sessionID: string | undefined, directory: string): Permission.Mode {
+    if (!sessionID) return projectMode(directory)
+    if (!supportsModes()) return isAutoAccepting(sessionID, directory) ? "auto" : "standard"
+    return taskMode[sessionID] ?? taskPermissionMode(serverMode(sessionID, directory), projectMode(directory))
+  }
+
+  function autoResponseTaskMode() {
+    const result = { ...taskMode }
+    modeSwitch.forEach((switching, sessionID) => {
+      if (switching.mode === "auto") return
+      result[sessionID] = switching.mode
+    })
+    return result
+  }
+
   function isAutoAccepting(sessionID: string, directory?: string) {
     return autoRespondsPermission(store.autoAccept, sessions(directory), { sessionID }, directory)
   }
@@ -296,6 +383,7 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
   }
 
   function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
+    if (supportsModes()) return modeAutoRespondsPermission(autoResponseTaskMode(), sessions(directory), permission)
     return autoRespondsPermission(store.autoAccept, sessions(directory), permission, directory)
   }
 
@@ -305,6 +393,15 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
   }
 
   async function shouldAutoRespondResolved(permission: PermissionRequest, directory?: string) {
+    if (supportsModes()) {
+      const override = lineagePermissionMode(autoResponseTaskMode(), sessions(directory), permission)
+      if (override !== undefined) return override === "auto"
+      if (input.sync.session.lineage.peek(permission.sessionID)) return shouldAutoRespond(permission, directory)
+      const lineage = await input.sync.session.lineage.resolve(permission.sessionID).catch(() => undefined)
+      if (meta.disposed || !lineage) return false
+      return shouldAutoRespond(permission, directory)
+    }
+
     const override = sessionAutoAccept(store.autoAccept, sessions(directory), permission, directory)
     if (override !== undefined) return override
     if (input.sync.session.lineage.peek(permission.sessionID)) return shouldAutoRespond(permission, directory)
@@ -320,7 +417,7 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
   ) {
     if (!current() || !isPending(permission)) return
     if (!(await shouldAutoRespondResolved(permission, directory))) return
-    if (meta.disposed || !current() || !isPending(permission)) return
+    if (meta.disposed || !current() || !isPending(permission) || !shouldAutoRespond(permission, directory)) return
     respondOnce(permission, directory)
   }
 
@@ -329,6 +426,47 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
     const next = (enableVersion.get(key) ?? 0) + 1
     enableVersion.set(key, next)
     return next
+  }
+
+  function setMode(value: { sessionID?: string; directory: string; mode: Permission.Mode }) {
+    if (meta.disposed) return Promise.resolve()
+    setStore("mode", directoryAcceptKey(value.directory), value.mode)
+    if (!value.sessionID || !supportsModes()) return Promise.resolve()
+
+    const sessionID = value.sessionID
+    const key = acceptKey(sessionID, value.directory)
+    const version = bumpEnableVersion(sessionID, value.directory)
+    modeSwitch.set(sessionID, { version, mode: value.mode })
+
+    return (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi)
+      .switchPermissionMode({ sessionID, mode: value.mode })
+      .then(
+        () => {
+          if (meta.disposed) return Promise.resolve()
+          if (modeSwitch.get(sessionID)?.version !== version) return Promise.resolve()
+          setTaskMode(sessionID, value.mode)
+          modeSwitch.delete(sessionID)
+          if (value.mode !== "auto") return Promise.resolve()
+
+          return list(value.directory)
+            .then((permissions) => {
+              if (meta.disposed || enableVersion.get(key) !== version) return
+              for (const permission of permissions) {
+                void respondPending(
+                  permission,
+                  value.directory,
+                  () => enableVersion.get(key) === version && shouldAutoRespond(permission, value.directory),
+                )
+              }
+            })
+            .catch(() => undefined)
+            .then(() => undefined)
+        },
+        (error: unknown) => {
+          if (modeSwitch.get(sessionID)?.version === version) modeSwitch.delete(sessionID)
+          throw error
+        },
+      )
   }
 
   const handlePermission = (e: PermissionEvent) => {
@@ -425,6 +563,18 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
   const api = {
     ready: () => !meta.disposed && ready(),
     respond,
+    projectMode,
+    mode,
+    setMode,
+    autoConfirmed(directory: string) {
+      if (meta.disposed) return false
+      return store.autoConfirmed[directoryAcceptKey(directory)] ?? false
+    },
+    confirmAuto(directory: string) {
+      if (meta.disposed) return
+      setStore("autoConfirmed", directoryAcceptKey(directory), true)
+    },
+    supportsModes,
     autoResponds(permission: PermissionRequest, directory?: string) {
       if (meta.disposed) return false
       return shouldAutoRespond(permission, directory)

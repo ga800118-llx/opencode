@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { autoRespondsPermission, isDirectoryAutoAccepting, sessionAutoAccept } from "./permission-auto-respond"
+import {
+  autoRespondsPermission,
+  isDirectoryAutoAccepting,
+  modeAutoRespondsPermission,
+  sessionAutoAccept,
+} from "./permission-auto-respond"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -121,5 +126,39 @@ describe("isDirectoryAutoAccepting", () => {
     const directory = "/tmp/project"
     const autoAccept = { [`${base64Encode(directory)}/*`]: false }
     expect(isDirectoryAutoAccepting(autoAccept, directory)).toBe(false)
+  })
+})
+
+describe("modeAutoRespondsPermission", () => {
+  test("inherits auto from the parent task", () => {
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+
+    expect(modeAutoRespondsPermission({ root: "auto" }, sessions, permission("child"))).toBe(true)
+  })
+
+  test("does not respond for standard or restricted tasks", () => {
+    const sessions = [session({ id: "standard" }), session({ id: "restricted" })]
+
+    expect(modeAutoRespondsPermission({ standard: "standard" }, sessions, permission("standard"))).toBe(false)
+    expect(modeAutoRespondsPermission({ restricted: "restricted" }, sessions, permission("restricted"))).toBe(false)
+  })
+
+  test("prefers an explicit child mode over the parent", () => {
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+
+    expect(modeAutoRespondsPermission({ root: "auto", child: "standard" }, sessions, permission("child"))).toBe(false)
+  })
+
+  test("uses server session modes when no runtime override exists", () => {
+    const sessions = [
+      { ...session({ id: "root" }), permissionMode: "auto" as const },
+      session({ id: "child", parentID: "root" }),
+    ]
+
+    expect(modeAutoRespondsPermission({}, sessions, permission("child"))).toBe(true)
+  })
+
+  test("defaults old V2 tasks without a mode to standard", () => {
+    expect(modeAutoRespondsPermission({}, [session({ id: "root" })], permission("root"))).toBe(false)
   })
 })

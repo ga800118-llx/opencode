@@ -328,7 +328,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const projectDirectory = sdk().directory
     const permissionState = permission.currentServerState()
     const isNewSession = !params.id
-    const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
@@ -372,6 +371,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.onNewSessionWorktreeReset?.()
     }
 
+    const permissionMode = permissionState.projectMode(sessionDirectory)
+    const shouldAutoAccept = isNewSession && !permissionState.supportsModes() && input.autoAccept()
+
     let session = input.info()
     if (!session && isNewSession) {
       const created = await taskAdapter()
@@ -379,6 +381,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           directory: sessionDirectory,
           agent: currentAgent.name,
           model: { modelID: currentModel.id, providerID: currentModel.provider.id, variant },
+          permissionMode,
         })
         .then((output) => normalizeSessionInfo(output.record))
         .catch((err) => {
