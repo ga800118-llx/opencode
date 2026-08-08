@@ -442,18 +442,11 @@ export function createModelProfileFormController(options: {
       }
     },
     canSelectDefault() {
-      return Boolean(
-        state.profileID &&
-          state.selectedModelID &&
-          state.report?.modelID === state.selectedModelID &&
-          state.report.classification === "agent-capable" &&
-          !state.saving &&
-          !state.deleting,
-      )
+      return Boolean(state.profileID && state.selectedModelID && !state.saving && !state.deleting)
     },
     async selectDefault() {
       if (!controller.canSelectDefault() || !state.profileID || !state.selectedModelID) {
-        throw recordError(new Error("Only an agent-capable tested model can be the default."))
+        throw recordError(new Error("Choose a model from a saved model source before making it the default."))
       }
       clearLegacyFeedback()
       try {

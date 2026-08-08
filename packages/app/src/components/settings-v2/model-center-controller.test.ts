@@ -531,9 +531,10 @@ describe("createModelProfileFormController", () => {
     expect(JSON.stringify(form.state)).not.toContain("sk-private")
   })
 
-  test("tests capabilities and only exposes an agent-capable model as a default", async () => {
+  test("allows any selected model from a saved profile to become the default", async () => {
     const { form, defaults } = fixture({ profile })
     form.selectModel("coder")
+    form.setTestReport(undefined)
     expect(form.canSelectDefault()).toBe(true)
     await form.selectDefault()
     expect(defaults).toEqual([{ profileID: profile.id, modelID: "coder" }])
@@ -543,8 +544,34 @@ describe("createModelProfileFormController", () => {
       classification: "chat-only",
       checks: { basicChat: true, streaming: false, toolCalling: false },
     })
-    expect(form.canSelectDefault()).toBe(false)
-    await expect(form.selectDefault()).rejects.toThrow("agent-capable")
+    expect(form.canSelectDefault()).toBe(true)
+  })
+
+  test("requires a saved profile and disables default selection during save or delete", async () => {
+    const create = fixture()
+    create.form.addManualModel("coder", "Coder")
+    expect(create.form.canSelectDefault()).toBe(false)
+    await expect(create.form.selectDefault()).rejects.toThrow(
+      "Choose a model from a saved model source before making it the default.",
+    )
+    expect(create.defaults).toEqual([])
+
+    const edit = fixture({ profile })
+    edit.form.setTestReport(undefined)
+    expect(edit.form.canSelectDefault()).toBe(true)
+
+    const save = edit.form.save()
+    expect(edit.form.canSelectDefault()).toBe(false)
+    edit.resolveSave()
+    await save
+    expect(edit.form.canSelectDefault()).toBe(true)
+
+    edit.form.requestDelete()
+    const remove = edit.form.confirmDelete()
+    expect(edit.form.canSelectDefault()).toBe(false)
+    edit.resolveRemove()
+    await remove
+    expect(edit.form.canSelectDefault()).toBe(true)
   })
 
   test("prevents duplicate save and delete operations and requires delete confirmation", async () => {
