@@ -162,7 +162,7 @@ export default function StatsModel() {
       <Meta name="description" content={modelDescription()} />
       <LocaleLinks path={modelPath()} />
       <Meta property="og:type" content="website" />
-      <Meta property="og:site_name" content="OpenCode" />
+      <Meta property="og:site_name" content="Guai Code" />
       <Meta property="og:title" content={modelTitle()} />
       <Meta property="og:description" content={modelDescription()} />
       <Meta property="og:url" content={modelUrl()} />
