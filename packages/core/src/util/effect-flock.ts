@@ -113,6 +113,53 @@ export namespace EffectFlock {
 
       const forceRemove = (target: string) => fs.remove(target, { recursive: true }).pipe(Effect.ignore)
 
+      type BreakerHandle = { token: string; path: string; ownerPath: string }
+
+      const tryAcquireBreaker = (breakerPath: string) =>
+        Effect.gen(function* () {
+          const created = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
+            Effect.as(true),
+            Effect.catchIf(
+              (error) => error.reason._tag === "AlreadyExists",
+              () => Effect.succeed(false),
+            ),
+            Effect.orDie,
+          )
+          if (!created) return
+
+          const handle = {
+            token: randomUUID(),
+            path: breakerPath,
+            ownerPath: path.join(breakerPath, "owner"),
+          } satisfies BreakerHandle
+          yield* fs.writeFileString(handle.ownerPath, handle.token, { flag: "wx" }).pipe(
+            Effect.catch((error) => forceRemove(breakerPath).pipe(Effect.andThen(Effect.fail(error)))),
+            Effect.orDie,
+          )
+          return handle
+        })
+
+      const releaseBreaker = (handle: BreakerHandle) =>
+        Effect.gen(function* () {
+          const owner = yield* fs.readFileString(handle.ownerPath).pipe(
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+          if (owner === handle.token) yield* forceRemove(handle.path)
+        })
+
+      const withBreaker = <A, E, R>(
+        handle: BreakerHandle,
+        body: Effect.Effect<A, E, R>,
+      ): Effect.Effect<A, E, R> =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* fs
+              .utimes(handle.path, new Date(), new Date())
+              .pipe(Effect.ignore, Effect.repeat(Schedule.spaced(HEARTBEAT_MS)), Effect.forkScoped)
+            return yield* body
+          }),
+        ).pipe(Effect.ensuring(releaseBreaker(handle)))
+
       /** Atomic mkdir — returns true if created, false if already exists, dies on other errors. */
       const atomicMkdir = (dir: string) =>
         fs.makeDirectory(dir, { mode: 0o700 }).pipe(
@@ -181,24 +228,21 @@ export namespace EffectFlock {
             // Stale — race for breaker ownership
             const breakerPath = lockDir + ".breaker"
 
-            const claimed = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
-              Effect.as(true),
-              Effect.catchIf(
-                (e) => e.reason._tag === "AlreadyExists",
-                () => cleanStaleBreaker(breakerPath),
-              ),
-              Effect.catchIf(isPathGone, () => Effect.succeed(false)),
-              Effect.orDie,
-            )
-
-            if (!claimed) return yield* new NotAcquired()
+            const breaker = yield* tryAcquireBreaker(breakerPath)
+            if (!breaker) {
+              yield* cleanStaleBreaker(breakerPath)
+              return yield* new NotAcquired()
+            }
 
             // We own the breaker — double-check staleness, nuke, recreate
-            const recreated = yield* Effect.gen(function* () {
-              if (!(yield* isStale(lockDir, heartbeatPath, metaPath))) return false
-              yield* forceRemove(lockDir)
-              return yield* atomicMkdir(lockDir)
-            }).pipe(Effect.ensuring(forceRemove(breakerPath)))
+            const recreated = yield* withBreaker(
+              breaker,
+              Effect.gen(function* () {
+                if (!(yield* isStale(lockDir, heartbeatPath, metaPath))) return false
+                yield* forceRemove(lockDir)
+                return yield* atomicMkdir(lockDir)
+              }),
+            )
 
             if (!recreated) return yield* new NotAcquired()
           }
@@ -229,41 +273,68 @@ export namespace EffectFlock {
 
       // -- release --
 
-      const failRelease = (handle: Handle, cause: unknown) =>
+      const releaseOwned = (handle: Handle, cause?: unknown) =>
         Effect.gen(function* () {
           const breakerPath = handle.lockDir + ".breaker"
-          const claimed = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
-            Effect.as(true),
-            Effect.catch(() => Effect.succeed(false)),
+          const breaker = yield* tryAcquireBreaker(breakerPath)
+          if (!breaker) {
+            return yield* Effect.die(cause ?? new ReleaseError({ detail: "breaker already owned" }))
+          }
+          return yield* withBreaker(
+            breaker,
+            Effect.gen(function* () {
+              const heartbeat = yield* fs.readFileString(handle.heartbeatPath).pipe(
+                Effect.catchIf(isPathGone, () => Effect.succeed(undefined)),
+                Effect.catch(() => Effect.succeed(undefined)),
+              )
+              const current = yield* fs.readFileString(handle.metaPath).pipe(
+                Effect.map((raw) => ({ raw } as const)),
+                Effect.catchIf(isPathGone, () => Effect.succeed({ missing: true } as const)),
+                Effect.catch((error) => Effect.succeed({ error } as const)),
+              )
+              const metadata =
+                "raw" in current
+                  ? yield* Effect.try({
+                      try: () => ({ token: decodeMeta(current.raw).token } as const),
+                      catch: (cause) => new ReleaseError({ detail: "metadata invalid", cause }),
+                    }).pipe(Effect.catch((error) => Effect.succeed({ error } as const)))
+                  : current
+              const owned =
+                heartbeat === handle.token &&
+                ("missing" in metadata || ("token" in metadata && metadata.token === handle.token))
+              if (owned) yield* fs.remove(handle.lockDir, { recursive: true }).pipe(Effect.orDie)
+              if (cause !== undefined) return yield* Effect.die(cause)
+              if (!owned) return yield* Effect.die(new ReleaseError({ detail: "owner changed" }))
+            }),
           )
-          if (!claimed) return yield* Effect.die(cause)
-          return yield* Effect.gen(function* () {
-            const heartbeat = yield* fs.readFileString(handle.heartbeatPath).pipe(
-              Effect.catchIf(isPathGone, () => Effect.succeed(undefined)),
-              Effect.catch(() => Effect.succeed(undefined)),
-            )
-            if (heartbeat === handle.token) yield* fs.remove(handle.lockDir, { recursive: true }).pipe(Effect.orDie)
-            return yield* Effect.die(cause)
-          }).pipe(Effect.ensuring(forceRemove(breakerPath)))
         })
 
       const release = (handle: Handle) =>
         Effect.gen(function* () {
-          const raw = yield* fs.readFileString(handle.metaPath).pipe(
-            Effect.catch((err) => {
-              if (isPathGone(err)) return failRelease(handle, new ReleaseError({ detail: "metadata missing" }))
-              return failRelease(handle, err)
-            }),
+          const initial = yield* fs.readFileString(handle.metaPath).pipe(
+            Effect.map((raw) => ({ raw } as const)),
+            Effect.catch((error) =>
+              Effect.succeed({
+                error: isPathGone(error) ? new ReleaseError({ detail: "metadata missing" }) : error,
+              } as const),
+            ),
           )
+          if ("error" in initial) return yield* releaseOwned(handle, initial.error)
 
           const parsed = yield* Effect.try({
-            try: () => decodeMeta(raw),
+            try: () => decodeMeta(initial.raw),
             catch: (cause) => new ReleaseError({ detail: "metadata invalid", cause }),
-          }).pipe(Effect.catch((error) => failRelease(handle, error)))
+          }).pipe(
+            Effect.map((value) => ({ value } as const)),
+            Effect.catch((error) => Effect.succeed({ error } as const)),
+          )
+          if ("error" in parsed) return yield* releaseOwned(handle, parsed.error)
 
-          if (parsed.token !== handle.token) return yield* Effect.die(new ReleaseError({ detail: "token mismatch" }))
+          if (parsed.value.token !== handle.token) {
+            return yield* releaseOwned(handle, new ReleaseError({ detail: "token mismatch" }))
+          }
 
-          yield* forceRemove(handle.lockDir)
+          yield* releaseOwned(handle)
         })
 
       // -- build service --

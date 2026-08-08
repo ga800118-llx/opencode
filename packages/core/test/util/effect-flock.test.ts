@@ -3,11 +3,12 @@ import { spawn } from "child_process"
 import fs from "fs/promises"
 import path from "path"
 import os from "os"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { testEffect } from "../lib/effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Hash } from "@opencode-ai/core/util/hash"
 
@@ -110,7 +111,7 @@ const testGlobal = Global.layerWith({
   log: os.tmpdir(),
 })
 
-const testLayer = AppNodeBuilder.build(EffectFlock.node, [[Global.node, testGlobal]])
+const testLayer = AppNodeBuilder.build(LayerNode.group([EffectFlock.node, FSUtil.node]), [[Global.node, testGlobal]])
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -240,6 +241,89 @@ describe("util.effect-flock", () => {
         .pipe(Effect.exit)
       expect(Exit.isFailure(result)).toBe(true)
       expect(yield* Effect.promise(() => exists(lockDir))).toBe(true)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "preserves a new owner when an old release resumes after stale takeover",
+    Effect.gen(function* () {
+      const fsService = yield* FSUtil.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:release-takeover"
+      const lockDir = lock(dir, key)
+      const metaPath = path.join(lockDir, "meta.json")
+      const firstRead = yield* Deferred.make<string>()
+      const resumeRelease = yield* Deferred.make<void>()
+      const secondAcquired = yield* Deferred.make<void>()
+      const releaseSecond = yield* Deferred.make<void>()
+      const state = { bodyFinished: false, paused: false }
+      const filesystem = FSUtil.Service.of({
+        ...fsService,
+        readFileString: (target) => {
+          const read = fsService.readFileString(target)
+          if (target !== metaPath || !state.bodyFinished || state.paused) return read
+          state.paused = true
+          return read.pipe(
+            Effect.flatMap((content) =>
+              Deferred.succeed(firstRead, content).pipe(
+                Effect.andThen(Deferred.await(resumeRelease)),
+                Effect.as(content),
+              ),
+            ),
+          )
+        },
+      })
+      const layer = Layer.fresh(
+        AppNodeBuilder.build(EffectFlock.node, [
+          [Global.node, testGlobal],
+          [FSUtil.node, Layer.succeed(FSUtil.Service, filesystem)],
+        ]),
+      )
+      const context = yield* Layer.build(layer)
+      const flock = Context.get(context, EffectFlock.Service)
+
+      const old = yield* flock
+        .withLock(
+          Effect.sync(() => {
+            state.bodyFinished = true
+          }),
+          key,
+          dir,
+        )
+        .pipe(Effect.forkScoped)
+      const oldMeta = JSON.parse(yield* Deferred.await(firstRead).pipe(Effect.timeout("1 second"))) as {
+        token: string
+      }
+      yield* Effect.promise(async () => {
+        const stale = new Date(Date.now() - 120_000)
+        await fs.utimes(lockDir, stale, stale)
+        await fs.utimes(path.join(lockDir, "heartbeat"), stale, stale)
+        await fs.utimes(metaPath, stale, stale)
+      })
+
+      const current = yield* flock
+        .withLock(
+          Deferred.succeed(secondAcquired, undefined).pipe(Effect.andThen(Deferred.await(releaseSecond))),
+          key,
+          dir,
+        )
+        .pipe(Effect.forkScoped)
+      yield* Deferred.await(secondAcquired).pipe(Effect.timeout("2 seconds"))
+      const newMeta = yield* Effect.promise(() => readJson<{ token: string }>(metaPath))
+      expect(newMeta.token).not.toBe(oldMeta.token)
+
+      yield* Deferred.succeed(resumeRelease, undefined)
+      const oldExit = yield* Fiber.await(old)
+      expect(Exit.isFailure(oldExit)).toBe(true)
+      expect(Exit.isFailure(oldExit) ? Cause.pretty(oldExit.cause) : "").toContain("owner changed")
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(true)
+      expect((yield* Effect.promise(() => readJson<{ token: string }>(metaPath))).token).toBe(newMeta.token)
+
+      yield* Deferred.succeed(releaseSecond, undefined)
+      expect(Exit.isSuccess(yield* Fiber.await(current))).toBe(true)
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
       yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
     }),
   )
