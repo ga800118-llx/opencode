@@ -13,6 +13,11 @@ import { PermissionSaved } from "./permission/saved"
 
 export { Effect, Mode, Rule, Ruleset } from "@opencode-ai/schema/permission"
 const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "deny" }]
+const restrictedPermissions: Permission.Ruleset = [
+  { action: "edit", resource: "*", effect: "ask" },
+  { action: "bash", resource: "*", effect: "ask" },
+  { action: "external_directory", resource: "*", effect: "ask" },
+]
 
 export const ID = Permission.ID
 export type ID = typeof ID.Type
@@ -141,7 +146,7 @@ const layer = Layer.effect(
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
-      return agent?.permissions ?? missingAgentPermissions
+      return { session, rules: agent?.permissions ?? missingAgentPermissions }
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {
@@ -153,12 +158,16 @@ const layer = Layer.effect(
     }
 
     const evaluateInput = EffectRuntime.fnUntraced(function* (input: AssertInput) {
-      const rules = yield* configured(input.sessionID, input.agent)
-      if (denied(input, rules)) return { effect: "deny" as const, rules }
-      const all = [...rules, ...(yield* savedRules())]
-      const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
+      const config = yield* configured(input.sessionID, input.agent)
+      if (denied(input, config.rules)) return { effect: "deny" as const, rules: config.rules }
+      const rules = [
+        ...config.rules,
+        ...(yield* savedRules()),
+        ...(config.session.permissionMode === "restricted" ? restrictedPermissions : []),
+      ]
+      const effects = input.resources.map((resource) => evaluate(input.action, resource, rules).effect)
       const effect: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
-      return { effect, rules: all }
+      return { effect, rules }
     })
 
     function request(input: AssertInput): Request {
@@ -258,21 +267,11 @@ const layer = Layer.effect(
           pending.delete(input.requestID)
           if (input.reply !== "always" || !existing.request.save?.length) return
 
-          const rememberedRules = yield* savedRules()
           for (const [id, item] of pending) {
-            const input = { ...item.request }
-            const rules = yield* configured(item.request.sessionID, item.agent).pipe(
+            const result = yield* evaluateInput({ ...item.request, agent: item.agent }).pipe(
               EffectRuntime.catchTag("Session.NotFoundError", () => EffectRuntime.succeed(undefined)),
             )
-            if (!rules) continue
-            if (denied(input, rules)) continue
-            const effective = [...rules, ...rememberedRules]
-            if (
-              !item.request.resources.every(
-                (resource) => evaluate(item.request.action, resource, effective).effect === "allow",
-              )
-            )
-              continue
+            if (result?.effect !== "allow") continue
             yield* events.publish(Event.Replied, {
               sessionID: item.request.sessionID,
               requestID: item.request.id,

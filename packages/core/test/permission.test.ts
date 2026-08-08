@@ -75,6 +75,18 @@ function setRules(rules: PermissionV2.Ruleset) {
   })
 }
 
+function setMode(mode: PermissionV2.Mode | null) {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    yield* db
+      .update(SessionTable)
+      .set({ permission_mode: mode })
+      .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+      .run()
+      .pipe(Effect.orDie)
+  })
+}
+
 function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   return {
     id: PermissionV2.ID.create("per_test"),
@@ -85,18 +97,19 @@ function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   } satisfies PermissionV2.AssertInput
 }
 
-function waitForRequest() {
+function waitForRequest(input = assertion()) {
   return Effect.gen(function* () {
     const service = yield* PermissionV2.Service
     const events = yield* EventV2.Service
     const asked = yield* Deferred.make<PermissionV2.Request>()
-    const unsubscribe = yield* events.listen((event) =>
-      event.type === PermissionV2.Event.Asked.type
-        ? Deferred.succeed(asked, event.data as PermissionV2.Request).pipe(Effect.asVoid)
-        : Effect.void,
-    )
+    const unsubscribe = yield* events.listen((event) => {
+      if (event.type !== PermissionV2.Event.Asked.type) return Effect.void
+      const request = event.data as PermissionV2.Request
+      if (request.id !== input.id) return Effect.void
+      return Deferred.succeed(asked, request).pipe(Effect.asVoid)
+    })
     yield* Effect.addFinalizer(() => unsubscribe)
-    const fiber = yield* service.assert(assertion()).pipe(Effect.forkScoped)
+    const fiber = yield* service.assert(input).pipe(Effect.forkScoped)
     const request = yield* Deferred.await(asked)
     return { service, fiber, request }
   })
@@ -247,6 +260,140 @@ describe("PermissionV2", () => {
         id: PermissionV2.ID.create("per_test"),
         effect: "deny",
       })
+    }),
+  )
+
+  it.effect("asks for restricted edit, bash, and external directory access", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "*", resource: "*", effect: "allow" }])
+      yield* setMode("restricted")
+      const service = yield* PermissionV2.Service
+      const editID = PermissionV2.ID.create("per_restricted_edit")
+      const bashID = PermissionV2.ID.create("per_restricted_bash")
+      const externalID = PermissionV2.ID.create("per_restricted_external")
+
+      expect(yield* service.ask(assertion({ id: PermissionV2.ID.create("per_restricted_read") }))).toMatchObject({
+        effect: "allow",
+      })
+      expect(yield* service.ask(assertion({ id: editID, action: "edit" }))).toMatchObject({ effect: "ask" })
+      expect(yield* service.ask(assertion({ id: bashID, action: "bash", resources: ["pwd"] }))).toMatchObject({
+        effect: "ask",
+      })
+      expect(
+        yield* service.ask(assertion({
+          id: externalID,
+          action: "external_directory",
+          resources: ["/tmp/output"],
+        })),
+      ).toMatchObject({ effect: "ask" })
+      expect(yield* service.list()).toHaveLength(3)
+
+      yield* Effect.forEach(
+        [editID, bashID, externalID],
+        (requestID) => service.reply({ requestID, reply: "once" }),
+        { discard: true },
+      )
+    }),
+  )
+
+  it.effect("preserves configured deny in restricted mode", () =>
+    Effect.gen(function* () {
+      yield* setup([
+        { action: "*", resource: "*", effect: "allow" },
+        { action: "edit", resource: "*", effect: "deny" },
+      ])
+      yield* setMode("restricted")
+      const saved = yield* PermissionSaved.Service
+      yield* saved.add({ projectID: Project.ID.global, action: "edit", resources: ["src/*"] })
+      const service = yield* PermissionV2.Service
+
+      expect(yield* service.ask(assertion({ action: "edit" }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("keeps saved edit approvals while restricted mode continues asking", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      yield* setMode("restricted")
+      const saved = yield* PermissionSaved.Service
+      yield* saved.add({ projectID: Project.ID.global, action: "edit", resources: ["src/*"] })
+      const before = yield* saved.list({ projectID: Project.ID.global })
+      const service = yield* PermissionV2.Service
+      const requestID = PermissionV2.ID.create("per_restricted_saved_edit")
+
+      expect(
+        yield* service.ask(assertion({ id: requestID, action: "edit", resources: ["src/index.ts"] })),
+      ).toMatchObject({ effect: "ask" })
+      expect(yield* saved.list({ projectID: Project.ID.global })).toEqual(before)
+      yield* service.reply({ requestID, reply: "once" })
+    }),
+  )
+
+  it.effect("preserves configured and saved behavior outside restricted mode", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "allow" }])
+      const saved = yield* PermissionSaved.Service
+      yield* saved.add({ projectID: Project.ID.global, action: "edit", resources: ["src/*"] })
+      const service = yield* PermissionV2.Service
+
+      yield* Effect.forEach(
+        [null, "standard", "auto"] as const,
+        (mode) =>
+          Effect.gen(function* () {
+            yield* setMode(mode)
+            const label = mode ?? "undefined"
+            expect(
+              yield* service.ask(assertion({ id: PermissionV2.ID.create(`per_${label}_read`) })),
+            ).toMatchObject({ effect: "allow" })
+            expect(
+              yield* service.ask(
+                assertion({
+                  id: PermissionV2.ID.create(`per_${label}_saved_edit`),
+                  action: "edit",
+                  resources: ["src/index.ts"],
+                }),
+              ),
+            ).toMatchObject({ effect: "allow" })
+          }),
+        { discard: true },
+      )
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("does not propagate an always reply across restricted edit requests", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "edit", resource: "*", effect: "ask" }])
+      yield* setMode("restricted")
+      const first = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_restricted_always_first"),
+          action: "edit",
+          resources: ["src/first.ts"],
+          save: ["src/*"],
+        }),
+      )
+      const second = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_restricted_always_second"),
+          action: "edit",
+          resources: ["src/second.ts"],
+        }),
+      )
+
+      yield* first.service.reply({ requestID: first.request.id, reply: "always" })
+      yield* Fiber.join(first.fiber)
+      expect(yield* second.service.get(second.request.id)).toEqual(second.request)
+      expect(second.fiber.pollUnsafe()).toBeUndefined()
+
+      const saved = yield* PermissionSaved.Service
+      expect(yield* saved.list({ projectID: Project.ID.global })).toMatchObject([
+        { action: "edit", resource: "src/*" },
+      ])
+      yield* second.service.reply({ requestID: second.request.id, reply: "once" })
+      yield* Fiber.join(second.fiber)
+      expect(yield* second.service.list()).toEqual([])
     }),
   )
 
