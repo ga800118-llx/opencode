@@ -23,11 +23,14 @@ export type ProductModelCenterConfigPatch =
 type ProductModelCenterControllerOptions = {
   readonly modelCenter: ProductModelCenterAPI
   readonly disabledProviders: () => readonly string[]
+  readonly currentModel: () => string | undefined
   readonly updateConfig: (patch: ProductModelCenterConfigPatch) => Promise<void>
   readonly refreshProviders: () => Promise<unknown>
 }
 
 export function createModelCenterController(options: ProductModelCenterControllerOptions) {
+  let observedModel = options.currentModel()
+  let configuredModel = observedModel
   const safe = async <T>(operation: () => Promise<T>) => {
     try {
       return await operation()
@@ -75,10 +78,28 @@ export function createModelCenterController(options: ProductModelCenterControlle
     async selectDefault(input: ProductDefaultModelInput) {
       const profile = (await safe(() => options.modelCenter.list())).find((item) => item.id === input.profileID)
       if (!profile) throw new Error("The model profile does not exist.")
-      defaultModelPatch(profile, input.modelID)
-      const selected = await safe(() => options.modelCenter.selectDefault(input))
-      await safe(() => options.updateConfig(defaultModelPatch(selected, input.modelID)))
-      return selected
+      const patch = defaultModelPatch(profile, input.modelID)
+      const observed = options.currentModel()
+      if (observed !== observedModel) {
+        observedModel = observed
+        configuredModel = observed
+      }
+      const previous = configuredModel
+      await safe(() => options.updateConfig(patch))
+      configuredModel = patch.model
+      try {
+        return await options.modelCenter.selectDefault(input)
+      } catch (error) {
+        if (previous !== patch.model) {
+          try {
+            await options.updateConfig({ model: previous ?? "" })
+            configuredModel = previous
+          } catch (rollbackError) {
+            throw safeError(rollbackError)
+          }
+        }
+        throw safeError(error)
+      }
     },
   })
 }

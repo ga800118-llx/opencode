@@ -20,9 +20,15 @@ function fixture(initial?: unknown) {
   let uuid = 0
   const values = new Map<string, unknown>(initial === undefined ? [] : [["state", initial]])
   const writes: unknown[] = []
+  let writeFailure: Error | undefined
   const store: ProfileStore = {
     get: (key) => values.get(key),
     set(key, value) {
+      if (writeFailure) {
+        const error = writeFailure
+        writeFailure = undefined
+        throw error
+      }
       values.set(key, value)
       writes.push(value)
     },
@@ -32,7 +38,12 @@ function fixture(initial?: unknown) {
     now: () => time++,
     randomUUID: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, "0")}`,
   })
-  return { repository, values, writes }
+  return {
+    repository,
+    values,
+    writes,
+    failNextWrite: (error = new Error("store unavailable")) => (writeFailure = error),
+  }
 }
 
 const report = {
@@ -117,6 +128,21 @@ describe("createProfileRepository", () => {
     expect(() => fake.repository.selectDefault({ profileID: profile.id, modelID: "missing" })).toThrow(
       "The selected model does not belong to this profile.",
     )
+  })
+
+  test("keeps memory unchanged when default persistence fails", () => {
+    const fake = fixture()
+    const profile = fake.repository.save({
+      ...base,
+      models: [...base.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+    })
+    fake.failNextWrite()
+
+    expect(() => fake.repository.selectDefault({ profileID: profile.id, modelID: "reasoner" })).toThrow(
+      "store unavailable",
+    )
+    expect(fake.repository.get(profile.id)?.defaultModelID).toBe("coder")
+    expect(fake.repository.defaultSelection()).toBeUndefined()
   })
 
   test("preserves a capability report when saving an unchanged tested profile", () => {

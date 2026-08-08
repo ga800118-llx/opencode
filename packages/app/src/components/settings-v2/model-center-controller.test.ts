@@ -62,7 +62,17 @@ function fixture(input: { profile?: ProductProviderProfile; discover?: ModelProf
         await new Promise<void>((resolve) => {
           saveResolve = resolve
         })
-        return profile
+        return {
+          ...profile,
+          ...(value.id ? { id: value.id } : {}),
+          name: value.name,
+          kind: value.kind,
+          baseURL: value.baseURL,
+          headers: value.headers,
+          models: value.models,
+          ...(value.defaultModelID ? { defaultModelID: value.defaultModelID } : {}),
+          settings: value.settings,
+        }
       },
       remove: async () => {
         await new Promise<void>((resolve) => {
@@ -122,6 +132,19 @@ describe("createModelProfileFormController", () => {
       headers: { "X-Secret": "replacement-header" },
     })
     expect(JSON.stringify(form.state)).not.toContain("replacement-key")
+  })
+
+  test("only restores capability information for the initially selected model", () => {
+    const { form } = fixture({
+      profile: {
+        ...profile,
+        models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+        defaultModelID: "reasoner",
+      },
+    })
+
+    expect(form.state.selectedModelID).toBe("reasoner")
+    expect(form.state.report).toBeUndefined()
   })
 
   test("records successful discovery feedback while reconciling manual models", async () => {
@@ -215,7 +238,7 @@ describe("createModelProfileFormController", () => {
     reports[2].resolve(report)
     await invalidEndpointTest
     expect(form.state.error).toBe("A valid HTTP or HTTPS endpoint is required.")
-    expect(form.state.diagnostic).toEqual(diagnostic)
+    expect(form.state.diagnostic).toBeUndefined()
 
     await form.discover()
     expect(form.state.error).toBeUndefined()
@@ -547,6 +570,154 @@ describe("createModelProfileFormController", () => {
     expect(form.canSelectDefault()).toBe(true)
   })
 
+  test("clears capability information when selecting another model", () => {
+    const reasoner = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const { form } = fixture({ profile: reasoner })
+
+    expect(form.state.report?.modelID).toBe("coder")
+    form.selectModel("reasoner")
+    expect(form.state.report).toBeUndefined()
+  })
+
+  test("ignores delayed capability results after automatic model changes", async () => {
+    const reports = [
+      deferred<ProductCapabilityReport>(),
+      deferred<ProductCapabilityReport>(),
+      deferred<ProductCapabilityReport>(),
+    ]
+    let test = 0
+    const form = createModelProfileFormController({
+      profile: {
+        ...profile,
+        models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+      },
+      operations: {
+        discover: async () => ({
+          models: [{ id: "new-coder", name: "New coder", source: "discovered" }],
+          requestID: "req-new",
+        }),
+        test: () => reports[test++]!.promise,
+        detectLocal: async () => [],
+        save: async () => profile,
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+
+    const removedModelTest = form.test()
+    form.removeModel("coder")
+    reports[0].resolve(agentReport)
+    await removedModelTest
+    expect(form.state.selectedModelID).toBe("reasoner")
+    expect(form.state.report).toBeUndefined()
+
+    const localCandidateTest = form.test()
+    form.applyLocalCandidate({
+      id: "lm-studio",
+      kind: "lm-studio",
+      name: "LM Studio",
+      baseURL: "http://127.0.0.1:1234/v1",
+      available: true,
+      models: [{ id: "local-coder", name: "Local coder", source: "discovered" }],
+    })
+    reports[1].resolve({ ...agentReport, modelID: "reasoner" })
+    await localCandidateTest
+    expect(form.state.selectedModelID).toBe("local-coder")
+    expect(form.state.report).toBeUndefined()
+
+    const discoveryTest = form.test()
+    await form.discover()
+    reports[2].resolve({ ...agentReport, modelID: "local-coder" })
+    await discoveryTest
+    expect(form.state.selectedModelID).toBe("new-coder")
+    expect(form.state.report).toBeUndefined()
+  })
+
+  test("invalidates capability results when connection inputs change", async () => {
+    const pending = deferred<ProductCapabilityReport>()
+    const diagnostic = {
+      kind: "timeout",
+      message: "Timed out.",
+      requestID: "req-timeout",
+    } satisfies ProductModelDiagnostic
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => ({ models: [], requestID: "req-discover" }),
+        test: () => pending.promise,
+        detectLocal: async () => [],
+        save: async () => profile,
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+
+    const request = form.test()
+    form.setField("baseURL", "https://replacement.example.test/v1")
+    pending.resolve({ ...agentReport, diagnostic })
+    await request
+    expect(form.state.testing).toBe(false)
+    expect(form.state.report).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
+  })
+
+  test("clears completed capability diagnostics when credentials change", async () => {
+    const diagnostic = {
+      kind: "authentication",
+      message: "Authentication failed.",
+      requestID: "req-auth",
+    } satisfies ProductModelDiagnostic
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => ({ models: [], requestID: "req-discover" }),
+        test: async () => ({ ...agentReport, diagnostic }),
+        detectLocal: async () => [],
+        save: async () => profile,
+        remove: async () => undefined,
+        selectDefault: async () => profile,
+      },
+    })
+
+    await form.test()
+    expect(form.state.diagnostic).toEqual(diagnostic)
+    form.setApiKey("replacement-key")
+    expect(form.state.report).toBeUndefined()
+    expect(form.state.diagnostic).toBeUndefined()
+  })
+
+  test("serializes repeated default selection while it is in progress", async () => {
+    const selection = deferred<ProductProviderProfile>()
+    const form = createModelProfileFormController({
+      profile,
+      operations: {
+        discover: async () => ({ models: [], requestID: "req-discover" }),
+        test: async () => agentReport,
+        detectLocal: async () => [],
+        save: async () => profile,
+        remove: async () => undefined,
+        selectDefault: () => selection.promise,
+      },
+    })
+
+    const first = form.selectDefault()
+    const second = form.selectDefault()
+    expect(second).toBe(first)
+    expect(form.state.selectingDefault).toBe(true)
+    expect(form.canSelectDefault()).toBe(false)
+    expect(form.canSave()).toBe(false)
+    form.requestDelete()
+    expect(form.state.deleteConfirmation).toBe(false)
+
+    selection.resolve(profile)
+    await first
+    expect(form.state.selectingDefault).toBe(false)
+    expect(form.canSelectDefault()).toBe(true)
+  })
+
   test("requires a saved profile and disables default selection during save or delete", async () => {
     const create = fixture()
     create.form.addManualModel("coder", "Coder")
@@ -565,18 +736,32 @@ describe("createModelProfileFormController", () => {
     edit.form.setTestReport(undefined)
     expect(edit.form.canSelectDefault()).toBe(true)
 
+    edit.form.addManualModel("unsaved", "Unsaved")
+    edit.form.selectModel("unsaved")
+    expect(edit.form.canSelectDefault()).toBe(false)
+    await expect(edit.form.selectDefault()).rejects.toThrow(
+      /^Choose a model from a saved model source before making it the default\.$/,
+    )
+    edit.form.selectModel("coder")
+    expect(edit.form.canSelectDefault()).toBe(true)
+
     const save = edit.form.save()
     expect(edit.form.canSelectDefault()).toBe(false)
     edit.resolveSave()
     await save
     expect(edit.form.canSelectDefault()).toBe(true)
+    edit.form.selectModel("unsaved")
+    expect(edit.form.canSelectDefault()).toBe(true)
+    edit.form.selectModel("coder")
 
     edit.form.requestDelete()
+    expect(edit.form.canSelectDefault()).toBe(false)
     const remove = edit.form.confirmDelete()
     expect(edit.form.canSelectDefault()).toBe(false)
     edit.resolveRemove()
     await remove
-    expect(edit.form.canSelectDefault()).toBe(true)
+    expect(edit.form.state.profileID).toBeUndefined()
+    expect(edit.form.canSelectDefault()).toBe(false)
   })
 
   test("prevents duplicate save and delete operations and requires delete confirmation", async () => {

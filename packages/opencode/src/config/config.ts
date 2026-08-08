@@ -167,9 +167,12 @@ function writable(info: Info) {
 
 function writableGlobal(info: Info) {
   const next = writable(info)
-  // When a user changes config from a value back to default in the Desktop app, we don't want to leave a blank `"shell": "",` key
-  if ("shell" in next && next.shell === "") return { ...next, shell: undefined }
-  return next
+  // Empty strings sent by Desktop mean "restore the automatic default" and should remove the persisted key.
+  return {
+    ...next,
+    ...(next.shell === "" ? { shell: undefined } : {}),
+    ...(next.model === "" ? { model: undefined } : {}),
+  }
 }
 
 const layer = Layer.effect(

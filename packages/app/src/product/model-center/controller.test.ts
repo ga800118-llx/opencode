@@ -46,10 +46,23 @@ const draft = {
   credentials: { apiKey: "sk-test-secret" },
 } satisfies ProductProviderProfileInput
 
-function fixture(input: { updateFailure?: Error } = {}) {
+function fixture(
+  input: {
+    updateFailure?: Error
+    rollbackFailure?: Error
+    selectFailure?: Error
+    selectFailureAt?: number
+    currentModel?: string | null
+    staleCurrentModel?: boolean
+  } = {},
+) {
   const calls: string[] = []
   const patches: unknown[] = []
   let stored: ProductProviderProfile[] = []
+  let configuredModel = input.currentModel === null ? undefined : (input.currentModel ?? `${profile.providerID}/coder`)
+  let observedModel = configuredModel
+  let updateCalls = 0
+  let selectCalls = 0
   const host: ProductModelCenterAPI = {
     async capabilities() {
       return {
@@ -65,7 +78,17 @@ function fixture(input: { updateFailure?: Error } = {}) {
     },
     async save(value) {
       calls.push("save")
-      const next = { ...profile, ...(value.id ? { id: value.id } : {}), name: value.name }
+      const next = {
+        ...profile,
+        ...(value.id ? { id: value.id } : {}),
+        name: value.name,
+        kind: value.kind,
+        baseURL: value.baseURL,
+        headers: value.headers,
+        models: value.models,
+        ...(value.defaultModelID ? { defaultModelID: value.defaultModelID } : {}),
+        settings: value.settings,
+      }
       stored = [next]
       return next
     },
@@ -82,9 +105,16 @@ function fixture(input: { updateFailure?: Error } = {}) {
     async detectLocal() {
       return []
     },
-    async selectDefault() {
+    async selectDefault(value) {
       calls.push("select-default")
-      return profile
+      selectCalls += 1
+      if (input.selectFailure && (!input.selectFailureAt || input.selectFailureAt === selectCalls)) {
+        throw input.selectFailure
+      }
+      const current = stored[0] ?? profile
+      const selected = { ...current, defaultModelID: value.modelID }
+      stored = [selected]
+      return selected
     },
     async reloadCredentials() {
       calls.push("reload")
@@ -93,16 +123,30 @@ function fixture(input: { updateFailure?: Error } = {}) {
   const controller = createModelCenterController({
     modelCenter: host,
     disabledProviders: () => ["openai", profile.providerID],
+    currentModel: () => observedModel,
     async updateConfig(patch) {
       calls.push("update-config")
       patches.push(patch)
+      updateCalls += 1
       if (input.updateFailure) throw input.updateFailure
+      if (input.rollbackFailure && updateCalls === 2) throw input.rollbackFailure
+      if ("model" in patch) {
+        configuredModel = patch.model || undefined
+        if (!input.staleCurrentModel) observedModel = configuredModel
+      }
     },
     async refreshProviders() {
       calls.push("refresh")
     },
   })
-  return { controller, calls, patches, setStored: (value: ProductProviderProfile[]) => (stored = value) }
+  return {
+    controller,
+    calls,
+    patches,
+    stored: () => stored,
+    configuredModel: () => configuredModel,
+    setStored: (value: ProductProviderProfile[]) => (stored = value),
+  }
 }
 
 describe("createModelCenterController", () => {
@@ -141,7 +185,7 @@ describe("createModelCenterController", () => {
     const selecting = fixture()
     selecting.setStored([profile])
     expect(await selecting.controller.selectDefault({ profileID: profile.id, modelID: "coder" })).toEqual(profile)
-    expect(selecting.calls).toEqual(["list", "select-default", "update-config"])
+    expect(selecting.calls).toEqual(["list", "update-config", "select-default"])
     expect(selecting.patches).toEqual([{ model: `${profile.providerID}/coder` }])
   })
 
@@ -158,5 +202,97 @@ describe("createModelCenterController", () => {
       "An unexpected product error occurred.",
     )
     expect(fake.calls).toEqual(["list", "save", "update-config", "save"])
+  })
+
+  test("does not change the stored default when the global config update fails", async () => {
+    const previous = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const fake = fixture({ updateFailure: new Error("private config error") })
+    fake.setStored([previous])
+
+    await expect(fake.controller.selectDefault({ profileID: profile.id, modelID: "reasoner" })).rejects.toThrow(
+      "An unexpected product error occurred.",
+    )
+
+    expect(fake.calls).toEqual(["list", "update-config"])
+    expect(fake.stored()[0]?.defaultModelID).toBe("coder")
+    expect(fake.configuredModel()).toBe(`${profile.providerID}/coder`)
+  })
+
+  test("restores the global config when desktop default persistence fails", async () => {
+    const previous = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const fake = fixture({ selectFailure: new Error("desktop storage error") })
+    fake.setStored([previous])
+
+    await expect(fake.controller.selectDefault({ profileID: profile.id, modelID: "reasoner" })).rejects.toThrow(
+      "An unexpected product error occurred.",
+    )
+
+    expect(fake.calls).toEqual(["list", "update-config", "select-default", "update-config"])
+    expect(fake.patches).toEqual([
+      { model: `${profile.providerID}/reasoner` },
+      { model: `${profile.providerID}/coder` },
+    ])
+    expect(fake.stored()[0]?.defaultModelID).toBe("coder")
+    expect(fake.configuredModel()).toBe(`${profile.providerID}/coder`)
+  })
+
+  test("clears the global model when the first desktop default cannot be persisted", async () => {
+    const fake = fixture({ selectFailure: new Error("desktop storage error"), currentModel: null })
+    fake.setStored([profile])
+
+    await expect(fake.controller.selectDefault({ profileID: profile.id, modelID: "coder" })).rejects.toThrow(
+      "An unexpected product error occurred.",
+    )
+
+    expect(fake.patches).toEqual([{ model: `${profile.providerID}/coder` }, { model: "" }])
+    expect(fake.configuredModel()).toBeUndefined()
+  })
+
+  test("uses the last confirmed model when server sync has not refreshed yet", async () => {
+    const source = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const fake = fixture({
+      selectFailure: new Error("desktop storage error"),
+      selectFailureAt: 2,
+      staleCurrentModel: true,
+    })
+    fake.setStored([source])
+
+    await fake.controller.selectDefault({ profileID: profile.id, modelID: "reasoner" })
+    await expect(fake.controller.selectDefault({ profileID: profile.id, modelID: "coder" })).rejects.toThrow(
+      "An unexpected product error occurred.",
+    )
+
+    expect(fake.patches).toEqual([
+      { model: `${profile.providerID}/reasoner` },
+      { model: `${profile.providerID}/coder` },
+      { model: `${profile.providerID}/reasoner` },
+    ])
+    expect(fake.configuredModel()).toBe(`${profile.providerID}/reasoner`)
+  })
+
+  test("surfaces a failed config rollback", async () => {
+    const source = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const fake = fixture({
+      selectFailure: new Error("desktop storage error"),
+      rollbackFailure: new Error("rollback error"),
+    })
+    fake.setStored([source])
+
+    await expect(fake.controller.selectDefault({ profileID: profile.id, modelID: "reasoner" })).rejects.toThrow(
+      "An unexpected product error occurred.",
+    )
+    expect(fake.calls).toEqual(["list", "update-config", "select-default", "update-config"])
   })
 })

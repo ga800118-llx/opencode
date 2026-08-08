@@ -54,6 +54,7 @@ type FormState = {
   discovering: boolean
   testing: boolean
   detecting: boolean
+  selectingDefault: boolean
   saving: boolean
   deleting: boolean
   deleteConfirmation: boolean
@@ -103,6 +104,8 @@ export function createModelProfileFormController(options: {
   let detectionGeneration = 0
   let savePromise: Promise<ProductProviderProfile> | undefined
   let deletePromise: Promise<void> | undefined
+  let defaultPromise: Promise<ProductProviderProfile> | undefined
+  const persistedModelIDs = new Set(initial?.models.map((model) => model.id) ?? [])
 
   const [state, setState] = createStore<FormState>({
     mode: initial ? "edit" : "create",
@@ -129,11 +132,12 @@ export function createModelProfileFormController(options: {
       proxyURL: "",
       allowInsecureTls: false,
     },
-    ...(initial?.test ? { report: initial.test } : {}),
+    ...(initial?.test && initial.test.modelID === initial.defaultModelID ? { report: initial.test } : {}),
     localCandidates: [],
     discovering: false,
     testing: false,
     detecting: false,
+    selectingDefault: false,
     saving: false,
     deleting: false,
     deleteConfirmation: false,
@@ -152,6 +156,13 @@ export function createModelProfileFormController(options: {
     discoveryGeneration += 1
     setState("discovering", false)
     clearDiscoveryFeedback()
+  }
+
+  const invalidateTest = () => {
+    testGeneration += 1
+    setState("testing", false)
+    setState("report", undefined)
+    setState("diagnostic", undefined)
   }
 
   const input = (): ProductProviderProfileInput => {
@@ -213,6 +224,7 @@ export function createModelProfileFormController(options: {
     setKind(kind: ProductProviderKind) {
       const defaults = KIND_DEFAULTS[kind]
       invalidateDiscovery()
+      invalidateTest()
       apiKey = ""
       secretHeaders.clear()
       setState({
@@ -229,22 +241,28 @@ export function createModelProfileFormController(options: {
       clearLegacyFeedback()
     },
     setField(field: "name" | "baseURL", value: string) {
-      if (field === "baseURL") invalidateDiscovery()
+      if (field === "baseURL") {
+        invalidateDiscovery()
+        invalidateTest()
+      }
       setState(field, value)
       clearLegacyFeedback()
     },
     setSetting(field: "timeoutMs" | "contextLimit" | "outputLimit", value: number) {
       if (field === "timeoutMs") invalidateDiscovery()
+      invalidateTest()
       setState("settings", field, value)
       clearLegacyFeedback()
     },
     setProxyURL(value: string) {
       invalidateDiscovery()
+      invalidateTest()
       setState("settings", "proxyURL", value)
       clearLegacyFeedback()
     },
     setApiKey(value: string) {
       invalidateDiscovery()
+      invalidateTest()
       apiKey = value
       setState("apiKeyPresent", Boolean(value) || Boolean(initial?.hasApiKey))
       clearLegacyFeedback()
@@ -253,6 +271,7 @@ export function createModelProfileFormController(options: {
       const index = state.headers.length
       const sensitive = header.sensitive === true
       invalidateDiscovery()
+      invalidateTest()
       if (sensitive && header.value !== undefined) secretHeaders.set(index, header.value)
       setState(
         "headers",
@@ -273,6 +292,7 @@ export function createModelProfileFormController(options: {
       const sensitive = patch.sensitive ?? current.sensitive
       const nextValue = patch.value ?? controller.headerValue(index)
       invalidateDiscovery()
+      invalidateTest()
       if (sensitive) secretHeaders.set(index, nextValue)
       else secretHeaders.delete(index)
       setState("headers", index, {
@@ -287,6 +307,7 @@ export function createModelProfileFormController(options: {
     removeHeader(index: number) {
       const values = state.headers.map((_, current) => controller.headerValue(current))
       invalidateDiscovery()
+      invalidateTest()
       setState(
         "headers",
         produce((rows) => {
@@ -314,6 +335,7 @@ export function createModelProfileFormController(options: {
       clearLegacyFeedback()
     },
     removeModel(modelID: string) {
+      const changesSelection = state.selectedModelID === modelID
       setState(
         "models",
         produce((models) => {
@@ -321,12 +343,13 @@ export function createModelProfileFormController(options: {
           if (index >= 0) models.splice(index, 1)
         }),
       )
-      if (state.selectedModelID === modelID) setState("selectedModelID", state.models[0]?.id)
-      if (state.report?.modelID === modelID) setState("report", undefined)
+      if (changesSelection || state.report?.modelID === modelID) invalidateTest()
+      if (changesSelection) setState("selectedModelID", state.models[0]?.id)
       clearLegacyFeedback()
     },
     selectModel(modelID: string) {
       if (!state.models.some((model) => model.id === modelID)) return
+      if (state.selectedModelID !== modelID) invalidateTest()
       setState("selectedModelID", modelID)
       clearLegacyFeedback()
     },
@@ -342,6 +365,7 @@ export function createModelProfileFormController(options: {
     },
     applyLocalCandidate(candidate: ProductLocalProviderCandidate) {
       invalidateDiscovery()
+      invalidateTest()
       detectionGeneration += 1
       setState("kind", candidate.kind)
       setState("name", candidate.name)
@@ -397,9 +421,9 @@ export function createModelProfileFormController(options: {
         const selectedModelID = models.some((model) => model.id === state.selectedModelID)
           ? state.selectedModelID
           : models[0]?.id
+        invalidateTest()
         setState("models", models)
         setState("selectedModelID", selectedModelID)
-        setState("report", undefined)
         setState("discoveryFeedback", { type: "success", count: result.models.length })
         return result
       } catch (error) {
@@ -436,24 +460,41 @@ export function createModelProfileFormController(options: {
       if (state.models.length === 0) return false
       try {
         input()
-        return !state.saving && !state.deleting
+        return !state.saving && !state.deleting && !state.selectingDefault
       } catch {
         return false
       }
     },
     canSelectDefault() {
-      return Boolean(state.profileID && state.selectedModelID && !state.saving && !state.deleting)
+      return Boolean(
+        state.profileID &&
+          state.selectedModelID &&
+          persistedModelIDs.has(state.selectedModelID) &&
+          !state.saving &&
+          !state.deleting &&
+          !state.deleteConfirmation &&
+          !state.selectingDefault,
+      )
     },
-    async selectDefault() {
+    selectDefault() {
+      if (defaultPromise) return defaultPromise
       if (!controller.canSelectDefault() || !state.profileID || !state.selectedModelID) {
-        throw recordError(new Error("Choose a model from a saved model source before making it the default."))
+        return Promise.reject(
+          recordError(new Error("Choose a model from a saved model source before making it the default.")),
+        )
       }
+      setState("selectingDefault", true)
       clearLegacyFeedback()
-      try {
-        return await options.operations.selectDefault({ profileID: state.profileID, modelID: state.selectedModelID })
-      } catch (error) {
-        throw recordError(error)
-      }
+      defaultPromise = options.operations
+        .selectDefault({ profileID: state.profileID, modelID: state.selectedModelID })
+        .catch((error) => {
+          throw recordError(error)
+        })
+        .finally(() => {
+          setState("selectingDefault", false)
+          defaultPromise = undefined
+        })
+      return defaultPromise
     },
     save() {
       if (savePromise) return savePromise
@@ -469,6 +510,13 @@ export function createModelProfileFormController(options: {
       clearLegacyFeedback()
       savePromise = options.operations
         .save(value)
+        .then((profile) => {
+          persistedModelIDs.clear()
+          profile.models.forEach((model) => persistedModelIDs.add(model.id))
+          setState("profileID", profile.id)
+          setState("mode", "edit")
+          return profile
+        })
         .catch((error) => {
           throw recordError(error)
         })
@@ -479,7 +527,7 @@ export function createModelProfileFormController(options: {
       return savePromise
     },
     requestDelete() {
-      if (!state.profileID) return
+      if (!state.profileID || state.selectingDefault) return
       setState("deleteConfirmation", true)
       clearLegacyFeedback()
     },
@@ -489,12 +537,16 @@ export function createModelProfileFormController(options: {
     },
     confirmDelete() {
       if (deletePromise) return deletePromise
-      if (!state.profileID || !state.deleteConfirmation)
+      if (!state.profileID || !state.deleteConfirmation || state.selectingDefault)
         return Promise.reject(new Error("Confirm profile deletion first."))
       setState("deleting", true)
       clearLegacyFeedback()
       deletePromise = options.operations
         .remove(state.profileID)
+        .then(() => {
+          persistedModelIDs.clear()
+          setState("profileID", undefined)
+        })
         .catch((error) => {
           throw recordError(error)
         })

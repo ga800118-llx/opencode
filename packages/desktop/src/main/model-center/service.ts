@@ -67,6 +67,7 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
           {
             hasApiKey: Boolean(next.apiKey),
             sensitiveHeaders: Object.keys(next.headers ?? {}),
+            preserveTest: credentialSignature(previous) === credentialSignature(next),
           },
         ))
       } catch {
@@ -199,6 +200,15 @@ function mergeCredentialEnvelope(
   return Object.freeze({
     ...(apiKey ? { apiKey } : {}),
     ...(Object.keys(nextHeaders).length ? { headers: Object.freeze(nextHeaders) } : {}),
+  })
+}
+
+function credentialSignature(envelope: ProductCredentialEnvelope | undefined) {
+  return JSON.stringify({
+    apiKey: envelope?.apiKey ?? "",
+    headers: Object.entries(envelope?.headers ?? {})
+      .map(([name, value]) => [name.toLowerCase(), value])
+      .sort(([left], [right]) => left.localeCompare(right)),
   })
 }
 

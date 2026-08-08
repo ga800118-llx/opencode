@@ -16,6 +16,7 @@ export type ProfileStore = {
 export type ProfileSecretState = {
   readonly hasApiKey: boolean
   readonly sensitiveHeaders: readonly string[]
+  readonly preserveTest?: boolean
 }
 
 export type ProfileRepository = {
@@ -49,8 +50,9 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
   if (state.changed) options.store.set(STORE_KEY, state.value)
 
   const persist = (next: StoredProfileState) => {
-    state = { value: freezeState(next), changed: false }
-    options.store.set(STORE_KEY, state.value)
+    const value = freezeState(next)
+    options.store.set(STORE_KEY, value)
+    state = { value, changed: false }
   }
 
   const find = (profileID: string) => state.value.profiles.find((profile) => profile.id === profileID)
@@ -89,7 +91,11 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
       const hasApiKey = secrets?.hasApiKey ?? existing?.hasApiKey ?? false
       const hasSensitiveHeader = headers.some((header) => header.sensitive && header.hasValue)
       const preserveTest =
-        existing?.test && profileSignature(existing) === inputSignature(normalized) ? existing.test : undefined
+        existing?.test &&
+        secrets?.preserveTest !== false &&
+        profileSignature(existing) === inputSignature(normalized)
+          ? existing.test
+          : undefined
       const profile = sanitizeProviderProfile({
         id,
         providerID: existing?.providerID ?? profileProviderID(id),

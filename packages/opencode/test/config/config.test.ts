@@ -371,28 +371,30 @@ it.instance("updates config and preserves empty shell sentinel", () =>
   }),
 )
 
-it.effect("updates global config and omits empty shell key in json", () =>
-  withGlobalConfig({ config: { shell: "bash" } }, ({ dir }) =>
+it.effect("updates global config and omits empty desktop default keys in json", () =>
+  withGlobalConfig({ config: { shell: "bash", model: "test/model" } }, ({ dir }) =>
     Effect.gen(function* () {
-      yield* Config.use.updateGlobal({ shell: "" })
+      yield* Config.use.updateGlobal({ shell: "", model: "" })
 
       const writtenConfig = yield* FSUtil.use.readJson(path.join(dir, "opencode.json"))
       expect(writtenConfig).not.toHaveProperty("shell")
+      expect(writtenConfig).not.toHaveProperty("model")
     }),
   ),
 )
 
-it.effect("updates global config and omits empty shell key in jsonc", () =>
+it.effect("updates global config and omits empty desktop default keys in jsonc", () =>
   withGlobalConfig({ config: { shell: "bash", model: "test/model" }, name: "opencode.jsonc" }, ({ dir }) =>
     Effect.gen(function* () {
-      yield* Config.use.updateGlobal({ shell: "" })
+      yield* Config.use.updateGlobal({ shell: "", model: "" })
 
       const file = path.join(dir, "opencode.jsonc")
       const writtenConfig = yield* FSUtil.use.readFileString(file)
       const parsed = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(writtenConfig, file), file)
       expect(writtenConfig).not.toContain('"shell"')
+      expect(writtenConfig).not.toContain('"model"')
       expect(parsed.shell).toBeUndefined()
-      expect(parsed.model).toBe("test/model")
+      expect(parsed.model).toBeUndefined()
     }),
   ),
 )

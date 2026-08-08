@@ -53,7 +53,7 @@ export const DialogModelProfile: Component<{
   })
   onCleanup(() => form.cancel())
 
-  const busy = () => form.state.saving || form.state.deleting
+  const busy = () => form.state.saving || form.state.deleting || form.state.selectingDefault
   const title = () =>
     form.state.mode === "edit"
       ? language.t("settings.modelCenter.dialog.edit")

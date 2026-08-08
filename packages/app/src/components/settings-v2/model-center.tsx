@@ -36,6 +36,7 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
   const controller = createModelCenterController({
     modelCenter: runtime.host.modelCenter,
     disabledProviders: () => serverSync().data.config.disabled_providers ?? [],
+    currentModel: () => serverSync().data.config.model,
     updateConfig: async (patch) => {
       await serverSync().updateConfig(openCodeConfigPatch(patch))
     },

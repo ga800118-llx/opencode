@@ -169,6 +169,27 @@ describe("createModelCenterService", () => {
     expect(JSON.stringify(tested)).not.toContain("secret")
   })
 
+  test("invalidates capability reports when saved credentials change", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    await fake.service.test({ profileID: profile.id, modelID: "coder" })
+
+    const apiKeyChanged = await fake.service.save({
+      ...draft,
+      id: profile.id,
+      credentials: { apiKey: "sk-replacement" },
+    })
+    expect(apiKeyChanged.test).toBeUndefined()
+
+    await fake.service.test({ profileID: profile.id, modelID: "coder" })
+    const headerChanged = await fake.service.save({
+      ...draft,
+      id: profile.id,
+      credentials: { headers: { "X-Secret": "Bearer replacement" } },
+    })
+    expect(headerChanged.test).toBeUndefined()
+  })
+
   test("supports inline discovery, local detection, default selection, reload, and delete", async () => {
     const fake = fixture()
     const inline = await fake.service.discover({ draft })
