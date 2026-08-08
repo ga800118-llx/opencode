@@ -6,6 +6,7 @@ import {
   createSkillRefreshQueue,
   filterSkills,
   isPending,
+  skillPendingKey,
   scopeKey,
   sourceKey,
   statusKey,
@@ -104,11 +105,18 @@ describe("Skill settings controller", () => {
   })
 
   test("tracks one or multiple pending installations independently", () => {
-    const one = new Set([items[1]!.id])
-    const concurrent = new Set([items[1]!.id, items[3]!.id])
-    expect(items.map((item) => isPending(one, item))).toEqual([false, true, false, false, false])
-    expect(items.map((item) => isPending(concurrent, item))).toEqual([false, true, false, true, false])
-    expect(items.every((item) => !isPending(new Set(), item))).toBe(true)
+    const keys = items.map((item) => skillPendingKey("server-a", "/repo", item.id))
+    const one = new Set([keys[1]!])
+    const concurrent = new Set([keys[1]!, keys[3]!])
+    expect(keys.map((key) => isPending(one, key))).toEqual([false, true, false, false, false])
+    expect(keys.map((key) => isPending(concurrent, key))).toEqual([false, true, false, true, false])
+    expect(keys.every((key) => !isPending(new Set(), key))).toBe(true)
+    expect(skillPendingKey("server-a", "/repo", items[0]!.id)).not.toBe(
+      skillPendingKey("server-b", "/repo", items[0]!.id),
+    )
+    expect(skillPendingKey("server-a", "/repo", items[0]!.id)).not.toBe(
+      skillPendingKey("server-a", "/other", items[0]!.id),
+    )
   })
 
   test("serializes concurrent cache refreshes in mutation completion order", async () => {

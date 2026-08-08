@@ -10,7 +10,7 @@ import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { type Component, createEffect, createMemo, For, Show } from "solid-js"
+import { type Component, createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { type ServerSDK, useServerSDK } from "@/context/server-sdk"
@@ -21,6 +21,7 @@ import {
   createSkillRefreshQueue,
   filterSkills,
   isPending,
+  skillPendingKey,
   scopeKey,
   sourceKey,
   statusKey,
@@ -31,12 +32,16 @@ import "./settings-v2.css"
 
 const FILTERS = ["all", "active", "disabled", "shadowed"] as const
 type SkillQueryKey = readonly [ServerSDK["scope"], string, "skill-management"]
-type DeleteSnapshot = {
-  item: Skill.ManagementInfo
+type MutationContext = {
   directory: string
-  sdk: ServerSDK
+  scope: ServerSDK["scope"]
   api: SkillManagementApi
   queryKey: SkillQueryKey
+}
+type DeleteSnapshot = MutationContext & {
+  item: Skill.ManagementInfo
+  pendingKey: string
+  token: number
   valid: boolean
   dialogID?: string
 }
@@ -46,10 +51,20 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
   const dialog = useDialog()
   const serverSDK = useServerSDK()
   const queryClient = useQueryClient()
-  const [state, setState] = createStore({
+  const [state, setState] = createStore<{
+    query: string
+    status: SkillStatusFilter
+    pendingKeys: ReadonlySet<string>
+    confirmation?: DeleteSnapshot
+  }>({
     query: "",
-    status: "all" as SkillStatusFilter,
-    pendingIDs: new Set<Skill.ManagementID>() as ReadonlySet<Skill.ManagementID>,
+    status: "all",
+    pendingKeys: new Set<string>(),
+  })
+  let mounted = true
+  let confirmationToken = 0
+  onCleanup(() => {
+    mounted = false
   })
   const queryKey = () => [serverSDK().scope, props.directory, "skill-management"] as const
   const skills = useQuery(() => ({
@@ -60,19 +75,19 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
   }))
   const items = createMemo(() => skills.data ?? [])
   const filtered = createMemo(() => filterSkills(items(), { query: state.query, status: state.status }))
-  const refreshSkills = createSkillRefreshQueue((key: ReturnType<typeof queryKey>) =>
-    queryClient.refetchQueries(
-      { queryKey: key, exact: true, type: "active" },
-      { throwOnError: true, cancelRefetch: true },
-    ),
-  )
-  const begin = (id: Skill.ManagementID) => {
-    if (state.pendingIDs.has(id)) return false
-    setState("pendingIDs", new Set([...state.pendingIDs, id]))
+  const refreshSkills = createSkillRefreshQueue(async (context: MutationContext) => {
+    const result = await context.api.list(context.directory)
+    queryClient.setQueryData(context.queryKey, result)
+  })
+  const begin = (key: string) => {
+    if (state.pendingKeys.has(key)) return false
+    setState("pendingKeys", new Set([...state.pendingKeys, key]))
     return true
   }
-  const end = (id: Skill.ManagementID) =>
-    setState("pendingIDs", new Set([...state.pendingIDs].filter((value) => value !== id)))
+  const end = (key: string) => {
+    if (!mounted) return
+    setState("pendingKeys", new Set([...state.pendingKeys].filter((value) => value !== key)))
+  }
 
   const mutationContext = () => {
     const directory = props.directory
@@ -80,7 +95,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     const sdk = serverSDK()
     return {
       directory,
-      sdk,
+      scope: sdk.scope,
       api: sdk.skillManagement,
       queryKey: [sdk.scope, directory, "skill-management"] as const,
     }
@@ -88,11 +103,13 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
 
   const setEnabled = async (item: Skill.ManagementInfo, enabled: boolean) => {
     const context = mutationContext()
-    if (!context || !begin(item.id)) return false
+    if (!context) return false
+    const pendingKey = skillPendingKey(context.scope, context.directory, item.id)
+    if (!begin(pendingKey)) return false
     try {
       const next = await context.api.setEnabled(context.directory, item.id, enabled)
       queryClient.setQueryData(context.queryKey, next)
-      await refreshSkills(context.queryKey)
+      await refreshSkills(context)
       showToast({
         title: language.t(enabled ? "settings.skills.enable.success" : "settings.skills.disable.success", {
           name: item.name,
@@ -100,7 +117,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       })
       return true
     } catch (error) {
-      if (isSkillManagementNotFound(error)) await refreshSkills(context.queryKey).catch(() => undefined)
+      if (isSkillManagementNotFound(error)) await refreshSkills(context).catch(() => undefined)
       showToast({
         title: language.t("common.requestFailed"),
         description: language.t(enabled ? "settings.skills.enable.failure" : "settings.skills.disable.failure", {
@@ -109,71 +126,85 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       })
       return false
     } finally {
-      end(item.id)
+      end(pendingKey)
     }
   }
 
   const remove = async (snapshot: DeleteSnapshot) => {
-    if (!snapshot.valid || !begin(snapshot.item.id)) return false
+    if (!snapshot.valid || !begin(snapshot.pendingKey)) return false
     try {
       const next = await snapshot.api.remove(snapshot.directory, snapshot.item.id)
       queryClient.setQueryData(snapshot.queryKey, next)
-      await refreshSkills(snapshot.queryKey)
+      await refreshSkills(snapshot)
       showToast({ title: language.t("settings.skills.delete.success", { name: snapshot.item.name }) })
       return true
     } catch (error) {
-      if (isSkillManagementNotFound(error)) await refreshSkills(snapshot.queryKey).catch(() => undefined)
+      if (isSkillManagementNotFound(error)) await refreshSkills(snapshot).catch(() => undefined)
       showToast({
         title: language.t("common.requestFailed"),
         description: language.t("settings.skills.delete.failure", { name: snapshot.item.name }),
       })
       return false
     } finally {
-      end(snapshot.item.id)
+      end(snapshot.pendingKey)
     }
   }
 
-  let confirmation: DeleteSnapshot | undefined
   const closeConfirmation = (snapshot: DeleteSnapshot) => {
-    if (!snapshot.valid || !snapshot.dialogID || dialog.active?.id !== snapshot.dialogID) return
-    snapshot.valid = false
+    if (!mounted || !snapshot.dialogID || dialog.active?.id !== snapshot.dialogID) return
+    if (state.confirmation?.token === snapshot.token) setState("confirmation", "valid", false)
     dialog.close()
   }
   const confirmRemove = (item: Skill.ManagementInfo) => {
     const context = mutationContext()
     if (!item.deleteTarget || !context) return
-    if (confirmation) confirmation.valid = false
-    const snapshot: DeleteSnapshot = { item, valid: true, ...context }
-    confirmation = snapshot
+    if (state.confirmation) setState("confirmation", "valid", false)
+    setState("confirmation", {
+      item,
+      pendingKey: skillPendingKey(context.scope, context.directory, item.id),
+      token: ++confirmationToken,
+      valid: true,
+      ...context,
+    })
+    const snapshot = state.confirmation
+    if (!snapshot) return
     const opened = dialog.push(
       () => (
         <DialogDeleteSkill
           snapshot={snapshot}
-          valid={() => snapshot.valid && confirmation === snapshot}
-          pending={() => isPending(state.pendingIDs, snapshot.item)}
+          valid={() => snapshot.valid && state.confirmation?.token === snapshot.token}
+          pending={() => isPending(state.pendingKeys, snapshot.pendingKey)}
           remove={() => remove(snapshot)}
           close={() => closeConfirmation(snapshot)}
         />
       ),
       () => {
-        snapshot.valid = false
-        if (confirmation === snapshot) confirmation = undefined
+        if (!mounted || state.confirmation?.token !== snapshot.token) return
+        setState("confirmation", undefined)
       },
     )
     void Promise.resolve(opened).then(() => {
-      if (!snapshot.valid || confirmation !== snapshot) return
-      snapshot.dialogID = dialog.active?.id
+      if (!mounted || !snapshot.valid || state.confirmation?.token !== snapshot.token) return
+      setState("confirmation", "dialogID", dialog.active?.id)
     })
   }
 
   createEffect(() => {
     const sdk = serverSDK()
     const directory = props.directory
-    const snapshot = confirmation
-    if (!snapshot || (snapshot.sdk === sdk && snapshot.directory === directory)) return
-    if (snapshot.dialogID && dialog.active?.id === snapshot.dialogID) dialog.close()
-    snapshot.valid = false
-    if (confirmation === snapshot) confirmation = undefined
+    const snapshot = state.confirmation
+    const activeID = dialog.active?.id
+    if (!snapshot) return
+    if (snapshot.valid && (snapshot.scope !== sdk.scope || snapshot.directory !== directory)) {
+      setState("confirmation", "valid", false)
+      return
+    }
+    if (snapshot.valid || !snapshot.dialogID || snapshot.dialogID !== activeID) return
+    queueMicrotask(() => {
+      if (!mounted || state.confirmation?.token !== snapshot.token) return
+      if (dialog.active?.id !== snapshot.dialogID) return
+      dialog.close()
+    })
   })
 
   return (
@@ -235,7 +266,10 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                 fallback={<SkillState text={language.t("settings.skills.load.failure")} />}
               >
                 <Show when={items().length > 0} fallback={<SkillState text={language.t("settings.skills.empty")} />}>
-                  <Show when={filtered().length > 0} fallback={<SkillState text={language.t("settings.skills.noMatches")} />}>
+                  <Show
+                    when={filtered().length > 0}
+                    fallback={<SkillState text={language.t("settings.skills.noMatches")} />}
+                  >
                     <For each={filtered()}>
                       {(item) => {
                         const source = () => language.t(sourceKey(item))
@@ -246,7 +280,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                           return key ? language.t(key) : undefined
                         }
                         const location = () => (item.source.type === "url" ? item.source.value : item.location)
-                        const pending = () => isPending(state.pendingIDs, item)
+                        const pending = () => {
+                          const directory = props.directory
+                          if (!directory) return false
+                          return isPending(state.pendingKeys, skillPendingKey(serverSDK().scope, directory, item.id))
+                        }
                         return (
                           <div class="settings-v2-skills-row">
                             <div class="settings-v2-skills-copy">
@@ -281,10 +319,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                                   )}
                                 </Show>
                               </div>
-                              <div
-                                class="settings-v2-skills-location"
-                                title={location()}
-                              >
+                              <div class="settings-v2-skills-location" title={location()}>
                                 <span class="sr-only">
                                   {language.t("settings.skills.path.label", { value: location() })}
                                 </span>
@@ -362,7 +397,7 @@ const DialogDeleteSkill: Component<{
         })}
       </DialogBody>
       <DialogFooter>
-        <ButtonV2 variant="neutral" disabled={props.pending()} onClick={() => props.close()}>
+        <ButtonV2 variant="neutral" onClick={() => props.close()}>
           {language.t("settings.skills.delete.cancel")}
         </ButtonV2>
         <ButtonV2 variant="danger" disabled={props.pending() || !props.valid()} onClick={() => void remove()}>

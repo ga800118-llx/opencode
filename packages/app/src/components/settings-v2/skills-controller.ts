@@ -44,8 +44,12 @@ export function blockedKey(item: Skill.ManagementInfo) {
   if (item.deleteBlocked === "unsafe") return "settings.skills.deleteBlocked.unsafe" as const
 }
 
-export function isPending(pendingIDs: ReadonlySet<Skill.ManagementID>, item: Skill.ManagementInfo) {
-  return pendingIDs.has(item.id)
+export function skillPendingKey(scope: string, directory: string, id: Skill.ManagementID) {
+  return JSON.stringify([scope, directory, id])
+}
+
+export function isPending(pendingKeys: ReadonlySet<string>, key: string) {
+  return pendingKeys.has(key)
 }
 
 export function createSkillRefreshQueue<Key>(refresh: (key: Key) => Promise<void>) {
