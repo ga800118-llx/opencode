@@ -365,14 +365,21 @@ yield* skill.management.setEnabled(first.id, false)
 expect((yield* skill.management.list()).find((item) => item.id === first.id)?.status).toBe("disabled")
 expect((yield* skill.list()).map((item) => item.description)).toEqual(["First"])
 
-const projectKey = Hash.sha256([projectID, projectRoot].join("\0"))
+const projectKey = Hash.sha256(
+  projectID === Project.ID.global
+    ? [projectID, projectRoot, locationDirectory].join("\0")
+    : [projectID, projectRoot].join("\0"),
+)
 const state = JSON.parse(await fs.readFile(path.join(stateRoot, "skills", "projects", `${projectKey}.json`), "utf8"))
 expect(state).toEqual({ version: 1, disabled: [first.id] })
 ```
 
 Create a second location with another project ID and assert the project-scoped
 ID remains enabled there. Also create two non-Git locations that both use
-`Project.ID.global` and prove their distinct project roots remain isolated.
+`Project.ID.global` and the same filesystem-root project directory, and prove
+their distinct opened directories remain isolated. Create two locations in the
+same Git project with different opened subdirectories and prove they share
+project state.
 Register a global source in both locations and assert disabling it is visible
 in both. Write malformed JSON and assert management defaults to enabled while
 logging a warning.
@@ -401,10 +408,15 @@ export function stateFile(input: {
   state: string
   projectID: Project.ID
   projectRoot: AbsolutePath
+  locationDirectory: AbsolutePath
   scope: Skill.Scope
 }) {
   if (input.scope === "global") return path.join(input.state, "skills", "global.json")
-  const key = Hash.sha256([input.projectID, input.projectRoot].join("\0"))
+  const key = Hash.sha256(
+    input.projectID === Project.ID.global
+      ? [input.projectID, input.projectRoot, input.locationDirectory].join("\0")
+      : [input.projectID, input.projectRoot].join("\0"),
+  )
   return path.join(input.state, "skills", "projects", `${key}.json`)
 }
 ```
