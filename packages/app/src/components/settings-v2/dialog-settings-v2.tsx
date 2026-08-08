@@ -1,4 +1,4 @@
-import { Component, createMemo, createSignal, startTransition } from "solid-js"
+import { type Accessor, Component, createMemo, createSignal, startTransition } from "solid-js"
 import { Dialog, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -12,14 +12,16 @@ import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
-import { useTabs } from "@/context/tabs"
+import { tabKey, useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsSkillsV2 } from "./skills"
+import { settingsDirectory } from "@/components/settings-directory"
 
 export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers" | "skills"
 
 export const DialogSettings: Component<{
   sessionID?: string
+  directory?: Accessor<string | undefined>
   defaultValue?: SettingsTab
 }> = (props) => {
   const language = useLanguage()
@@ -29,19 +31,21 @@ export const DialogSettings: Component<{
   const tabs = useTabs()
   const serverSync = useServerSync()
   const [tab, setTab] = createSignal(props.defaultValue ?? "general")
-  const directory = createMemo(() => {
-    const route = layout.route()
-    if (route.type === "dir-new-sesssion") return route.dir
-    if (route.type === "draft") {
-      const draft = tabs.store.find((item) => item.type === "draft" && item.draftID === route.draftID)
-      return draft?.type === "draft" ? draft.directory : undefined
-    }
-    if (route.type === "session") return serverSync().session.get(route.sessionId)?.directory
-    return undefined
-  })
+  const directory = createMemo(
+    () =>
+      props.directory?.() ??
+      settingsDirectory(
+        layout.route(),
+        tabs.store,
+        (id) => serverSync().session.get(id),
+        (tab) => tabs.info[tabKey(tab)],
+      ),
+  )
 
   const showProviders = () => {
-    void dialog.show(() => <DialogSettings sessionID={props.sessionID} defaultValue="providers" />)
+    void dialog.show(() => (
+      <DialogSettings sessionID={props.sessionID} directory={directory} defaultValue="providers" />
+    ))
   }
 
   return (

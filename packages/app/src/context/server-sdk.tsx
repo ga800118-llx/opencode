@@ -364,7 +364,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   const currentApi: ServerApi = createApiForServer({ server: server.http, fetch: platform.fetch })
   const skillManagement = createSkillManagementApi({
     baseUrl: server.http.url,
-    fetch: platform.fetch ?? fetch,
+    fetch: (request, init) => (platform.fetch ? platform.fetch(request, init) : globalThis.fetch(request, init)),
     headers: () => {
       const http =
         servers.list.find((connection) => ServerConnection.key(connection) === ServerConnection.key(server))?.http ??

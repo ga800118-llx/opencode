@@ -2,12 +2,19 @@ import { useParams } from "@solidjs/router"
 import { onCleanup } from "solid-js"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { useServerSync } from "@/context/server-sync"
+import { tabKey, useTabs } from "@/context/tabs"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { SettingsTab } from "@/components/settings-v2/dialog-settings-v2"
+import { settingsDirectory } from "@/components/settings-directory"
 
 export function useSettingsDialog(defaultValue?: SettingsTab) {
   const dialog = useDialog()
   const params = useParams<{ id?: string }>()
+  const layout = useLayout()
+  const serverSync = useServerSync()
+  const tabs = useTabs()
   let run = 0
   let dead = false
 
@@ -20,7 +27,20 @@ export function useSettingsDialog(defaultValue?: SettingsTab) {
     const sessionID = params.id
     void import("@/components/settings-v2").then((module) => {
       if (dead || run !== current) return
-      void dialog.show(() => <module.DialogSettings sessionID={sessionID} defaultValue={defaultValue} />)
+      void dialog.show(() => (
+        <module.DialogSettings
+          sessionID={sessionID}
+          directory={() =>
+            settingsDirectory(
+              layout.route(),
+              tabs.store,
+              (id) => serverSync().session.get(id),
+              (tab) => tabs.info[tabKey(tab)],
+            )
+          }
+          defaultValue={defaultValue}
+        />
+      ))
     })
   }
 }
