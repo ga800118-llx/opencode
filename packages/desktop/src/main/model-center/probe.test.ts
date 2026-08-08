@@ -124,4 +124,23 @@ describe("createModelProbe capability classification", () => {
       expect(JSON.stringify(result)).not.toContain("raw missing detail")
     })
   })
+
+  test.each([
+    { mode: "stream-http-error", kind: "streaming", streaming: false, toolCalling: true },
+    { mode: "tool-http-error", kind: "tool-calling", streaming: true, toolCalling: false },
+  ] as const)("classifies an unknown $mode failure by probe stage", async ({ mode, kind, streaming, toolCalling }) => {
+    await withServer(mode, async (baseURL) => {
+      const result = await createModelProbe({ requestID: () => `req-${mode}` }).test({
+        target: target(baseURL),
+        modelID: "coder",
+      })
+
+      expect(result).toMatchObject({
+        classification: "partially-compatible",
+        checks: { basicChat: true, streaming, toolCalling },
+        diagnostic: { kind, status: 400, requestID: `req-${mode}` },
+      })
+      expect(JSON.stringify(result)).not.toContain("private fixture detail")
+    })
+  })
 })

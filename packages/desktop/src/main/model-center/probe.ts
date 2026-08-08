@@ -116,7 +116,17 @@ export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
           : streaming || toolCalling
             ? "partially-compatible"
             : "chat-only"
-      return report(modelID, classification, true, streaming, toolCalling, testedAt, requestID, toolError ?? streamingError)
+      return report(
+        modelID,
+        classification,
+        true,
+        streaming,
+        toolCalling,
+        testedAt,
+        requestID,
+        toolError ?? streamingError,
+        toolError ? "tool-calling" : streamingError ? "streaming" : undefined,
+      )
     },
   })
 }
@@ -130,6 +140,7 @@ function report(
   testedAt: number,
   requestID: string,
   error?: unknown,
+  fallbackKind?: "streaming" | "tool-calling",
 ): ProductCapabilityReport {
   return Object.freeze({
     modelID,
@@ -137,7 +148,7 @@ function report(
     checks: Object.freeze({ basicChat, streaming, toolCalling }),
     testedAt,
     requestID,
-    ...(error ? { diagnostic: createProbeDiagnostic(error, requestID) } : {}),
+    ...(error ? { diagnostic: createProbeDiagnostic(error, requestID, fallbackKind) } : {}),
   })
 }
 

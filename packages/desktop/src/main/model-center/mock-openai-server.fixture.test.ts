@@ -2,6 +2,8 @@ export type MockModelServerMode =
   | "agent"
   | "partial"
   | "chat-only"
+  | "stream-http-error"
+  | "tool-http-error"
   | "incompatible"
   | "malformed-models"
   | "delayed"
@@ -54,6 +56,9 @@ export function startMockModelServer(mode: MockModelServerMode = "agent", option
       }
       if (mode === "incompatible") return Response.json({ result: "unexpected" })
       if (bodyField(body, "stream") === true) {
+        if (mode === "stream-http-error") {
+          return Response.json({ error: "private fixture detail" }, { status: 400 })
+        }
         if (mode === "chat-only") return Response.json({ choices: [{ message: { content: "OK" } }] })
         const stream = [
           `data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}\n\n`,
@@ -63,7 +68,10 @@ export function startMockModelServer(mode: MockModelServerMode = "agent", option
       }
       const tools = bodyField(body, "tools")
       if (Array.isArray(tools) && tools.length) {
-        if (mode === "agent") {
+        if (mode === "tool-http-error") {
+          return Response.json({ error: "private fixture detail" }, { status: 400 })
+        }
+        if (mode === "agent" || mode === "stream-http-error") {
           return Response.json({
             choices: [
               {
