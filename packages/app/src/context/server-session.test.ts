@@ -162,16 +162,30 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
-  test("projects permission mode switch events into session info", () => {
+  test("projects only current permission mode switch events into session info", () => {
     const ctx = setup({ child: session("child") })
-    ctx.store.remember(session("child"))
-
-    ctx.store.apply({
-      type: "session.next.permission-mode.switched",
-      properties: { sessionID: "child", mode: "auto" },
+    ctx.store.remember({
+      ...session("child"),
+      permissionMode: "restricted",
+      time: { created: 1, updated: 10 },
     })
+    const apply = (created: number) =>
+      ctx.store.applyV2({
+        id: `evt_permission_mode_${created}`,
+        created,
+        type: "session.next.permission-mode.switched",
+        durable: { aggregateID: "child", seq: created, version: 1 },
+        location: { directory: "/repo" },
+        data: { sessionID: "child", mode: "auto" },
+      })
 
-    expect(ctx.store.data.info.child?.permissionMode).toBe("auto")
+    apply(9)
+
+    expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "restricted", time: { updated: 10 } })
+
+    apply(11)
+
+    expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "auto", time: { updated: 11 } })
   })
 
   test("projects V2 session events into current and legacy message state", () => {

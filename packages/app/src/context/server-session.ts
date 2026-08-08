@@ -26,12 +26,14 @@ import type { ServerApi } from "@/utils/server"
 
 type MessageApi = ServerApi["message"]
 type ProjectedSession = Session & { readonly permissionMode?: Permission.Mode }
-
-function isPermissionModeSwitched(value: unknown): value is { sessionID: string; mode: Permission.Mode } {
-  if (!value || typeof value !== "object") return false
-  if (!("sessionID" in value) || typeof value.sessionID !== "string") return false
-  if (!("mode" in value)) return false
-  return value.mode === "restricted" || value.mode === "standard" || value.mode === "auto"
+type PermissionModeSwitchedCurrentEvent = {
+  readonly id: string
+  readonly created: number
+  readonly metadata?: Readonly<Record<string, unknown>>
+  readonly type: "session.next.permission-mode.switched"
+  readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+  readonly location?: { readonly directory: string; readonly workspaceID?: string }
+  readonly data: { readonly sessionID: string; readonly mode: Permission.Mode }
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -943,9 +945,19 @@ export function createServerSession(
       .catch(() => {})
   }
 
-  const applyV2 = (event: OpenCodeEvent) => {
+  const applyV2 = (event: OpenCodeEvent | PermissionModeSwitchedCurrentEvent) => {
     if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
+    if (event.type === "session.next.permission-mode.switched") {
+      const info = data.info[sessionID]
+      if (!info || event.created < info.time.updated) return
+      remember({
+        ...info,
+        permissionMode: event.data.mode,
+        time: { ...info.time, updated: event.created },
+      })
+      return
+    }
     const reduction = v2.reduce(data.session_message[sessionID] ?? [], event)
     if (reduction) {
       projectV2(reduction)
@@ -1013,14 +1025,6 @@ export function createServerSession(
         const info = (event.properties as { info: Session }).info
         remember(info)
         if (info.time.archived) evict([info.id])
-        return
-      }
-      case "session.next.permission-mode.switched": {
-        if (!isPermissionModeSwitched(event.properties)) return
-        const properties = event.properties
-        const info = data.info[properties.sessionID]
-        if (!info) return
-        remember({ ...info, permissionMode: properties.mode })
         return
       }
       case "session.deleted": {

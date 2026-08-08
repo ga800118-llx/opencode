@@ -314,6 +314,20 @@ describe("V2 permission mode state", () => {
     expect(harness.state.mode("session", "/project")).toBe("auto")
   })
 
+  test("ignores a stale auto event after a forced refresh confirms restricted", async () => {
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "auto" })
+
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    harness.bootstrap(request)
+    harness.modeEvent("auto")
+    await Bun.sleep(0)
+
+    expect(harness.projectedMode()).toBe("restricted")
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    expect(harness.replies).toEqual([])
+  })
+
   test("does not send a queued switch after the permission state is disposed", async () => {
     const gate = Promise.withResolvers<void>()
     const harness = setup({
@@ -673,6 +687,14 @@ function setup(input: {
       },
     ).api
   })
+  const modeEvent = (mode: Permission.Mode) =>
+    events.permission?.({
+      name: "/project",
+      details: {
+        type: "session.next.permission-mode.switched",
+        properties: { sessionID: "session", mode },
+      },
+    })
   return {
     state,
     replies,
@@ -694,16 +716,11 @@ function setup(input: {
       pending.push(request)
       setSessionData("permission", request.sessionID, [request])
     },
+    modeEvent,
     switchEvent(mode: Permission.Mode) {
       authoritativeMode = mode
       setSessionData("info", "session", { ...record, permissionMode: mode })
-      events.permission?.({
-        name: "/project",
-        details: {
-          type: "session.next.permission-mode.switched",
-          properties: { sessionID: "session", mode },
-        },
-      })
+      modeEvent(mode)
     },
   }
 }
