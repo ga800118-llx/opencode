@@ -16,7 +16,7 @@ export const SkillHandler = HttpApiBuilder.group(Api, "server.skill", (handlers)
     .handle("skill.management.setEnabled", (ctx) =>
       response(
         SkillV2.Service.use((skill) => skill.management.setEnabled(ctx.params.id, ctx.payload.enabled)).pipe(
-          Effect.mapError(managementError),
+          Effect.mapError(setEnabledError),
         ),
       ),
     )
@@ -27,10 +27,18 @@ export const SkillHandler = HttpApiBuilder.group(Api, "server.skill", (handlers)
     ),
 )
 
-export function managementError(error: SkillV2.ManagementError) {
+function setEnabledError(error: SkillV2.NotFoundError | SkillV2.OperationError) {
   if (error._tag === "SkillV2.NotFoundError") {
     return new SkillManagementNotFoundError({ id: error.id, message: "Skill installation not found." })
   }
+  return new SkillManagementOperationError({
+    operation: error.operation,
+    message: "Skill management operation failed.",
+  })
+}
+
+function managementError(error: SkillV2.ManagementError) {
+  if (error._tag === "SkillV2.NotFoundError") return setEnabledError(error)
   if (error._tag === "SkillV2.ProtectedError" || error._tag === "SkillV2.UnsafePathError") {
     return new SkillManagementForbiddenError({
       id: error.id,
@@ -38,8 +46,5 @@ export function managementError(error: SkillV2.ManagementError) {
       message: "Skill cannot be deleted.",
     })
   }
-  return new SkillManagementOperationError({
-    operation: error.operation,
-    message: "Skill management operation failed.",
-  })
+  return setEnabledError(error)
 }

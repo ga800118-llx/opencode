@@ -849,7 +849,7 @@ export function make(options: ClientOptions) {
             query: { location: input["location"] },
             body: { enabled: input["enabled"] },
             successStatus: 200,
-            declaredStatuses: [404, 403, 500, 401, 400],
+            declaredStatuses: [404, 500, 401, 400],
             empty: false,
           },
           requestOptions,

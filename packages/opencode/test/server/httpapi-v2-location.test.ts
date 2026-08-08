@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
-import { managementError } from "@opencode-ai/server/handlers/skill"
+import { statePaths } from "@opencode-ai/core/skill/management"
 import { Context, Schema } from "effect"
 import fs from "fs/promises"
 import path from "path"
@@ -34,10 +35,7 @@ const Event = Schema.Struct({
 })
 
 const ManagementResponse = Schema.Struct({
-  location: Schema.Struct({
-    directory: Schema.String,
-    project: Schema.Struct({ id: Schema.String }),
-  }),
+  location: Location.Info,
   data: Schema.Array(SkillV2.ManagementInfo),
 })
 
@@ -139,7 +137,7 @@ describe("v2 location HttpApi", () => {
     const installation = initial.data.find((entry) => entry.name === "http-management-fixture")
     expect(installation).toBeDefined()
     expect(installation?.deletable).toBe(true)
-    expect(initial.location.directory).toBe(tmp.path)
+    expect(initial.location.directory).toBe(AbsolutePath.make(tmp.path))
 
     const disabled = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
       method: "PATCH",
@@ -148,7 +146,7 @@ describe("v2 location HttpApi", () => {
     })
     expect(disabled.status).toBe(200)
     const disabledBody = Schema.decodeUnknownSync(ManagementResponse)(await disabled.json())
-    expect(disabledBody.location.directory).toBe(tmp.path)
+    expect(disabledBody.location.directory).toBe(AbsolutePath.make(tmp.path))
     expect(disabledBody.data.find((entry) => entry.id === installation!.id)).toMatchObject({
       enabled: false,
       status: "disabled",
@@ -157,16 +155,16 @@ describe("v2 location HttpApi", () => {
     const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
     expect(removed.status).toBe(200)
     const removedBody = Schema.decodeUnknownSync(ManagementResponse)(await removed.json())
-    expect(removedBody.location.directory).toBe(tmp.path)
+    expect(removedBody.location.directory).toBe(AbsolutePath.make(tmp.path))
     expect(removedBody.data.some((entry) => entry.id === installation!.id)).toBe(false)
     expect(await fs.stat(tmp.extra).catch(() => undefined)).toBeUndefined()
 
     const records = await fs.readdir(path.join(Global.Path.state, "skills", "trash"))
     const recovery = records.find((record) => record.includes(installation!.id.slice(0, 12)))
     expect(recovery).toBeDefined()
-    expect(
-      JSON.parse(await Bun.file(path.join(Global.Path.state, "skills", "trash", recovery!, "metadata.json")).text()),
-    ).toMatchObject({ id: installation!.id, originalPath: tmp.extra })
+    const metadata = path.join(Global.Path.state, "skills", "trash", recovery!, "metadata.json")
+    await fs.chmod(metadata, 0o600)
+    expect(JSON.parse(await Bun.file(metadata).text())).toMatchObject({ id: installation!.id, originalPath: tmp.extra })
     expect(await fs.stat(path.join(Global.Path.state, "skills", "trash", recovery!, "payload"))).toBeDefined()
   })
 
@@ -200,18 +198,52 @@ describe("v2 location HttpApi", () => {
     })
   })
 
-  test("maps operation failures without exposing their cause", () => {
-    const secretPath = "/private/skill/state.json"
-    const error = managementError(
-      new SkillV2.OperationError({ operation: "write", cause: new Error(`failed at ${secretPath}`) }),
-    )
-
-    expect(error).toMatchObject({
-      _tag: "SkillManagementOperationError",
-      operation: "write",
-      message: "Skill management operation failed.",
+  test("serializes state write failures without exposing Skill or filesystem details", async () => {
+    const contentMarker = "HTTP_SKILL_CONTENT_MUST_NOT_LEAK_7a2f"
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (directory) => {
+        const skill = path.join(directory, ".opencode", "skills", "http-operation-fixture")
+        await fs.mkdir(skill, { recursive: true })
+        await Bun.write(
+          path.join(skill, "SKILL.md"),
+          `---\nname: http-operation-fixture\ndescription: Disposable failure fixture.\n---\n${contentMarker}\n`,
+        )
+        return skill
+      },
     })
-    expect(JSON.stringify(error)).not.toContain(secretPath)
+
+    const listed = Schema.decodeUnknownSync(ManagementResponse)(
+      await (await request("/api/skill/management", tmp.path)).json(),
+    )
+    const installation = listed.data.find((entry) => entry.name === "http-operation-fixture")
+    expect(installation).toBeDefined()
+    const stateFile = statePaths(Global.make(), listed.location).project
+    await fs.mkdir(stateFile, { recursive: true })
+
+    try {
+      const failed = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      })
+      const serialized = await failed.text()
+
+      expect(failed.status).toBe(500)
+      expect(JSON.parse(serialized)).toEqual({
+        _tag: "SkillManagementOperationError",
+        operation: "write",
+        message: "Skill management operation failed.",
+      })
+      expect(serialized).not.toContain(stateFile)
+      expect(serialized).not.toContain(tmp.path)
+      expect(serialized).not.toContain(tmp.extra)
+      expect(serialized).not.toContain(contentMarker)
+      expect(serialized).not.toContain("cause")
+      expect(serialized).not.toContain("PlatformError")
+    } finally {
+      await fs.rm(stateFile, { recursive: true, force: true })
+    }
   })
 
   test("streams native EventV2 payloads across locations", async () => {

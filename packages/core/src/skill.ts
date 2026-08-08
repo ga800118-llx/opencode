@@ -86,7 +86,10 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
   readonly management: {
     readonly list: () => Effect.Effect<ManagementInfo[]>
-    readonly setEnabled: (id: ManagementID, enabled: boolean) => Effect.Effect<ManagementInfo[], ManagementError>
+    readonly setEnabled: (
+      id: ManagementID,
+      enabled: boolean,
+    ) => Effect.Effect<ManagementInfo[], NotFoundError | OperationError>
     readonly remove: (id: ManagementID) => Effect.Effect<ManagementInfo[], ManagementError>
   }
 }

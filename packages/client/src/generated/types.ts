@@ -90,6 +90,14 @@ export type SkillManagementNotFoundError = {
 export const isSkillManagementNotFoundError = (value: unknown): value is SkillManagementNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementNotFoundError"
 
+export type SkillManagementOperationError = {
+  readonly _tag: "SkillManagementOperationError"
+  readonly operation: "read" | "write" | "delete"
+  readonly message: string
+}
+export const isSkillManagementOperationError = (value: unknown): value is SkillManagementOperationError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementOperationError"
+
 export type SkillManagementForbiddenError = {
   readonly _tag: "SkillManagementForbiddenError"
   readonly id: string
@@ -98,14 +106,6 @@ export type SkillManagementForbiddenError = {
 }
 export const isSkillManagementForbiddenError = (value: unknown): value is SkillManagementForbiddenError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementForbiddenError"
-
-export type SkillManagementOperationError = {
-  readonly _tag: "SkillManagementOperationError"
-  readonly operation: "read" | "write" | "delete"
-  readonly message: string
-}
-export const isSkillManagementOperationError = (value: unknown): value is SkillManagementOperationError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementOperationError"
 
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>

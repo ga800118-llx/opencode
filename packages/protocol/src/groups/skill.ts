@@ -57,7 +57,7 @@ export const SkillGroup = HttpApiGroup.make("server.skill")
       query: LocationQuery,
       payload: Skill.SetEnabledInput,
       success: Location.response(Schema.Array(Skill.ManagementInfo)),
-      error: [SkillManagementNotFoundError, SkillManagementForbiddenError, SkillManagementOperationError],
+      error: [SkillManagementNotFoundError, SkillManagementOperationError],
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
