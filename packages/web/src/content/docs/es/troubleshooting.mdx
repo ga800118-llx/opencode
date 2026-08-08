@@ -22,7 +22,7 @@ Puede configurar el nivel de registro con la opción de línea de comandos `--lo
 
 ## Almacenamiento
 
-opencode almacena datos de sesión y otros datos de aplicaciones en el disco en:
+Guai Code almacena datos de sesión y otros datos de aplicaciones en el disco en:
 
 - **macOS/Linux**: `~/.local/share/opencode/`
 - **Windows**: Presione `WIN+R` y pegue `%USERPROFILE%\.local\share\opencode`
@@ -252,7 +252,7 @@ Para resolver esto:
 
 ### AI_APICallError y problemas con el paquete del proveedor
 
-Si encuentra errores de llamada API, esto puede deberse a paquetes de proveedores obsoletos. opencode instala dinámicamente paquetes de proveedores (OpenAI, Anthropic, Google, etc.) según sea necesario y los almacena en caché localmente.
+Si encuentra errores de llamada API, esto puede deberse a paquetes de proveedores obsoletos. Guai Code instala dinámicamente paquetes de proveedores (OpenAI, Anthropic, Google, etc.) según sea necesario y los almacena en caché localmente.
 
 Para resolver problemas con el paquete del proveedor:
 
@@ -264,9 +264,9 @@ Para resolver problemas con el paquete del proveedor:
 
    En Windows, presione `WIN+R` y elimine: `%USERPROFILE%\.cache\opencode`
 
-2. Reinicie opencode para reinstalar los paquetes del proveedor más recientes.
+2. Reinicie Guai Code para reinstalar los paquetes del proveedor más recientes.
 
-Esto obligará a opencode a descargar las versiones más recientes de los paquetes del proveedor, lo que a menudo resuelve problemas de compatibilidad con los parámetros del modelo y los cambios de API.
+Esto obligará a Guai Code a descargar las versiones más recientes de los paquetes del proveedor, lo que a menudo resuelve problemas de compatibilidad con los parámetros del modelo y los cambios de API.
 
 ---
 
@@ -297,4 +297,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode detectará si estás usando Wayland y prefieres `wl-clipboard`; de lo contrario, intentará encontrar herramientas del portapapeles en el orden de: `xclip` y `xsel`.
+Guai Code detectará si estás usando Wayland y prefieres `wl-clipboard`; de lo contrario, intentará encontrar herramientas del portapapeles en el orden de: `xclip` y `xsel`.

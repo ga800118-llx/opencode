@@ -22,7 +22,7 @@ Mit `--log-level` bekommst du detailliertere Diagnoseinfos, z. B. `opencode --lo
 
 ## Speicher
 
-opencode speichert Sitzungs- und App-Daten auf der Festplatte unter:
+Guai Code speichert Sitzungs- und App-Daten auf der Festplatte unter:
 
 - **macOS/Linux**: `~/.local/share/opencode/`
 - **Windows**: Druecke `WIN+R` und fuege ein: `%USERPROFILE%\.local\share\opencode`
@@ -252,7 +252,7 @@ Zur Loesung:
 
 ### AI_APICallError und Provider-Paket-Probleme
 
-Wenn du API-Call-Fehler erhaeltst, kann das an veralteten Provider-Paketen liegen. opencode installiert Provider-Pakete (OpenAI, Anthropic, Google, etc.) dynamisch bei Bedarf und cached sie lokal.
+Wenn du API-Call-Fehler erhaeltst, kann das an veralteten Provider-Paketen liegen. Guai Code installiert Provider-Pakete (OpenAI, Anthropic, Google, etc.) dynamisch bei Bedarf und cached sie lokal.
 
 Um Provider-Paket-Probleme zu loesen:
 
@@ -264,9 +264,9 @@ Um Provider-Paket-Probleme zu loesen:
 
    Unter Windows druecke `WIN+R` und loesche: `%USERPROFILE%\.cache\opencode`
 
-2. Starte opencode neu, um die neuesten Provider-Pakete zu installieren
+2. Starte Guai Code neu, um die neuesten Provider-Pakete zu installieren
 
-Dies zwingt opencode, die neuesten Versionen der Provider-Pakete herunterzuladen, was oft Kompatibilitaetsprobleme mit Modellparametern und API-Aenderungen loest.
+Dies zwingt Guai Code, die neuesten Versionen der Provider-Pakete herunterzuladen, was oft Kompatibilitaetsprobleme mit Modellparametern und API-Aenderungen loest.
 
 ---
 
@@ -297,4 +297,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode erkennt, ob du Wayland nutzt und bevorzugt `wl-clipboard`, sonst versucht es `xclip` und `xsel` (in dieser Reihenfolge).
+Guai Code erkennt, ob du Wayland nutzt und bevorzugt `wl-clipboard`, sonst versucht es `xclip` und `xsel` (in dieser Reihenfolge).

@@ -169,7 +169,7 @@ Para usar Amazon Bedrock con Guai Code:
 
    #### Variables de entorno (Inicio rápido)
 
-   Establezca una de estas variables de entorno mientras ejecuta opencode:
+   Establezca una de estas variables de entorno mientras ejecuta Guai Code:
 
    ```bash
    # Option 1: Using AWS access keys
@@ -324,7 +324,7 @@ O si ya tienes una clave API, puedes seleccionar **Ingresar manualmente la clave
 
 ### Atomic Chat
 
-Puedes configurar opencode para usar modelos locales mediante [Atomic Chat](https://atomic.chat), una aplicación de escritorio que ejecuta LLMs locales detrás de un servidor API compatible con OpenAI (endpoint por defecto `http://127.0.0.1:1337/v1`).
+Puedes configurar Guai Code para usar modelos locales mediante [Atomic Chat](https://atomic.chat), una aplicación de escritorio que ejecuta LLMs locales detrás de un servidor API compatible con OpenAI (endpoint por defecto `http://127.0.0.1:1337/v1`).
 
 ```json title="opencode.json" "atomic-chat" {5, 6, 8, 10-14}
 {
@@ -373,7 +373,7 @@ Si encuentra errores del tipo "Lo siento, pero no puedo ayudar con esa solicitud
 2. Vaya a [Azure AI Foundry](https://ai.azure.com/) e implemente un modelo.
 
    :::nota
-   El nombre de la implementación debe coincidir con el nombre del modelo para que opencode funcione correctamente.
+   El nombre de la implementación debe coincidir con el nombre del modelo para que Guai Code funcione correctamente.
    :::
 
 3. Ejecute el comando `/connect` y busque **Azure**.
@@ -420,7 +420,7 @@ Si encuentra errores del tipo "Lo siento, pero no puedo ayudar con esa solicitud
 2. Vaya a [Azure AI Foundry](https://ai.azure.com/) e implemente un modelo.
 
    :::nota
-   El nombre de la implementación debe coincidir con el nombre del modelo para que opencode funcione correctamente.
+   El nombre de la implementación debe coincidir con el nombre del modelo para que Guai Code funcione correctamente.
    :::
 
 3. Ejecute el comando `/connect` y busque **Azure Cognitive Services**.
@@ -552,7 +552,7 @@ Cloudflare AI Gateway le permite acceder a modelos de OpenAI, Anthropic, Workers
    /models
    ```
 
-   También puede agregar modelos a través de su configuración opencode.
+   También puede agregar modelos a través de su configuración Guai Code.
 
    ```json title="opencode.json"
    {
@@ -750,7 +750,7 @@ GitLab Duo proporciona chat agente basado en IA con capacidades de llamada de he
 
 :::note
 También puede especificar la variable de entorno 'GITLAB_TOKEN' si no desea
-para almacenar el token en el almacenamiento de autenticación opencode.
+para almacenar el token en el almacenamiento de autenticación Guai Code.
 :::
 
 ##### Autohospedado GitLab
@@ -853,7 +853,7 @@ Este complemento proporciona capacidades integrales de administración del repos
 
 ### GitHub Copilot
 
-Para utilizar su suscripción GitHub Copilot con opencode:
+Para utilizar su suscripción GitHub Copilot con Guai Code:
 
 :::note
 Algunos modelos pueden necesitar un [Pro+
@@ -905,7 +905,7 @@ Para utilizar Google Vertex AI con Guai Code:
      - `GOOGLE_APPLICATION_CREDENTIALS`: ruta al archivo clave JSON de su cuenta de servicio
      - Autenticar usando gcloud CLI: `gcloud auth application-default login`
 
-   Configúrelos mientras ejecuta opencode.
+   Configúrelos mientras ejecuta Guai Code.
 
    ```bash
    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id opencode
@@ -1018,7 +1018,7 @@ Para obtener más proveedores y funciones avanzadas como almacenamiento en cach�
 
 #### Configuraciones opcionales
 
-En caso de que vea una característica o modelo de Helicone que no esté configurado automáticamente a través de opencode, siempre podrá configurarlo usted mismo.
+En caso de que vea una característica o modelo de Helicone que no esté configurado automáticamente a través de Guai Code, siempre podrá configurarlo usted mismo.
 
 Aquí está el [Directorio de modelos de Helicone](https://helicone.ai/models), lo necesitará para obtener las ID de los modelos que desea agregar.
 
@@ -1102,7 +1102,7 @@ Consulte el [Directorio de encabezados de Helicone](https://docs.helicone.ai/hel
 
 ### llama.cpp
 
-Puede configurar opencode para usar modelos locales a través de la utilidad llama-server de [llama.cpp](https://github.com/ggml-org/llama.cpp)
+Puede configurar Guai Code para usar modelos locales a través de la utilidad llama-server de [llama.cpp](https://github.com/ggml-org/llama.cpp)
 
 ```json title="opencode.json" "llama.cpp" {5, 6, 8, 10-15}
 {
@@ -1169,7 +1169,7 @@ IO.NET ofrece 17 modelos optimizados para varios casos de uso:
 
 ### LM Studio
 
-Puede configurar opencode para usar modelos locales a través de LM Studio.
+Puede configurar Guai Code para usar modelos locales a través de LM Studio.
 
 ```json title="opencode.json" "lmstudio" {5, 6, 8, 10-14}
 {
@@ -1286,7 +1286,7 @@ Para usar Kimi K2 de Moonshot AI:
 
 ### Ollama
 
-Puedes configurar opencode para usar modelos locales a través de Ollama.
+Puedes configurar Guai Code para usar modelos locales a través de Ollama.
 
 :::tip
 Ollama puede configurarse automáticamente para Guai Code. Consulte los [documentos de integración de Ollama](https://docs.ollama.com/integrations/opencode) para obtener más detalles.
@@ -1453,7 +1453,7 @@ OpenCode Zen es una lista de modelos probados y verificados proporcionada por el
    /models
    ```
 
-   También puede agregar modelos adicionales a través de su configuración opencode.
+   También puede agregar modelos adicionales a través de su configuración Guai Code.
 
    ```json title="opencode.json" {6}
    {
@@ -1468,7 +1468,7 @@ OpenCode Zen es una lista de modelos probados y verificados proporcionada por el
    }
    ```
 
-5. También puedes personalizarlos a través de tu configuración opencode. A continuación se muestra un ejemplo de cómo especificar un proveedor.
+5. También puedes personalizarlos a través de tu configuración Guai Code. A continuación se muestra un ejemplo de cómo especificar un proveedor.
 
    ```json title="opencode.json"
    {
@@ -1717,7 +1717,7 @@ Vercel AI Gateway le permite acceder a modelos de OpenAI, Anthropic, Google, xAI
    /models
    ```
 
-También puede personalizar modelos a través de su configuración opencode. A continuación se muestra un ejemplo de cómo especificar el orden de enrutamiento del proveedor.
+También puede personalizar modelos a través de su configuración Guai Code. A continuación se muestra un ejemplo de cómo especificar el orden de enrutamiento del proveedor.
 
 ```json title="opencode.json"
 {
@@ -1827,7 +1827,7 @@ Algunas opciones de enrutamiento útiles:
    /models
    ```
 
-   También puede agregar modelos adicionales a través de su configuración opencode.
+   También puede agregar modelos adicionales a través de su configuración Guai Code.
 
    ```json title="opencode.json" {6}
    {
@@ -1849,7 +1849,7 @@ Algunas opciones de enrutamiento útiles:
 Para agregar cualquier proveedor **compatible con OpenAI** que no aparezca en el comando `/connect`:
 
 :::tip
-Puede utilizar cualquier proveedor compatible con OpenAI con opencode. La mayoría de los proveedores de IA modernos ofrecen API compatibles con OpenAI.
+Puede utilizar cualquier proveedor compatible con OpenAI con Guai Code. La mayoría de los proveedores de IA modernos ofrecen API compatibles con OpenAI.
 :::
 
 1. Ejecute el comando `/connect` y desplácese hacia abajo hasta **Otro**.
@@ -1983,7 +1983,7 @@ Si tiene problemas para configurar un proveedor, verifique lo siguiente:
 
    Esto no se aplica a proveedores como Amazon Bedrock, que dependen de variables de entorno para su autenticación.
 
-2. Para proveedores personalizados, verifique la configuración opencode y:
-   - Asegúrese de que el ID del proveedor utilizado en el comando `/connect` coincida con el ID en su configuración opencode.
+2. Para proveedores personalizados, verifique la configuración Guai Code y:
+   - Asegúrese de que el ID del proveedor utilizado en el comando `/connect` coincida con el ID en su configuración Guai Code.
    - Se utiliza el paquete npm correcto para el proveedor. Por ejemplo, utilice `@ai-sdk/cerebras` para Cerebras. Y para todos los demás proveedores compatibles con OpenAI, utilice `@ai-sdk/openai-compatible`.
    - Verifique que se utilice el punto final API correcto en el campo `options.baseURL`.

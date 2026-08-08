@@ -207,7 +207,7 @@ To use Amazon Bedrock with Guai Code:
 
    #### Environment Variables (Quick Start)
 
-   Set one of these environment variables while running opencode:
+   Set one of these environment variables while running Guai Code:
 
    ```bash
    # Option 1: Using AWS access keys
@@ -372,7 +372,7 @@ the following subscriptions in Guai Code with zero setup:
 
 ### Atomic Chat
 
-You can configure opencode to use local models through [Atomic Chat](https://atomic.chat), a desktop application that runs local LLMs behind an OpenAI-compatible API server (default endpoint `http://127.0.0.1:1337/v1`).
+You can configure Guai Code to use local models through [Atomic Chat](https://atomic.chat), a desktop application that runs local LLMs behind an OpenAI-compatible API server (default endpoint `http://127.0.0.1:1337/v1`).
 
 ```json title="opencode.json" "atomic-chat" {5, 6, 8, 10-14}
 {
@@ -421,7 +421,7 @@ If you encounter "I'm sorry, but I cannot assist with that request" errors, try 
 2. Go to [Azure AI Foundry](https://ai.azure.com/) and deploy a model.
 
    :::note
-   The deployment name must match the model name for opencode to work properly.
+   The deployment name must match the model name for Guai Code to work properly.
    :::
 
 3. Run the `/connect` command and search for **Azure**.
@@ -468,7 +468,7 @@ If you encounter "I'm sorry, but I cannot assist with that request" errors, try 
 2. Go to [Azure AI Foundry](https://ai.azure.com/) and deploy a model.
 
    :::note
-   The deployment name must match the model name for opencode to work properly.
+   The deployment name must match the model name for Guai Code to work properly.
    :::
 
 3. Run the `/connect` command and search for **Azure Cognitive Services**.
@@ -605,7 +605,7 @@ Cloudflare AI Gateway lets you access models from OpenAI, Anthropic, Workers AI,
    /models
    ```
 
-   You can also add models through your opencode config.
+   You can also add models through your Guai Code config.
 
    ```json title="opencode.json"
    {
@@ -954,7 +954,7 @@ for full requirements.
 
 :::note
 You can also specify 'GITLAB_TOKEN' environment variable if you don't want
-to store token in opencode auth storage.
+to store token in Guai Code auth storage.
 :::
 
 ##### Self-Hosted GitLab
@@ -1073,7 +1073,7 @@ This plugin provides comprehensive GitLab repository management capabilities inc
 
 ### GitHub Copilot
 
-To use your GitHub Copilot subscription with opencode:
+To use your GitHub Copilot subscription with Guai Code:
 
 :::note
 Some models might need a [Pro+
@@ -1153,7 +1153,7 @@ To use Google Vertex AI with Guai Code:
      - `GOOGLE_APPLICATION_CREDENTIALS`: Path to your service account JSON key file
      - Authenticate using gcloud CLI: `gcloud auth application-default login`
 
-   Set them while running opencode.
+   Set them while running Guai Code.
 
    ```bash
    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id opencode
@@ -1266,7 +1266,7 @@ For more providers and advanced features like caching and rate limiting, check t
 
 #### Optional Configs
 
-In the event you see a feature or model from Helicone that isn't configured automatically through opencode, you can always configure it yourself.
+In the event you see a feature or model from Helicone that isn't configured automatically through Guai Code, you can always configure it yourself.
 
 Here's [Helicone's Model Directory](https://helicone.ai/models), you'll need this to grab the IDs of the models you want to add.
 
@@ -1350,7 +1350,7 @@ See the [Helicone Header Directory](https://docs.helicone.ai/helicone-headers/he
 
 ### llama.cpp
 
-You can configure opencode to use local models through [llama.cpp's](https://github.com/ggml-org/llama.cpp) llama-server utility
+You can configure Guai Code to use local models through [llama.cpp's](https://github.com/ggml-org/llama.cpp) llama-server utility
 
 ```json title="opencode.json" "llama.cpp" {5, 6, 8, 10-15}
 {
@@ -1417,7 +1417,7 @@ IO.NET offers 17 models optimized for various use cases:
 
 ### LM Studio
 
-You can configure opencode to use local models through LM Studio.
+You can configure Guai Code to use local models through LM Studio.
 
 ```json title="opencode.json" "lmstudio" {5, 6, 8, 10-14}
 {
@@ -1588,7 +1588,7 @@ export NVIDIA_API_KEY=nvapi-your-key-here
 
 ### Ollama
 
-You can configure opencode to use local models through Ollama.
+You can configure Guai Code to use local models through Ollama.
 
 :::tip
 Ollama can automatically configure itself for Guai Code. See the [Ollama integration docs](https://docs.ollama.com/integrations/opencode) for details.
@@ -1754,7 +1754,7 @@ OpenCode Zen is a list of tested and verified models provided by the OpenCode te
    /models
    ```
 
-   You can also add additional models through your opencode config.
+   You can also add additional models through your Guai Code config.
 
    ```json title="opencode.json" {6}
    {
@@ -1769,7 +1769,7 @@ OpenCode Zen is a list of tested and verified models provided by the OpenCode te
    }
    ```
 
-5. You can also customize them through your opencode config. Here's an example of specifying a provider
+5. You can also customize them through your Guai Code config. Here's an example of specifying a provider
 
    ```json title="opencode.json"
    {
@@ -1818,7 +1818,7 @@ OpenCode Zen is a list of tested and verified models provided by the OpenCode te
    /models
    ```
 
-   You can also add additional models through your opencode config.
+   You can also add additional models through your Guai Code config.
 
    ```json title="opencode.json" {6}
    {
@@ -1833,7 +1833,7 @@ OpenCode Zen is a list of tested and verified models provided by the OpenCode te
    }
    ```
 
-5. You can also customize them through your opencode config. Here's an example of specifying a provider
+5. You can also customize them through your Guai Code config. Here's an example of specifying a provider
 
    ```json title="opencode.json"
    {
@@ -2011,7 +2011,7 @@ To use [Scaleway Generative APIs](https://www.scaleway.com/en/docs/generative-ap
 
 Don't have a Snowflake account? [Sign up for a free trial](https://signup.snowflake.com/?utm_source=opencode&utm_medium=docs&utm_campaign=cortex-provider).
 
-opencode's core workflow for coding, editing files, and running commands relies on tool calling. Only the Claude and OpenAI families within Snowflake Cortex support this. The provider is limited to those families to support the core workflow.
+Guai Code's core workflow for coding, editing files, and running commands relies on tool calling. Only the Claude and OpenAI families within Snowflake Cortex support this. The provider is limited to those families to support the core workflow.
 
 Guai Code supports two authentication methods:
 
@@ -2085,7 +2085,7 @@ If you prefer to paste a token directly, or if `SNOWFLAKE$LOCAL_APPLICATION` is 
 
 #### Environment variable
 
-For CI or headless environments, set a PAT or JWT before starting opencode:
+For CI or headless environments, set a PAT or JWT before starting Guai Code:
 
 ```bash
 export SNOWFLAKE_ACCOUNT=myorg-myaccount
@@ -2189,7 +2189,7 @@ Vercel AI Gateway lets you access models from OpenAI, Anthropic, Google, xAI, an
    /models
    ```
 
-You can also customize models through your opencode config. Here's an example of specifying provider routing order.
+You can also customize models through your Guai Code config. Here's an example of specifying provider routing order.
 
 ```json title="opencode.json"
 {
@@ -2339,7 +2339,7 @@ Use this when Guai Code is running somewhere a browser can't reach the loopback 
    /models
    ```
 
-   You can also add additional models through your opencode config.
+   You can also add additional models through your Guai Code config.
 
    ```json title="opencode.json" {6}
    {
@@ -2361,7 +2361,7 @@ Use this when Guai Code is running somewhere a browser can't reach the loopback 
 To add any **OpenAI-compatible** provider that's not listed in the `/connect` command:
 
 :::tip
-You can use any OpenAI-compatible provider with opencode. Most modern AI providers offer OpenAI-compatible APIs.
+You can use any OpenAI-compatible provider with Guai Code. Most modern AI providers offer OpenAI-compatible APIs.
 :::
 
 1. Run the `/connect` command and scroll down to **Other**.
@@ -2495,7 +2495,7 @@ If you are having trouble with configuring a provider, check the following:
 
    This doesn't apply to providers like Amazon Bedrock, that rely on environment variables for their auth.
 
-2. For custom providers, check the opencode config and:
-   - Make sure the provider ID used in the `/connect` command matches the ID in your opencode config.
+2. For custom providers, check the Guai Code config and:
+   - Make sure the provider ID used in the `/connect` command matches the ID in your Guai Code config.
    - The right npm package is used for the provider. For example, use `@ai-sdk/cerebras` for Cerebras. And for all other OpenAI-compatible providers, use `@ai-sdk/openai-compatible` (for `/v1/chat/completions`); if a model uses `/v1/responses`, use `@ai-sdk/openai`. For mixed setups under one provider, you can override per model via `provider.npm`.
    - Check correct API endpoint is used in the `options.baseURL` field.

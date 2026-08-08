@@ -1,13 +1,13 @@
 ---
 title: SDK
-description: opencode sunucusu için type-safe JS istemcisi.
+description: Guai Code sunucusu için type-safe JS istemcisi.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-opencode JS/TS SDK, sunucu ile etkileşmek için type-safe bir istemci sağlar.
-opencode'u programatik olarak kontrol etmek ve entegrasyonlar oluşturmak için kullanabilirsiniz.
+Guai Code JS/TS SDK, sunucu ile etkileşmek için type-safe bir istemci sağlar.
+Guai Code'u programatik olarak kontrol etmek ve entegrasyonlar oluşturmak için kullanabilirsiniz.
 
 [Sunucu](/docs/server) sayfasında nasıl çalıştığını görebilir, örnekler için topluluğun oluşturduğu [projeler](/docs/ecosystem#projects) bölümüne bakabilirsiniz.
 
@@ -25,7 +25,7 @@ npm install @opencode-ai/sdk
 
 ## İstemci Oluşturma
 
-Bir opencode örneği oluşturun:
+Bir Guai Code örneği oluşturun:
 
 ```javascript
 import { createOpencode } from "@opencode-ai/sdk"
@@ -69,7 +69,7 @@ opencode.server.close()
 
 ## Yalnızca istemci
 
-Halihazırda çalışan bir opencode örneğiniz varsa, ona bağlanmak için bir istemci örneği oluşturabilirsiniz:
+Halihazırda çalışan bir Guai Code örneğiniz varsa, ona bağlanmak için bir istemci örneği oluşturabilirsiniz:
 
 ```javascript
 import { createOpencodeClient } from "@opencode-ai/sdk"

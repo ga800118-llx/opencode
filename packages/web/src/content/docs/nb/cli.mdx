@@ -21,7 +21,7 @@ opencode run "Explain how closures work in JavaScript"
 
 ### tui
 
-Start Guai Code-terminalbrukergrensesnittet.
+Start opencode-terminalbrukergrensesnittet.
 
 ```bash
 opencode [project]
@@ -60,13 +60,13 @@ opencode agent [command]
 
 ### attach
 
-Koble en terminal til en allerede kjørende Guai Code-backend-server startet via `serve` eller `web` kommandoer.
+Koble en terminal til en allerede kjørende opencode-backend-server startet via `serve` eller `web` kommandoer.
 
 ```bash
 opencode attach [url]
 ```
 
-Dette gjør det mulig å bruke TUI med en ekstern Guai Code-backend. For eksempel:
+Dette gjør det mulig å bruke TUI med en ekstern opencode-backend. For eksempel:
 
 ```bash
 # Start the backend server for web/mobile access
@@ -351,7 +351,7 @@ opencode run --attach http://localhost:4096 "Explain async/await in JavaScript"
 | <nobr><code>{"--file"}</code></nobr>     | `-f` | Fil(er) som skal legges ved meldingen                                                              |
 | <nobr><code>{"--format"}</code></nobr>   |      | Format: standard (formatert) eller json (rå JSON hendelser)                                        |
 | <nobr><code>{"--title"}</code></nobr>    |      | Tittel for økten (bruker avkortet ledetekst hvis ingen verdi er oppgitt)                           |
-| <nobr><code>{"--attach"}</code></nobr>   |      | Koble til en kjørende Guai Code-server (f.eks. http://localhost:4096)                               |
+| <nobr><code>{"--attach"}</code></nobr>   |      | Koble til en kjørende opencode-server (f.eks. http://localhost:4096)                               |
 | <nobr><code>{"--password"}</code></nobr> | `-p` | Passord for grunnleggende autentisering (standard: `OPENCODE_SERVER_PASSWORD`)                     |
 | <nobr><code>{"--username"}</code></nobr> | `-u` | Brukernavn for grunnleggende autentisering (standard: `OPENCODE_SERVER_USERNAME` eller `opencode`) |
 | <nobr><code>{"--dir"}</code></nobr>      |      | Katalog å kjøre i, eller sti på fjernserveren ved tilkobling                                       |
@@ -363,13 +363,13 @@ opencode run --attach http://localhost:4096 "Explain async/await in JavaScript"
 
 ### serve
 
-Start en headless Guai Code-server for API-tilgang. Sjekk ut [server-dokumentene](/docs/server) for hele HTTP-grensesnittet.
+Start en headless opencode-server for API-tilgang. Sjekk ut [server-dokumentene](/docs/server) for hele HTTP-grensesnittet.
 
 ```bash
 opencode serve
 ```
 
-Dette starter en HTTP-server som gir API tilgang til Guai Code-funksjonalitet uten TUI-grensesnittet. Sett `OPENCODE_SERVER_PASSWORD` for å aktivere HTTP grunnleggende autentisering (brukernavn er standard til `opencode`).
+Dette starter en HTTP-server som gir API tilgang til opencode-funksjonalitet uten TUI-grensesnittet. Sett `OPENCODE_SERVER_PASSWORD` for å aktivere HTTP grunnleggende autentisering (brukernavn er standard til `opencode`).
 
 #### Flagg
 
@@ -459,7 +459,7 @@ opencode import https://opncd.ai/s/abc123
 
 ### web
 
-Start en headless Guai Code-server med et webgrensesnitt.
+Start en headless opencode-server med et webgrensesnitt.
 
 ```bash
 opencode web

@@ -118,7 +118,7 @@ export const MyPlugin = async ({ project, client, $, directory, worktree }) => {
 - `project`: معلومات المشروع الحالي.
 - `directory`: دليل العمل الحالي.
 - `worktree`: مسار git worktree.
-- `client`: عميل SDK لـ opencode للتفاعل مع الذكاء الاصطناعي.
+- `client`: عميل SDK لـ Guai Code للتفاعل مع الذكاء الاصطناعي.
 - `$`: واجهة [shell API](https://bun.com/docs/runtime/shell) الخاصة بـ Bun لتنفيذ الأوامر.
 
 ---
@@ -211,7 +211,7 @@ export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree
 
 ## أمثلة
 
-فيما يلي بعض أمثلة الإضافات التي يمكنك استخدامها لتوسيع opencode.
+فيما يلي بعض أمثلة الإضافات التي يمكنك استخدامها لتوسيع Guai Code.
 
 ---
 
@@ -242,7 +242,7 @@ export const NotificationPlugin = async ({ project, client, $, directory, worktr
 
 ### حماية .env
 
-امنع opencode من قراءة ملفات `.env`:
+امنع Guai Code من قراءة ملفات `.env`:
 
 ```javascript title=".opencode/plugins/env-protection.js"
 export const EnvProtection = async ({ project, client, $, directory, worktree }) => {
@@ -277,7 +277,7 @@ export const InjectEnvPlugin = async () => {
 
 ### أدوات مخصصة
 
-يمكن للإضافات أيضا إضافة أدوات مخصصة إلى opencode:
+يمكن للإضافات أيضا إضافة أدوات مخصصة إلى Guai Code:
 
 ```ts title=".opencode/plugins/custom-tools.ts"
 import { type Plugin, tool } from "@opencode-ai/plugin"
@@ -300,13 +300,13 @@ export const CustomToolsPlugin: Plugin = async (ctx) => {
 }
 ```
 
-تقوم الدالة المساعدة `tool` بإنشاء أداة مخصصة يمكن لـ opencode استدعاؤها. تأخذ دالة مخطط Zod وتعيد تعريف أداة يتضمن:
+تقوم الدالة المساعدة `tool` بإنشاء أداة مخصصة يمكن لـ Guai Code استدعاؤها. تأخذ دالة مخطط Zod وتعيد تعريف أداة يتضمن:
 
 - `description`: ما الذي تفعله الأداة
 - `args`: مخطط Zod لوسائط الأداة
 - `execute`: الدالة التي تُشغَّل عند استدعاء الأداة
 
-ستكون أدواتك المخصصة متاحة لـ opencode إلى جانب الأدوات المضمنة.
+ستكون أدواتك المخصصة متاحة لـ Guai Code إلى جانب الأدوات المضمنة.
 
 ---
 

@@ -1,33 +1,33 @@
 ---
 title: GitLab
-description: użyj opencode w problemach z GitLabem i zastosujch scalania.
+description: użyj Guai Code w problemach z GitLabem i zastosujch scalania.
 ---
 
-opencode integruje się z przepływem pracy GitLab poprzez potok GitLab CI/CD lub z GitLab Duo.
+Guai Code integruje się z przepływem pracy GitLab poprzez potok GitLab CI/CD lub z GitLab Duo.
 
-W obu przypadkach opencode będzie modułem GitLab.
+W obu przypadkach Guai Code będzie modułem GitLab.
 
 ---
 
 ## GitLab CI
 
-opencode działa w zwykłym potoku GitLab. Możesz wbudować go w potok jako [komponent CI](https://docs.gitlab.com/ee/ci/components/)
+Guai Code działa w zwykłym potoku GitLab. Możesz wbudować go w potok jako [komponent CI](https://docs.gitlab.com/ee/ci/components/)
 
-Tutaj obowiązkowego przez społeczność komponentu CI/CD dla opencode — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
+Tutaj obowiązkowego przez społeczność komponentu CI/CD dla Guai Code — [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
 
 ---
 
 ### Cechy
 
-- **Użyj konfiguracji dla każdego zadania**: Skonfiguruj opencode z niestandardowym katalogiem konfiguracyjnym, na przykładzie `./config/#custom-directory`, aby włączyć lub funkcjonalności na każde wywołanie opencode.
-- **Konfiguracja minimalna**: Komponent CI konfiguruje opencode w tle, wystarczy skonfigurować opencode i początkowy monit.
+- **Użyj konfiguracji dla każdego zadania**: Skonfiguruj Guai Code z niestandardowym katalogiem konfiguracyjnym, na przykładzie `./config/#custom-directory`, aby włączyć lub funkcjonalności na każde wywołanie Guai Code.
+- **Konfiguracja minimalna**: Komponent CI konfiguruje Guai Code w tle, wystarczy skonfigurować Guai Code i początkowy monit.
 - **Elastyczny**: Komponent CI obsługuje kilka danych, które są stosowane w celu dostosowania jego zachowania
 
 ---
 
 ### Organizować coś
 
-1. Przechowuj dane uwierzytelniające opencode w formacie JSON jako zmienne parametry CI typu pliku w specyfikacji **Ustawienia** > **CI/CD** > **Zmienne**. Zachowaj, aby być oznaczony jako „Zamaskowane i ukryte”.
+1. Przechowuj dane uwierzytelniające Guai Code w formacie JSON jako zmienne parametry CI typu pliku w specyfikacji **Ustawienia** > **CI/CD** > **Zmienne**. Zachowaj, aby być oznaczony jako „Zamaskowane i ukryte”.
 2. Dodaj elementy do swojego pliku `.gitlab-ci.yml`.
 
    ```yaml title=".gitlab-ci.yml"
@@ -46,23 +46,23 @@ Więcej danych dotyczących użycia [sprawdź opis](https://gitlab.com/explore/c
 
 ## Duet GitLab
 
-opencode integruje się z przepływem pracy GitLab.
-Wspomnij o `@opencode` w komentarzu, a opencode wykonaj zadania w ramach swojego potoku GitLab CI.
+Guai Code integruje się z przepływem pracy GitLab.
+Wspomnij o `@opencode` w komentarzu, a Guai Code wykonaj zadania w ramach swojego potoku GitLab CI.
 
 ---
 
 ### Cechy
 
-- **Problem związany z segregacją**: Poproś opencode o szczegółowe wyjaśnienie problemu i wyjaśnienie go.
-- **Napraw i zaimplementuj**: Poproś opencode o naprawienie problemu lub zaimplementowanie funkcji.
+- **Problem związany z segregacją**: Poproś Guai Code o szczegółowe wyjaśnienie problemu i wyjaśnienie go.
+- **Napraw i zaimplementuj**: Poproś Guai Code o naprawienie problemu lub zaimplementowanie funkcji.
   Utworzył nowy oddział i zgłosi ataku ze sobą.
-- **Bezpieczny**: opencode działa na modułach GitLab.
+- **Bezpieczny**: Guai Code działa na modułach GitLab.
 
 ---
 
 ### Organizować coś
 
-opencode działa w potoku CI/CD GitLab. Oto, czego potrzebujesz, aby przejść do:
+Guai Code działa w potoku CI/CD GitLab. Oto, czego potrzebujesz, aby przejść do:
 
 :::tip
 Aktualne instrukcje dotyczące [**dokumentacji GitLab**](https://docs.gitlab.com/user/duo_agent_platform/agent_assistant/).
@@ -158,7 +158,7 @@ Szczegółowe instrukcje w [dokumentacji agentów GitLab CLI](https://docs.gitla
 
 ### Przykłady
 
-Oto kilka możliwości wykorzystania opencode w GitLabie.
+Oto kilka możliwości wykorzystania Guai Code w GitLabie.
 
 :::tip
 Można zastosować inną metodę ograniczającą niż `@opencode`.
@@ -172,7 +172,7 @@ Można zastosować inną metodę ograniczającą niż `@opencode`.
   @opencode explain this issue
   ```
 
-  opencode przeczytaj problem i odpowiedź z wyjaśnieniem.
+  Guai Code przeczytaj problem i odpowiedź z wyjaśnieniem.
 
 - **Napraw problem**
 
@@ -182,7 +182,7 @@ Można zastosować inną metodę ograniczającą niż `@opencode`.
   @opencode fix this
   ```
 
-  opencode utworzy nową podstawę, zaimplementuje zmiany i spowoduje, że skalowanie będzie możliwe.
+  Guai Code utworzy nową podstawę, zaimplementuje zmiany i spowoduje, że skalowanie będzie możliwe.
 
 - **Przejrzyj prośby o połączenie**
 
@@ -192,4 +192,4 @@ Można zastosować inną metodę ograniczającą niż `@opencode`.
   @opencode review this merge request
   ```
 
-  opencode sprawdzenie rozwiązania i przepuszczenie.
+  Guai Code sprawdzenie rozwiązania i przepuszczenie.

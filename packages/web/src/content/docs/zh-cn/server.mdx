@@ -1,12 +1,12 @@
 ---
 title: 服务器
-description: 通过 HTTP 与 opencode 服务器交互。
+description: 通过 HTTP 与 Guai Code 服务器交互。
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-`opencode serve` 命令运行一个无界面的 HTTP 服务器，暴露一个 OpenAPI 端点供 opencode 客户端使用。
+`opencode serve` 命令运行一个无界面的 HTTP 服务器，暴露一个 OpenAPI 端点供 Guai Code 客户端使用。
 
 ---
 
@@ -49,12 +49,12 @@ OPENCODE_SERVER_PASSWORD=your-password opencode serve
 当你运行 `opencode` 时，它会启动一个 TUI 和一个服务器。TUI 是与服务器通信的客户端。服务器暴露一个 OpenAPI 3.1 规范端点。该端点也用于生成 [SDK](/docs/sdk)。
 
 :::tip
-使用 opencode 服务器以编程方式与 opencode 交互。
+使用 Guai Code 服务器以编程方式与 Guai Code 交互。
 :::
 
-这种架构让 opencode 支持多个客户端，并允许你以编程方式与 opencode 交互。
+这种架构让 Guai Code 支持多个客户端，并允许你以编程方式与 Guai Code 交互。
 
-你可以运行 `opencode serve` 来启动一个独立的服务器。如果你已经在运行 opencode TUI，`opencode serve` 会启动一个新的服务器。
+你可以运行 `opencode serve` 来启动一个独立的服务器。如果你已经在运行 Guai Code TUI，`opencode serve` 会启动一个新的服务器。
 
 ---
 
@@ -80,7 +80,7 @@ http://<hostname>:<port>/doc
 
 ## API
 
-opencode 服务器暴露以下 API。
+Guai Code 服务器暴露以下 API。
 
 ---
 

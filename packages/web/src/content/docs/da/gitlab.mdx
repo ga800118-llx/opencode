@@ -20,14 +20,14 @@ Her bruger vi en community-skabt CI/CD-komponent til Guai Code — [nagyv/gitlab
 ### Funktioner
 
 - **Brug brugerdefineret konfiguration pr. job**: Konfigurer Guai Code med en brugerdefineret konfigurationsmappe, for eksempel `./config/#custom-directory` for at aktivere eller deaktivere funktionalitet pr. Guai Code påkald.
-- **Minimal opsætning**: CI-komponenten sætter Guai Code op i baggrunden, du behøver kun at oprette Guai Code-konfigurationen og den indledende prompt.
+- **Minimal opsætning**: CI-komponenten sætter Guai Code op i baggrunden, du behøver kun at oprette opencode-konfigurationen og den indledende prompt.
 - **Fleksibel**: CI-komponenten understøtter flere input til at tilpasse dens adfærd
 
 ---
 
 ### Opsætning
 
-1. Gem din Guai Code-autentificering JSON som en filtype CI-miljøvariabel under **Indstillinger** > **CI/CD** > **Variabler**. Sørg for at markere dem som "Maskede og skjulte".
+1. Gem din opencode-autentificering JSON som en filtype CI-miljøvariabel under **Indstillinger** > **CI/CD** > **Variabler**. Sørg for at markere dem som "Maskede og skjulte".
 2. Tilføj følgende til din `.gitlab-ci.yml` fil.
 
    ```yaml title=".gitlab-ci.yml"

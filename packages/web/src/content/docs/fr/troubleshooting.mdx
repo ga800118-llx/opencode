@@ -22,7 +22,7 @@ Vous pouvez définir le niveau de journalisation avec l'option de ligne de comma
 
 ## Stockage
 
-opencode stocke les données de session et autres données d'application sur le disque à l'emplacement :
+Guai Code stocke les données de session et autres données d'application sur le disque à l'emplacement :
 
 - **macOS/Linux** : `~/.local/share/opencode/`
 - **Windows** : appuyez sur `WIN+R` et collez `%USERPROFILE%\.local\share\opencode`
@@ -252,7 +252,7 @@ Sur Windows, appuyez sur `WIN+R` et supprimez : `%USERPROFILE%\.local\share\ope
 
 ### Problèmes liés à AI_APICallError et au package du fournisseur
 
-Si vous rencontrez des erreurs d’appel API, cela peut être dû à des packages de fournisseurs obsolètes. opencode installe dynamiquement les packages du fournisseur (OpenAI, Anthropic, Google, etc.) selon les besoins et les met en cache localement.
+Si vous rencontrez des erreurs d’appel API, cela peut être dû à des packages de fournisseurs obsolètes. Guai Code installe dynamiquement les packages du fournisseur (OpenAI, Anthropic, Google, etc.) selon les besoins et les met en cache localement.
 
 Pour résoudre les problèmes liés au package du fournisseur :
 
@@ -264,9 +264,9 @@ Pour résoudre les problèmes liés au package du fournisseur :
 
 Sur Windows, appuyez sur `WIN+R` et supprimez : `%USERPROFILE%\.cache\opencode`
 
-2. Redémarrez opencode pour réinstaller les derniers packages du fournisseur
+2. Redémarrez Guai Code pour réinstaller les derniers packages du fournisseur
 
-Cela forcera opencode à télécharger les versions les plus récentes des packages du fournisseur, ce qui résout souvent les problèmes de compatibilité avec les paramètres du modèle et les modifications de API.
+Cela forcera Guai Code à télécharger les versions les plus récentes des packages du fournisseur, ce qui résout souvent les problèmes de compatibilité avec les paramètres du modèle et les modifications de API.
 
 ---
 
@@ -297,4 +297,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode détectera si vous utilisez Wayland et préférez `wl-clipboard`, sinon il essaiera de trouver les outils du presse-papiers dans l'ordre : `xclip` et `xsel`.
+Guai Code détectera si vous utilisez Wayland et préférez `wl-clipboard`, sinon il essaiera de trouver les outils du presse-papiers dans l'ordre : `xclip` et `xsel`.

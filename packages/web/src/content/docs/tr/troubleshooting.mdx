@@ -3,7 +3,7 @@ title: Sorun giderme
 description: Yaygin sorunlar ve cozum adimlari.
 ---
 
-opencode ile ilgili bir sorunu ayiklamak icin once loglari ve diskte tuttugu yerel verileri kontrol edin.
+Guai Code ile ilgili bir sorunu ayiklamak icin once loglari ve diskte tuttugu yerel verileri kontrol edin.
 
 ---
 
@@ -22,7 +22,7 @@ Daha ayrintili ayiklama bilgisi icin `--log-level` komut satiri secenegini kulla
 
 ## Depolama
 
-opencode, oturum verilerini ve diger uygulama verilerini diskte su konumda saklar:
+Guai Code, oturum verilerini ve diger uygulama verilerini diskte su konumda saklar:
 
 - **macOS/Linux**: `~/.local/share/opencode/`
 - **Windows**: `WIN+R` tuslayip `%USERPROFILE%\.local\share\opencode` yapistirin
@@ -39,7 +39,7 @@ Bu dizin sunlari icerir:
 
 ## Masaüstü uygulaması
 
-opencode Desktop arka planda yerel bir opencode sunucusu (`opencode-cli` sidecar) calistirir. Sorunlarin cogu bozuk bir plugin, hasarli cache veya hatali sunucu ayarindan kaynaklanir.
+Guai Code Desktop arka planda yerel bir Guai Code sunucusu (`opencode-cli` sidecar) calistirir. Sorunlarin cogu bozuk bir plugin, hasarli cache veya hatali sunucu ayarindan kaynaklanir.
 
 ### Hızlı kontroller
 
@@ -72,7 +72,7 @@ Plugin tanimliysa anahtari kaldirarak veya bos bir diziye cekerek gecici olarak 
 
 #### Eklenti dizinlerini kontrol edin
 
-opencode diskten yerel plugin de yukleyebilir. Bu dizinleri gecici olarak tasiyin (veya klasoru yeniden adlandirin) ve uygulamayi yeniden baslatin:
+Guai Code diskten yerel plugin de yukleyebilir. Bu dizinleri gecici olarak tasiyin (veya klasoru yeniden adlandirin) ve uygulamayi yeniden baslatin:
 
 - **Global plugins**
   - **macOS/Linux**: `~/.config/opencode/plugins/`
@@ -86,22 +86,22 @@ Uygulama duzelirse soruna neden olan plugini bulmak icin pluginleri tek tek yeni
 
 ### Cache'i temizleyin
 
-Pluginleri kapatmak ise yaramazsa (veya plugin kurulumu takili kaldiysa), opencode'un cache'i yeniden olusturmasi icin cache'i temizleyin.
+Pluginleri kapatmak ise yaramazsa (veya plugin kurulumu takili kaldiysa), Guai Code'un cache'i yeniden olusturmasi icin cache'i temizleyin.
 
-1. opencode Desktop'u tamamen kapatin
+1. Guai Code Desktop'u tamamen kapatin
 2. Cache dizinini silin:
 
 - **macOS**: Finder -> `Cmd+Shift+G` -> `~/.cache/opencode`
 - **Linux**: `~/.cache/opencode` dizinini silin (veya `rm -rf ~/.cache/opencode` calistirin)
 - **Windows**: `WIN+R` tuslayip `%USERPROFILE%\.cache\opencode` yapistirin
 
-3. opencode Desktop'u yeniden baslatin
+3. Guai Code Desktop'u yeniden baslatin
 
 ---
 
 ### Sunucu bağlantı sorunlarını düzeltin
 
-opencode Desktop ya kendi yerel sunucusunu baslatir (varsayilan) ya da sizin tanimladiginiz bir sunucu URL'sine baglanir.
+Guai Code Desktop ya kendi yerel sunucusunu baslatir (varsayilan) ya da sizin tanimladiginiz bir sunucu URL'sine baglanir.
 
 **"Connection Failed"** penceresi goruyorsaniz (veya uygulama acilis ekranini gecemiyorsa), ozel bir sunucu URL'si olup olmadigini kontrol edin.
 
@@ -132,21 +132,21 @@ Linux'ta bazi Wayland kurulumlari bos pencere veya compositor hatalarina yol aca
 
 ### Windows: WebView2 Çalışma Zamanı
 
-Windows'ta opencode Desktop, Microsoft Edge **WebView2 Runtime** gerektirir. Uygulama bos pencereyle aciliyorsa veya hic baslamiyorsa WebView2'yi kurup/guncelleyip tekrar deneyin.
+Windows'ta Guai Code Desktop, Microsoft Edge **WebView2 Runtime** gerektirir. Uygulama bos pencereyle aciliyorsa veya hic baslamiyorsa WebView2'yi kurup/guncelleyip tekrar deneyin.
 
 ---
 
 ### Windows: Genel performans sorunları
 
-Windows'ta yavaslik, dosya erisim sorunlari veya terminal problemleri yasiyorsaniz [WSL (Windows Subsystem for Linux)](/docs/windows-wsl) kullanmayi deneyin. WSL, opencode ozellikleriyle daha sorunsuz calisan bir Linux ortami saglar.
+Windows'ta yavaslik, dosya erisim sorunlari veya terminal problemleri yasiyorsaniz [WSL (Windows Subsystem for Linux)](/docs/windows-wsl) kullanmayi deneyin. WSL, Guai Code ozellikleriyle daha sorunsuz calisan bir Linux ortami saglar.
 
 ---
 
 ### Bildirimler görünmüyor
 
-opencode Desktop sistem bildirimlerini yalnizca su durumlarda gosterir:
+Guai Code Desktop sistem bildirimlerini yalnizca su durumlarda gosterir:
 
-- Isletim sistemi ayarlarinizda opencode icin bildirimler etkinse
+- Isletim sistemi ayarlarinizda Guai Code icin bildirimler etkinse
 - Uygulama penceresi odakta degilse
 
 ---
@@ -155,8 +155,8 @@ opencode Desktop sistem bildirimlerini yalnizca su durumlarda gosterir:
 
 Uygulama acilmiyorsa ve ayarlari arayuz icinden temizleyemiyorsaniz, desktop uygulamasinin kayitli durumunu sifirlayin.
 
-1. opencode Desktop'u kapatin
-2. Su dosyalari bulun ve silin (opencode Desktop uygulama veri dizininde yer alirlar):
+1. Guai Code Desktop'u kapatin
+2. Su dosyalari bulun ve silin (Guai Code Desktop uygulama veri dizininde yer alirlar):
 
 - `opencode.settings.dat` (desktop varsayilan sunucu URL'si)
 - `opencode.global.dat` ve `opencode.workspace.*.dat` (son sunucular/projeler gibi UI durumu)
@@ -171,7 +171,7 @@ Dizini hizlica bulmak icin:
 
 ## Yardım alın
 
-opencode ile ilgili bir sorun yasiyorsaniz:
+Guai Code ile ilgili bir sorun yasiyorsaniz:
 
 1. **GitHub'da issue acin**
 
@@ -195,7 +195,7 @@ Asagida yaygin sorunlar ve cozumleri yer aliyor.
 
 ---
 
-### opencode başlamıyor
+### Guai Code başlamıyor
 
 1. Hata mesaji icin loglari kontrol edin
 2. Terminalde cikti gormek icin `--print-logs` ile calistirin
@@ -251,7 +251,7 @@ Cozum adimlari:
 
 ### AI_APICallError ve provider paket sorunlari
 
-API cagrisi hatalari aliyorsaniz bunun nedeni guncel olmayan provider paketleri olabilir. opencode, provider paketlerini (OpenAI, Anthropic, Google vb.) gerektikce dinamik yukler ve yerelde onbellekler.
+API cagrisi hatalari aliyorsaniz bunun nedeni guncel olmayan provider paketleri olabilir. Guai Code, provider paketlerini (OpenAI, Anthropic, Google vb.) gerektikce dinamik yukler ve yerelde onbellekler.
 
 Provider paket sorunlarini gidermek icin:
 
@@ -263,9 +263,9 @@ Provider paket sorunlarini gidermek icin:
 
    Windows'ta `WIN+R` tuslayip su konumu silin: `%USERPROFILE%\.cache\opencode`
 
-2. En guncel provider paketlerini yeniden kurmak icin opencode'u yeniden baslatin
+2. En guncel provider paketlerini yeniden kurmak icin Guai Code'u yeniden baslatin
 
-Bu, opencode'un en yeni provider paket surumlerini indirmesini zorlar ve model parametresi/API degisikliklerinden kaynakli uyumsuzluklari cogu zaman cozer.
+Bu, Guai Code'un en yeni provider paket surumlerini indirmesini zorlar ve model parametresi/API degisikliklerinden kaynakli uyumsuzluklari cogu zaman cozer.
 
 ---
 
@@ -296,4 +296,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode, Wayland kullandiginizi algilarsa `wl-clipboard` tercihi yapar. Aksi halde sirayla `xclip` ve `xsel` araclarini arar.
+Guai Code, Wayland kullandiginizi algilarsa `wl-clipboard` tercihi yapar. Aksi halde sirayla `xclip` ve `xsel` araclarini arar.

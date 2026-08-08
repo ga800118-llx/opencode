@@ -22,7 +22,7 @@ Du kan angive logniveauet med kommandolinjeflaget `--log-level` for at få mere 
 
 ## Lagring
 
-opencode gemmer sessionsdata og andre applikationsdata på disken på:
+Guai Code gemmer sessionsdata og andre applikationsdata på disken på:
 
 - **macOS/Linux**: `~/.local/share/opencode/`
 - **Windows**: Tryk `WIN+R` og indsæt `%USERPROFILE%\.local\share\opencode`
@@ -39,7 +39,7 @@ Denne mappe indeholder:
 
 ## Desktop-app
 
-Guai Code Desktop kører en lokal Guai Code-server (`opencode-cli` sidevognen) i baggrunden. De fleste problemer er forårsaget af et plugin, der fungerer dårligt, en ødelagt cache eller en dårlig serverindstilling.
+Guai Code Desktop kører en lokal opencode-server (`opencode-cli` sidevognen) i baggrunden. De fleste problemer er forårsaget af et plugin, der fungerer dårligt, en ødelagt cache eller en dårlig serverindstilling.
 
 ### Hurtige tjek
 
@@ -252,7 +252,7 @@ For at løse dette:
 
 ### AI_APICallError og udbyderpakkeproblemer
 
-Hvis du støder på API-kaldsfejl, kan dette skyldes forældede udbyderpakker. opencode installerer dynamisk udbyderpakker (OpenAI, Anthropic, Google, etc.) efter behov og cacher dem lokalt.
+Hvis du støder på API-kaldsfejl, kan dette skyldes forældede udbyderpakker. Guai Code installerer dynamisk udbyderpakker (OpenAI, Anthropic, Google, etc.) efter behov og cacher dem lokalt.
 
 For at løse problemer med udbyderpakke:
 
@@ -264,9 +264,9 @@ For at løse problemer med udbyderpakke:
 
    På Windows, tryk `WIN+R` og slet: `%USERPROFILE%\.cache\opencode`
 
-2. Start opencode på ny for at installere de nyeste udbyderpakker på ny
+2. Start Guai Code på ny for at installere de nyeste udbyderpakker på ny
 
-Dette vil tvinge opencode til at downloade de nyeste versioner af udbyderpakkerne, som ofte løser kompatibilitetsproblemer med modelparametre og API-ændringer.
+Dette vil tvinge Guai Code til at downloade de nyeste versioner af udbyderpakkerne, som ofte løser kompatibilitetsproblemer med modelparametre og API-ændringer.
 
 ---
 
@@ -297,4 +297,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode vil opdage om du bruger Wayland og foretrække `wl-clipboard`, ellers vil den prøve at finde udklipsholderværktøjer i rækkefølgen: `xclip` og `xsel`.
+Guai Code vil opdage om du bruger Wayland og foretrække `wl-clipboard`, ellers vil den prøve at finde udklipsholderværktøjer i rækkefølgen: `xclip` og `xsel`.

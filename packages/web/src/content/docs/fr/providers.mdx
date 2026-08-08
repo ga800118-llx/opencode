@@ -169,7 +169,7 @@ Pour utiliser Amazon Bedrock avec Guai Code :
 
    #### Variables d'environnement (démarrage rapide)
 
-Définissez l'une de ces variables d'environnement lors de l'exécution de opencode :
+Définissez l'une de ces variables d'environnement lors de l'exécution de Guai Code :
 
 ```bash
    # Option 1: Using AWS access keys
@@ -327,7 +327,7 @@ Ou si vous disposez déjà d'une clé API, vous pouvez sélectionner **Entrer ma
 
 ### Atomic Chat
 
-Vous pouvez configurer opencode pour utiliser des modèles locaux via [Atomic Chat](https://atomic.chat), une application de bureau qui exécute des LLM locaux derrière un serveur API compatible OpenAI (point de terminaison par défaut `http://127.0.0.1:1337/v1`).
+Vous pouvez configurer Guai Code pour utiliser des modèles locaux via [Atomic Chat](https://atomic.chat), une application de bureau qui exécute des LLM locaux derrière un serveur API compatible OpenAI (point de terminaison par défaut `http://127.0.0.1:1337/v1`).
 
 ```json title="opencode.json" "atomic-chat" {5, 6, 8, 10-14}
 {
@@ -376,7 +376,7 @@ Si vous rencontrez des erreurs « Je suis désolé, mais je ne peux pas vous aid
 2. Accédez à [Azure AI Foundry](https://ai.azure.com/) et déployez un modèle.
 
    :::note
-   Le nom du déploiement doit correspondre au nom du modèle pour que opencode fonctionne correctement.
+   Le nom du déploiement doit correspondre au nom du modèle pour que Guai Code fonctionne correctement.
    :::
 
 3. Exécutez la commande `/connect` et recherchez **Azure**.
@@ -423,7 +423,7 @@ Ou ajoutez-le à votre profil bash :
 2. Accédez à [Azure AI Foundry](https://ai.azure.com/) et déployez un modèle.
 
    :::note
-   Le nom du déploiement doit correspondre au nom du modèle pour que opencode fonctionne correctement.
+   Le nom du déploiement doit correspondre au nom du modèle pour que Guai Code fonctionne correctement.
    :::
 
 3. Exécutez la commande `/connect` et recherchez **Azure Cognitive Services**.
@@ -555,7 +555,7 @@ Ou définissez-le comme variable d'environnement.
    /models
    ```
 
-Vous pouvez également ajouter des modèles via votre configuration opencode.
+Vous pouvez également ajouter des modèles via votre configuration Guai Code.
 
 ```json title="opencode.json"
 {
@@ -915,7 +915,7 @@ Pour utiliser Google Vertex AI avec Guai Code :
 Définissez-les lors de l'exécution de opencode.
 
 ```bash
-   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id opencode
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id Guai Code
 ```
 
 Ou ajoutez-les à votre profil bash.
@@ -1068,7 +1068,7 @@ Helicone prend en charge les en-têtes personnalisés pour des fonctionnalités 
         "baseURL": "https://ai-gateway.helicone.ai",
         "headers": {
           "Helicone-Cache-Enabled": "true",
-          "Helicone-User-Id": "opencode",
+          "Helicone-User-Id": "Guai Code",
         },
       },
     },
@@ -1526,7 +1526,7 @@ SAP AI Core donne accès à plus de 40 modèles de OpenAI, Anthropic, Google, Am
 Ou définissez la variable d'environnement `AICORE_SERVICE_KEY` :
 
 ```bash
-   AICORE_SERVICE_KEY='{"clientid":"...","clientsecret":"...","url":"...","serviceurls":{"AI_API_URL":"..."}}' opencode
+   AICORE_SERVICE_KEY='{"clientid":"...","clientsecret":"...","url":"...","serviceurls":{"AI_API_URL":"..."}}' Guai Code
 ```
 
 Ou ajoutez-le à votre profil bash :
@@ -1538,7 +1538,7 @@ Ou ajoutez-le à votre profil bash :
 4. Définissez éventuellement l'ID de déploiement et le groupe de ressources :
 
    ```bash
-   AICORE_DEPLOYMENT_ID=your-deployment-id AICORE_RESOURCE_GROUP=your-resource-group opencode
+   AICORE_DEPLOYMENT_ID=your-deployment-id AICORE_RESOURCE_GROUP=your-resource-group Guai Code
    ```
 
    :::note

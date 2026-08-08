@@ -118,7 +118,7 @@ export const MyPlugin = async ({ project, client, $, directory, worktree }) => {
 - `project`: ข้อมูลโครงการปัจจุบัน
 - `directory`: ไดเร็กทอรีการทำงานปัจจุบัน
 - `worktree`: เส้นทางเวิร์กทรีคอมไพล์
-- `client`: ไคลเอนต์ opencode SDK สำหรับการโต้ตอบกับ AI
+- `client`: ไคลเอนต์ Guai Code SDK สำหรับการโต้ตอบกับ AI
 - `$`: [shell API](https://bun.com/docs/runtime/shell) ของ Bun สำหรับการดำเนินการคำสั่ง
 
 ---
@@ -211,7 +211,7 @@ export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree
 
 ## ตัวอย่าง
 
-นี่คือตัวอย่างบางส่วนของปลั๊กอินที่คุณสามารถใช้เพื่อขยาย opencode
+นี่คือตัวอย่างบางส่วนของปลั๊กอินที่คุณสามารถใช้เพื่อขยาย Guai Code
 
 ---
 
@@ -242,7 +242,7 @@ export const NotificationPlugin = async ({ project, client, $, directory, worktr
 
 ### การป้องกัน .env
 
-ป้องกันไม่ให้ opencode อ่านไฟล์ `.env`:
+ป้องกันไม่ให้ Guai Code อ่านไฟล์ `.env`:
 
 ```javascript title=".opencode/plugins/env-protection.js"
 export const EnvProtection = async ({ project, client, $, directory, worktree }) => {
@@ -277,7 +277,7 @@ export const InjectEnvPlugin = async () => {
 
 ### เครื่องมือที่กำหนดเอง
 
-ปลั๊กอินยังสามารถเพิ่มเครื่องมือที่กำหนดเองให้กับ opencode:
+ปลั๊กอินยังสามารถเพิ่มเครื่องมือที่กำหนดเองให้กับ Guai Code:
 
 ```ts title=".opencode/plugins/custom-tools.ts"
 import { type Plugin, tool } from "@opencode-ai/plugin"
@@ -300,13 +300,13 @@ export const CustomToolsPlugin: Plugin = async (ctx) => {
 }
 ```
 
-ตัวช่วย `tool` สร้างเครื่องมือแบบกำหนดเองที่สามารถเรียกใช้ opencode ได้ ใช้ฟังก์ชัน Zod schema และส่งกลับคำจำกัดความของเครื่องมือด้วย:
+ตัวช่วย `tool` สร้างเครื่องมือแบบกำหนดเองที่สามารถเรียกใช้ Guai Code ได้ ใช้ฟังก์ชัน Zod schema และส่งกลับคำจำกัดความของเครื่องมือด้วย:
 
 - `description`: เครื่องมือนี้ทำอะไร
 - `args`: Zod schema สำหรับข้อโต้แย้งของเครื่องมือ
 - `execute`: ฟังก์ชั่นที่ทำงานเมื่อมีการเรียกใช้เครื่องมือ
 
-เครื่องมือที่คุณกำหนดเองจะพร้อมใช้งานสำหรับ opencode ควบคู่ไปกับเครื่องมือในตัว
+เครื่องมือที่คุณกำหนดเองจะพร้อมใช้งานสำหรับ Guai Code ควบคู่ไปกับเครื่องมือในตัว
 
 :::note
 หากเครื่องมือปลั๊กอินใช้ชื่อเดียวกับเครื่องมือในตัว เครื่องมือปลั๊กอินจะมีความสำคัญเหนือกว่า

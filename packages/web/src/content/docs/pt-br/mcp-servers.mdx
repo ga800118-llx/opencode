@@ -3,7 +3,7 @@ title: Servidores MCP
 description: Adicione ferramentas MCP locais e remotas.
 ---
 
-Você pode adicionar ferramentas externas ao opencode usando o _Model Context Protocol_, ou MCP. O opencode suporta servidores locais e remotos.
+Você pode adicionar ferramentas externas ao Guai Code usando o _Model Context Protocol_, ou MCP. O Guai Code suporta servidores locais e remotos.
 
 Uma vez adicionadas, as ferramentas MCP estão automaticamente disponíveis para o LLM juntamente com as ferramentas integradas.
 
@@ -23,7 +23,7 @@ Certos servidores MCP, como o servidor MCP do GitHub, tendem a adicionar muitos 
 
 ## Habilitando
 
-Você pode definir servidores MCP em sua [Configuração do opencode](https://opencode.ai/docs/config/) sob `mcp`. Adicione cada MCP com um nome único. Você pode se referir a esse MCP pelo nome ao solicitar ao LLM.
+Você pode definir servidores MCP em sua [Configuração do Guai Code](https://opencode.ai/docs/config/) sob `mcp`. Adicione cada MCP com um nome único. Você pode se referir a esse MCP pelo nome ao solicitar ao LLM.
 
 ```jsonc title="opencode.jsonc" {6}
 {
@@ -165,7 +165,7 @@ O `url` é a URL do servidor MCP remoto e com a opção `headers` você pode pas
 
 ## OAuth
 
-O opencode lida automaticamente com a autenticação OAuth para servidores MCP remotos. Quando um servidor requer autenticação, o opencode irá:
+O Guai Code lida automaticamente com a autenticação OAuth para servidores MCP remotos. Quando um servidor requer autenticação, o Guai Code irá:
 
 1. Detectar a resposta 401 e iniciar o fluxo OAuth
 2. Usar **Registro Dinâmico de Cliente (RFC 7591)** se suportado pelo servidor
@@ -189,7 +189,7 @@ Para a maioria dos servidores MCP habilitados para OAuth, nenhuma configuração
 }
 ```
 
-Se o servidor requer autenticação, o opencode solicitará que você se autentique quando tentar usá-lo pela primeira vez. Se não, você pode [iniciar manualmente o fluxo](#authenticating) com `opencode mcp auth <server-name>`.
+Se o servidor requer autenticação, o Guai Code solicitará que você se autentique quando tentar usá-lo pela primeira vez. Se não, você pode [iniciar manualmente o fluxo](#authenticating) com `opencode mcp auth <server-name>`.
 
 ---
 
@@ -238,7 +238,7 @@ Remova credenciais armazenadas:
 opencode mcp logout my-oauth-server
 ```
 
-O comando `mcp auth` abrirá seu navegador para autorização. Após você autorizar, o opencode armazenará os tokens de forma segura em `~/.local/share/opencode/mcp-auth.json`.
+O comando `mcp auth` abrirá seu navegador para autorização. Após você autorizar, o Guai Code armazenará os tokens de forma segura em `~/.local/share/opencode/mcp-auth.json`.
 
 ---
 
@@ -291,7 +291,7 @@ O comando `mcp debug` mostra o status de autenticação atual, testa a conectivi
 
 ## Gerenciamento
 
-Seus MCPs estão disponíveis como ferramentas no opencode, juntamente com ferramentas integradas. Portanto, você pode gerenciá-los através da configuração do opencode como qualquer outra ferramenta.
+Seus MCPs estão disponíveis como ferramentas no Guai Code, juntamente com ferramentas integradas. Portanto, você pode gerenciá-los através da configuração do Guai Code como qualquer outra ferramenta.
 
 ---
 
@@ -423,7 +423,7 @@ Após adicionar a configuração, autentique-se com o Sentry:
 opencode mcp auth sentry
 ```
 
-Isso abrirá uma janela do navegador para completar o fluxo OAuth e conectar o opencode à sua conta do Sentry.
+Isso abrirá uma janela do navegador para completar o fluxo OAuth e conectar o Guai Code à sua conta do Sentry.
 
 Uma vez autenticado, você pode usar ferramentas do Sentry em seus prompts para consultar problemas, projetos e dados de erro.
 

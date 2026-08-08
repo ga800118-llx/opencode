@@ -1,12 +1,12 @@
 ---
 title: Tjener
-description: Samhandle med Guai Code-tjener over HTTP.
+description: Samhandle med opencode-tjener over HTTP.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-Kommandoen `opencode serve` kjører en hodeløs HTTP-server som eksponerer et OpenAPI-endepunkt som en Guai Code-klient kan bruke.
+Kommandoen `opencode serve` kjører en hodeløs HTTP-server som eksponerer et OpenAPI-endepunkt som en opencode-klient kan bruke.
 
 ---
 
@@ -51,7 +51,7 @@ klient som snakker med serveren. Serveren viser en OpenAPI 3.1-spesifikasjon
 endepunkt. Dette endepunktet brukes også til å generere en [SDK](/docs/sdk).
 
 :::tip
-Bruk Guai Code-serveren til å samhandle med Guai Code programmatisk.
+Bruk opencode-serveren til å samhandle med Guai Code programmatisk.
 :::
 
 Denne arkitekturen lar Guai Code støtte flere klienter og lar deg samhandle med Guai Code programmatisk.

@@ -22,7 +22,7 @@ Puoi impostare il livello di log con l'opzione a riga di comando `--log-level` p
 
 ## Archiviazione
 
-opencode salva i dati delle sessioni e altri dati dell'applicazione su disco in:
+Guai Code salva i dati delle sessioni e altri dati dell'applicazione su disco in:
 
 - **macOS/Linux**: `~/.local/share/opencode/`
 - **Windows**: premi `WIN+R` e incolla `%USERPROFILE%\.local\share\opencode`
@@ -251,7 +251,7 @@ Per risolvere:
 
 ### AI_APICallError e problemi dei pacchetti provider
 
-Se incontri errori nelle chiamate API, potrebbe dipendere da pacchetti provider non aggiornati. opencode installa dinamicamente i pacchetti provider (OpenAI, Anthropic, Google, ecc.) quando servono e li mette in cache localmente.
+Se incontri errori nelle chiamate API, potrebbe dipendere da pacchetti provider non aggiornati. Guai Code installa dinamicamente i pacchetti provider (OpenAI, Anthropic, Google, ecc.) quando servono e li mette in cache localmente.
 
 Per risolvere problemi coi pacchetti provider:
 
@@ -263,9 +263,9 @@ Per risolvere problemi coi pacchetti provider:
 
    Su Windows, premi `WIN+R` ed elimina: `%USERPROFILE%\.cache\opencode`
 
-2. Riavvia opencode per reinstallare i pacchetti provider piu recenti
+2. Riavvia Guai Code per reinstallare i pacchetti provider piu recenti
 
-Questo forzera opencode a scaricare le versioni piu recenti dei pacchetti provider, cosa che spesso risolve problemi di compatibilita con parametri dei modelli e cambiamenti delle API.
+Questo forzera Guai Code a scaricare le versioni piu recenti dei pacchetti provider, cosa che spesso risolve problemi di compatibilita con parametri dei modelli e cambiamenti delle API.
 
 ---
 
@@ -296,4 +296,4 @@ Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 export DISPLAY=:99.0
 ```
 
-opencode rilevera se stai usando Wayland e preferira `wl-clipboard`; altrimenti provera a trovare gli strumenti per gli appunti nell'ordine: `xclip` e `xsel`.
+Guai Code rilevera se stai usando Wayland e preferira `wl-clipboard`; altrimenti provera a trovare gli strumenti per gli appunti nell'ordine: `xclip` e `xsel`.

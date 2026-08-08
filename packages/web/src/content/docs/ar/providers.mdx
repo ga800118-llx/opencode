@@ -167,7 +167,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
 
    #### متغيرات البيئة (بدء سريع)
 
-   عيّن أحد متغيرات البيئة التالية أثناء تشغيل opencode:
+   عيّن أحد متغيرات البيئة التالية أثناء تشغيل Guai Code:
 
    ```bash
    # الخيار 1: استخدام مفاتيح وصول AWS
@@ -321,7 +321,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
 
 ### Atomic Chat
 
-يمكنك تكوين opencode لاستخدام النماذج المحلية عبر [Atomic Chat](https://atomic.chat)، وهو تطبيق سطح مكتب يقوم بتشغيل LLMs المحلية خلف خادم API متوافق مع OpenAI (نقطة النهاية الافتراضية `http://127.0.0.1:1337/v1`).
+يمكنك تكوين Guai Code لاستخدام النماذج المحلية عبر [Atomic Chat](https://atomic.chat)، وهو تطبيق سطح مكتب يقوم بتشغيل LLMs المحلية خلف خادم API متوافق مع OpenAI (نقطة النهاية الافتراضية `http://127.0.0.1:1337/v1`).
 
 ```json title="opencode.json" "atomic-chat" {5, 6, 8, 10-14}
 {
@@ -370,7 +370,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
 2. اذهب إلى [Azure AI Foundry](https://ai.azure.com/) وانشر نموذجا.
 
    :::note
-   يجب أن يطابق اسم النشر اسم النموذج كي يعمل opencode بشكل صحيح.
+   يجب أن يطابق اسم النشر اسم النموذج كي يعمل Guai Code بشكل صحيح.
    :::
 
 3. شغّل الأمر `/connect` وابحث عن **Azure**.
@@ -417,7 +417,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
 2. اذهب إلى [Azure AI Foundry](https://ai.azure.com/) وانشر نموذجا.
 
    :::note
-   يجب أن يطابق اسم النشر اسم النموذج كي يعمل opencode بشكل صحيح.
+   يجب أن يطابق اسم النشر اسم النموذج كي يعمل Guai Code بشكل صحيح.
    :::
 
 3. شغّل الأمر `/connect` وابحث عن **Azure Cognitive Services**.
@@ -549,7 +549,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
    /models
    ```
 
-   يمكنك أيضا إضافة نماذج عبر إعدادات opencode.
+   يمكنك أيضا إضافة نماذج عبر إعدادات Guai Code.
 
    ```json title="opencode.json"
    {
@@ -745,7 +745,7 @@ OpenCode Go هي خطة اشتراك منخفضة التكلفة توفّر وص
 
 :::note
 يمكنك أيضا تعيين متغير البيئة 'GITLAB_TOKEN' إذا لم تكن تريد
-تخزين الرمز في مساحة تخزين مصادقة opencode.
+تخزين الرمز في مساحة تخزين مصادقة Guai Code.
 :::
 
 ##### GitLab مستضاف ذاتيا
@@ -848,7 +848,7 @@ export GITLAB_OAUTH_CLIENT_ID=your_application_id_here
 
 ### GitHub Copilot
 
-لاستخدام اشتراك GitHub Copilot مع opencode:
+لاستخدام اشتراك GitHub Copilot مع Guai Code:
 
 :::note
 قد تتطلب بعض النماذج اشتراك [Pro+](https://github.com/features/copilot/plans) للاستخدام.
@@ -900,7 +900,7 @@ export GITLAB_OAUTH_CLIENT_ID=your_application_id_here
      - `GOOGLE_APPLICATION_CREDENTIALS`: مسار ملف مفتاح حساب الخدمة بصيغة JSON
      - المصادقة عبر gcloud CLI: ‏`gcloud auth application-default login`
 
-   عيّنها أثناء تشغيل opencode.
+   عيّنها أثناء تشغيل Guai Code.
 
    ```bash
    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id opencode
@@ -1013,7 +1013,7 @@ export GITLAB_OAUTH_CLIENT_ID=your_application_id_here
 
 #### إعدادات اختيارية
 
-إذا رأيت ميزة أو نموذجا في Helicone لم يتم ضبطه تلقائيا عبر opencode، فيمكنك دائما ضبطه بنفسك.
+إذا رأيت ميزة أو نموذجا في Helicone لم يتم ضبطه تلقائيا عبر Guai Code، فيمكنك دائما ضبطه بنفسك.
 
 هذه هي [Helicone's Model Directory](https://helicone.ai/models)، وستحتاجها للحصول على IDs الخاصة بالنماذج التي تريد إضافتها.
 
@@ -1097,7 +1097,7 @@ npm install -g opencode-helicone-session
 
 ### llama.cpp
 
-يمكنك ضبط opencode لاستخدام نماذج محلية عبر أداة llama-server ضمن [llama.cpp](https://github.com/ggml-org/llama.cpp)
+يمكنك ضبط Guai Code لاستخدام نماذج محلية عبر أداة llama-server ضمن [llama.cpp](https://github.com/ggml-org/llama.cpp)
 
 ```json title="opencode.json" "llama.cpp" {5, 6, 8, 10-15}
 {
@@ -1164,7 +1164,7 @@ npm install -g opencode-helicone-session
 
 ### LM Studio
 
-يمكنك ضبط opencode لاستخدام نماذج محلية عبر LM Studio.
+يمكنك ضبط Guai Code لاستخدام نماذج محلية عبر LM Studio.
 
 ```json title="opencode.json" "lmstudio" {5, 6, 8, 10-14}
 {
@@ -1281,7 +1281,7 @@ npm install -g opencode-helicone-session
 
 ### Ollama
 
-يمكنك ضبط opencode لاستخدام نماذج محلية عبر Ollama.
+يمكنك ضبط Guai Code لاستخدام نماذج محلية عبر Ollama.
 
 :::tip
 يمكن لـ Ollama ضبط نفسه تلقائيا للعمل مع Guai Code. راجع [توثيق تكامل Ollama](https://docs.ollama.com/integrations/opencode) للتفاصيل.
@@ -1447,7 +1447,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
    /models
    ```
 
-   يمكنك أيضا إضافة نماذج إضافية عبر إعدادات opencode.
+   يمكنك أيضا إضافة نماذج إضافية عبر إعدادات Guai Code.
 
    ```json title="opencode.json" {6}
    {
@@ -1462,7 +1462,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
    }
    ```
 
-5. يمكنك أيضا تخصيصها عبر إعدادات opencode. إليك مثالا على تحديد مزوّد
+5. يمكنك أيضا تخصيصها عبر إعدادات Guai Code. إليك مثالا على تحديد مزوّد
 
    ```json title="opencode.json"
    {
@@ -1711,7 +1711,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
    /models
    ```
 
-يمكنك أيضا تخصيص النماذج عبر إعدادات opencode. إليك مثالا على تحديد ترتيب توجيه المزوّدات.
+يمكنك أيضا تخصيص النماذج عبر إعدادات Guai Code. إليك مثالا على تحديد ترتيب توجيه المزوّدات.
 
 ```json title="opencode.json"
 {
@@ -1821,7 +1821,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
    /models
    ```
 
-   يمكنك أيضا إضافة نماذج إضافية عبر إعدادات opencode.
+   يمكنك أيضا إضافة نماذج إضافية عبر إعدادات Guai Code.
 
    ```json title="opencode.json" {6}
    {
@@ -1843,7 +1843,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
 لإضافة أي مزوّد **OpenAI-compatible** غير موجود ضمن الأمر `/connect`:
 
 :::tip
-يمكنك استخدام أي مزوّد OpenAI-compatible مع opencode. معظم مزوّدي الذكاء الاصطناعي الحديثة يقدّمون APIs متوافقة مع OpenAI.
+يمكنك استخدام أي مزوّد OpenAI-compatible مع Guai Code. معظم مزوّدي الذكاء الاصطناعي الحديثة يقدّمون APIs متوافقة مع OpenAI.
 :::
 
 1. شغّل الأمر `/connect` ومرّر للأسفل حتى **Other**.
@@ -1977,7 +1977,7 @@ OpenCode Zen هي قائمة من النماذج التي تم اختبارها 
 
    لا ينطبق هذا على مزوّدات مثل Amazon Bedrock التي تعتمد على متغيرات البيئة لـ auth.
 
-2. للمزوّدات المخصّصة، راجع إعدادات opencode وتأكد من:
-   - أن provider ID المستخدم في الأمر `/connect` يطابق الـ ID في إعدادات opencode.
+2. للمزوّدات المخصّصة، راجع إعدادات Guai Code وتأكد من:
+   - أن provider ID المستخدم في الأمر `/connect` يطابق الـ ID في إعدادات Guai Code.
    - استخدام حزمة npm الصحيحة للمزوّد. على سبيل المثال استخدم `@ai-sdk/cerebras` لـ Cerebras. ولكل المزوّدات الأخرى المتوافقة مع OpenAI استخدم `@ai-sdk/openai-compatible`.
    - استخدام نقطة نهاية API الصحيحة في الحقل `options.baseURL`.

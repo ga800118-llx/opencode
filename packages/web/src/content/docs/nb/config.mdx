@@ -1,6 +1,6 @@
 ---
 title: Konfigurasjon
-description: Ved å bruke opencode JSON-konfigurasjonen.
+description: Ved å bruke Guai Code JSON-konfigurasjonen.
 ---
 
 Du kan konfigurere Guai Code ved å bruke en JSON konfigurasjonsfil.
@@ -96,7 +96,7 @@ Du kan aktivere spesifikke servere i din lokale konfigurasjon:
 
 ### Global konfigurasjon
 
-Plasser din globale Guai Code-konfigurasjon i `~/.config/opencode/opencode.json`. Bruk global konfigurasjon for brukerspesifikke preferanser som temaer, leverandører eller nøkkelbindinger.
+Plasser din globale opencode-konfigurasjon i `~/.config/opencode/opencode.json`. Bruk global konfigurasjon for brukerspesifikke preferanser som temaer, leverandører eller nøkkelbindinger.
 
 Global konfigurasjon overstyrer eksterne organisasjonsstandarder.
 
@@ -201,7 +201,7 @@ Tilgjengelige alternativer:
 
 - `port` - Port å lytte på.
 - `hostname` - Vertsnavn å lytte på. Når `mdns` er aktivert og ingen vertsnavn er angitt, er standard `0.0.0.0`.
-- `mdns` - Aktiver mDNS-tjenesteoppdagelse. Dette lar andre enheter på nettverket oppdage Guai Code-serveren din.
+- `mdns` - Aktiver mDNS-tjenesteoppdagelse. Dette lar andre enheter på nettverket oppdage opencode-serveren din.
 - `mdnsDomain` - Egendefinert domenenavn for mDNS-tjeneste. Standard er `opencode.local`. Nyttig for å kjøre flere forekomster på samme nettverk.
 - `cors` - Ytterligere opprinnelser for å tillate CORS når du bruker HTTP-serveren fra en nettleserbasert klient. Verdiene må være fullstendige opprinnelser (skjema + vert + valgfri port), f.eks. `https://app.example.com`.
 
@@ -229,7 +229,7 @@ Du kan administrere verktøyene en LLM kan bruke gjennom alternativet `tools`.
 
 ### Modeller
 
-Du kan konfigurere leverandørene og modellene du vil bruke i Guai Code-konfigurasjonen gjennom alternativene `provider`, `model` og `small_model`.
+Du kan konfigurere leverandørene og modellene du vil bruke i opencode-konfigurasjonen gjennom alternativene `provider`, `model` og `small_model`.
 
 ```json title="opencode.json"
 {

@@ -1,12 +1,12 @@
 ---
 title: Serveur
-description: Interagissez avec le serveur opencode via HTTP.
+description: Interagissez avec le serveur Guai Code via HTTP.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-La commande `opencode serve` exécute un serveur HTTP sans tête qui expose un point de terminaison OpenAPI qu'un client opencode peut utiliser.
+La commande `opencode serve` exécute un serveur HTTP sans tête qui expose un point de terminaison OpenAPI qu'un client Guai Code peut utiliser.
 
 ---
 
@@ -51,13 +51,13 @@ client qui parle au serveur. Le serveur expose une spécification OpenAPI 3.1
 point final. Ce point de terminaison est également utilisé pour générer un [SDK](/docs/sdk).
 
 :::tip
-Utilisez le serveur opencode pour interagir avec opencode par programmation.
+Utilisez le serveur Guai Code pour interagir avec Guai Code par programmation.
 :::
 
-Cette architecture permet à opencode de prendre en charge plusieurs clients et vous permet d'interagir avec opencode par programme.
+Cette architecture permet à Guai Code de prendre en charge plusieurs clients et vous permet d'interagir avec Guai Code par programme.
 
 Vous pouvez exécuter `opencode serve` pour démarrer un serveur autonome. Si vous avez le
-opencode TUI en cours d'exécution, `opencode serve` démarrera un nouveau serveur.
+Guai Code TUI en cours d'exécution, `opencode serve` démarrera un nouveau serveur.
 
 ---
 
@@ -83,7 +83,7 @@ Par exemple, `http://localhost:4096/doc`. Utilisez la spécification pour géné
 
 ## APIs
 
-Le serveur opencode expose les API suivantes.
+Le serveur Guai Code expose les API suivantes.
 
 ---
 

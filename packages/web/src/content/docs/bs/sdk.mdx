@@ -1,12 +1,12 @@
 ---
 title: SDK
-description: Type-safe JS klijent za opencode server.
+description: Type-safe JS klijent za Guai Code server.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-opencode JS/TS SDK pruza type-safe klijent za interakciju sa serverom.
+Guai Code JS/TS SDK pruza type-safe klijent za interakciju sa serverom.
 Koristite ga za izradu integracija i programsko upravljanje opencode-om.
 
 [Saznajte vise](/docs/server) kako server radi. Za primjere pogledajte [projects](/docs/ecosystem#projects) koje je napravila zajednica.
@@ -25,7 +25,7 @@ npm install @opencode-ai/sdk
 
 ## Kreiranje klijenta
 
-Kreirajte instancu opencode:
+Kreirajte instancu Guai Code:
 
 ```javascript
 import { createOpencode } from "@opencode-ai/sdk"
@@ -69,7 +69,7 @@ opencode.server.close()
 
 ## Samo klijent
 
-Ako vec imate pokrenutu opencode instancu, mozete napraviti klijentsku instancu i povezati se na nju:
+Ako vec imate pokrenutu Guai Code instancu, mozete napraviti klijentsku instancu i povezati se na nju:
 
 ```javascript
 import { createOpencodeClient } from "@opencode-ai/sdk"

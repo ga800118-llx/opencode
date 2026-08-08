@@ -291,7 +291,7 @@ Kommandoen `mcp debug` viser gjeldende autentiseringsstatus, tester HTTP-tilkobl
 
 ## Administrering
 
-MCP-ene dine er tilgjengelige som verktøy i Guai Code, sammen med innebygde verktøy. Så du kan administrere dem gjennom Guai Code-konfigurasjonen som alle andre verktøy.
+MCP-ene dine er tilgjengelige som verktøy i Guai Code, sammen med innebygde verktøy. Så du kan administrere dem gjennom opencode-konfigurasjonen som alle andre verktøy.
 
 ---
 
@@ -596,7 +596,7 @@ Helicone støtter tilpassede headere for funksjoner som bufring, brukersporing o
 
 ##### Sesjonssporing
 
-Helicones [Sessions](https://docs.helicone.ai/features/sessions) funksjon lar deg gruppere relaterte LLM forespørsler sammen. Bruk [opencode-helicone-session](https://github.com/H2Shami/opencode-helicone-session) plugin for automatisk å logge hver Guai Code-samtale som en økt i Helicone.
+Helicones [Sessions](https://docs.helicone.ai/features/sessions) funksjon lar deg gruppere relaterte LLM forespørsler sammen. Bruk [opencode-helicone-session](https://github.com/H2Shami/opencode-helicone-session) plugin for automatisk å logge hver opencode-samtale som en økt i Helicone.
 
 ```bash
 npm install -g opencode-helicone-session
@@ -610,7 +610,7 @@ Legg den til i konfigurasjonen din.
 }
 ```
 
-Programtillegget injiserer `Helicone-Session-Id` og `Helicone-Session-Name` overskrifter i forespørslene dine. På Helicones Sessions-side vil du se hver Guai Code-samtale oppført som en separat økt.
+Programtillegget injiserer `Helicone-Session-Id` og `Helicone-Session-Name` overskrifter i forespørslene dine. På Helicones Sessions-side vil du se hver opencode-samtale oppført som en separat økt.
 
 ##### Vanlige Helicone-headere
 

@@ -1,13 +1,13 @@
 ---
 title: Server
-description: Nutze den opencode-Server ueber HTTP.
+description: Nutze den Guai Code-Server ueber HTTP.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
 Der Befehl `opencode serve` startet einen headless HTTP-Server.
-Er stellt einen OpenAPI-Endpunkt bereit, den ein opencode-Client nutzen kann.
+Er stellt einen OpenAPI-Endpunkt bereit, den ein Guai Code-Client nutzen kann.
 
 ---
 
@@ -52,7 +52,7 @@ Wenn du `opencode` startest, werden TUI und Server gestartet.
 Die TUI ist dabei der Client, der mit dem Server spricht; dessen OpenAPI-3.1-Endpunkt dient auch zur Generierung des [SDK](/docs/sdk).
 
 :::tip
-Nutze den opencode-Server, um opencode programmatisch anzusteuern.
+Nutze den Guai Code-Server, um Guai Code programmatisch anzusteuern.
 :::
 
 Diese Architektur erlaubt mehrere Clients und programmatische Nutzung.
@@ -87,7 +87,7 @@ Nutze die Spec zum Generieren von Clients, zum Pruefen von Request/Response-Type
 
 ## APIs
 
-Der opencode-Server stellt folgende APIs bereit.
+Der Guai Code-Server stellt folgende APIs bereit.
 
 ---
 

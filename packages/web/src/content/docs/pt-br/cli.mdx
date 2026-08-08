@@ -1,17 +1,17 @@
 ---
 title: CLI
-description: Opções e comandos da CLI do opencode.
+description: Opções e comandos da CLI do Guai Code.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 
-A CLI do opencode, por padrão, inicia o [TUI](/docs/tui) quando executada sem argumentos.
+A CLI do Guai Code, por padrão, inicia o [TUI](/docs/tui) quando executada sem argumentos.
 
 ```bash
 opencode
 ```
 
-Mas também aceita comandos conforme documentado nesta página. Isso permite que você interaja com o opencode programaticamente.
+Mas também aceita comandos conforme documentado nesta página. Isso permite que você interaja com o Guai Code programaticamente.
 
 ```bash
 opencode run "Explain how closures work in JavaScript"
@@ -21,7 +21,7 @@ opencode run "Explain how closures work in JavaScript"
 
 ### tui
 
-Inicie a interface de usuário do terminal do opencode.
+Inicie a interface de usuário do terminal do Guai Code.
 
 ```bash
 opencode [project]
@@ -44,13 +44,13 @@ opencode [project]
 
 ## Comandos
 
-A CLI do opencode também possui os seguintes comandos.
+A CLI do Guai Code também possui os seguintes comandos.
 
 ---
 
 ### agent
 
-Gerencie agentes para o opencode.
+Gerencie agentes para o Guai Code.
 
 ```bash
 opencode agent [command]
@@ -60,13 +60,13 @@ opencode agent [command]
 
 ### attach
 
-Anexe um terminal a um servidor backend do opencode já em execução, iniciado via comandos `serve` ou `web`.
+Anexe um terminal a um servidor backend do Guai Code já em execução, iniciado via comandos `serve` ou `web`.
 
 ```bash
 opencode attach [url]
 ```
 
-Isso permite usar o TUI com um backend opencode remoto. Por exemplo:
+Isso permite usar o TUI com um backend Guai Code remoto. Por exemplo:
 
 ```bash
 # Inicie o servidor backend para acesso web/mobile
@@ -123,13 +123,13 @@ opencode auth [command]
 
 #### login
 
-O opencode é alimentado pela lista de provedores em [Models.dev](https://models.dev), então você pode usar `opencode auth login` para configurar chaves de API para qualquer provedor que você gostaria de usar. Isso é armazenado em `~/.local/share/opencode/auth.json`.
+O Guai Code é alimentado pela lista de provedores em [Models.dev](https://models.dev), então você pode usar `opencode auth login` para configurar chaves de API para qualquer provedor que você gostaria de usar. Isso é armazenado em `~/.local/share/opencode/auth.json`.
 
 ```bash
 opencode auth login
 ```
 
-Quando o opencode é iniciado, ele carrega os provedores do arquivo de credenciais. E se houver chaves definidas em seus ambientes ou em um arquivo `.env` em seu projeto.
+Quando o Guai Code é iniciado, ele carrega os provedores do arquivo de credenciais. E se houver chaves definidas em seus ambientes ou em um arquivo `.env` em seu projeto.
 
 ---
 
@@ -305,7 +305,7 @@ opencode models anthropic
 | <nobr><code>{"--refresh"}</code></nobr> | Atualiza o cache de modelos a partir do models.dev                    |
 | <nobr><code>{"--verbose"}</code></nobr> | Use uma saída de modelo mais detalhada (inclui metadados como custos) |
 
-Use a flag `--refresh` para atualizar a lista de modelos em cache. Isso é útil quando novos modelos foram adicionados a um provedor e você deseja vê-los no opencode.
+Use a flag `--refresh` para atualizar a lista de modelos em cache. Isso é útil quando novos modelos foram adicionados a um provedor e você deseja vê-los no Guai Code.
 
 ```bash
 opencode models --refresh
@@ -315,7 +315,7 @@ opencode models --refresh
 
 ### run
 
-Execute o opencode em modo não interativo passando um prompt diretamente.
+Execute o Guai Code em modo não interativo passando um prompt diretamente.
 
 ```bash
 opencode run [message..]
@@ -351,7 +351,7 @@ opencode run --attach http://localhost:4096 "Explique async/await em JavaScript"
 | <nobr><code>{"--file"}</code></nobr>     | `-f`  | Arquivo(s) a serem anexados à mensagem                                            |
 | <nobr><code>{"--format"}</code></nobr>   |       | Formato: padrão (formatado) ou json (eventos JSON brutos)                         |
 | <nobr><code>{"--title"}</code></nobr>    |       | Título para a sessão (usa o prompt truncado se nenhum valor for fornecido)        |
-| <nobr><code>{"--attach"}</code></nobr>   |       | Anexe a um servidor opencode em execução (por exemplo, http://localhost:4096)     |
+| <nobr><code>{"--attach"}</code></nobr>   |       | Anexe a um servidor Guai Code em execução (por exemplo, http://localhost:4096)     |
 | <nobr><code>{"--password"}</code></nobr> | `-p`  | Senha de autenticação básica (padrão: `OPENCODE_SERVER_PASSWORD`)                 |
 | <nobr><code>{"--username"}</code></nobr> | `-u`  | Usuário de autenticação básica (padrão: `OPENCODE_SERVER_USERNAME` ou `opencode`) |
 | <nobr><code>{"--dir"}</code></nobr>      |       | Diretório de execução, ou caminho no servidor remoto ao anexar                    |
@@ -363,13 +363,13 @@ opencode run --attach http://localhost:4096 "Explique async/await em JavaScript"
 
 ### serve
 
-Inicie um servidor opencode sem cabeça para acesso à API. Confira a [documentação do servidor](/docs/server) para a interface HTTP completa.
+Inicie um servidor Guai Code sem cabeça para acesso à API. Confira a [documentação do servidor](/docs/server) para a interface HTTP completa.
 
 ```bash
 opencode serve
 ```
 
-Isso inicia um servidor HTTP que fornece acesso à funcionalidade do opencode sem a interface TUI. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
+Isso inicia um servidor HTTP que fornece acesso à funcionalidade do Guai Code sem a interface TUI. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
 
 #### Opções
 
@@ -384,7 +384,7 @@ Isso inicia um servidor HTTP que fornece acesso à funcionalidade do opencode se
 
 ### session
 
-Gerencie sessões do opencode.
+Gerencie sessões do Guai Code.
 
 ```bash
 opencode session [command]
@@ -394,7 +394,7 @@ opencode session [command]
 
 #### list
 
-Liste todas as sessões do opencode.
+Liste todas as sessões do Guai Code.
 
 ```bash
 opencode session list
@@ -411,7 +411,7 @@ opencode session list
 
 ### stats
 
-Mostre o uso de tokens e estatísticas de custo para suas sessões do opencode.
+Mostre o uso de tokens e estatísticas de custo para suas sessões do Guai Code.
 
 ```bash
 opencode stats
@@ -442,13 +442,13 @@ Se você não fornecer um ID de sessão, será solicitado que você selecione en
 
 ### import
 
-Importe dados da sessão de um arquivo JSON ou URL de compartilhamento do opencode.
+Importe dados da sessão de um arquivo JSON ou URL de compartilhamento do Guai Code.
 
 ```bash
 opencode import <file>
 ```
 
-Você pode importar de um arquivo local ou de uma URL de compartilhamento do opencode.
+Você pode importar de um arquivo local ou de uma URL de compartilhamento do Guai Code.
 
 ```bash
 opencode import session.json
@@ -459,13 +459,13 @@ opencode import https://opncd.ai/s/abc123
 
 ### web
 
-Inicie um servidor opencode sem cabeça com uma interface web.
+Inicie um servidor Guai Code sem cabeça com uma interface web.
 
 ```bash
 opencode web
 ```
 
-Isso inicia um servidor HTTP e abre um navegador para acessar o opencode através de uma interface web. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
+Isso inicia um servidor HTTP e abre um navegador para acessar o Guai Code através de uma interface web. Defina `OPENCODE_SERVER_PASSWORD` para habilitar a autenticação básica HTTP (o nome de usuário padrão é `opencode`).
 
 #### Opções
 
@@ -500,7 +500,7 @@ Este comando inicia um servidor ACP que se comunica via stdin/stdout usando nd-J
 
 ### uninstall
 
-Desinstale o opencode e remova todos os arquivos relacionados.
+Desinstale o Guai Code e remova todos os arquivos relacionados.
 
 ```bash
 opencode uninstall
@@ -519,7 +519,7 @@ opencode uninstall
 
 ### upgrade
 
-Atualiza o opencode para a versão mais recente ou uma versão específica.
+Atualiza o Guai Code para a versão mais recente ou uma versão específica.
 
 ```bash
 opencode upgrade [target]
@@ -547,7 +547,7 @@ opencode upgrade v0.1.48
 
 ## Opções Globais
 
-A CLI do opencode aceita as seguintes flags globais.
+A CLI do Guai Code aceita as seguintes flags globais.
 
 | Flag                                       | Curto | Descrição                               |
 | ------------------------------------------ | ----- | --------------------------------------- |
@@ -560,7 +560,7 @@ A CLI do opencode aceita as seguintes flags globais.
 
 ## Variáveis de ambiente
 
-O opencode pode ser configurado usando variáveis de ambiente.
+O Guai Code pode ser configurado usando variáveis de ambiente.
 
 | Variável                              | Tipo    | Descrição                                                             |
 | ------------------------------------- | ------- | --------------------------------------------------------------------- |

@@ -1,12 +1,12 @@
 ---
 title: เซิร์ฟเวอร์
-description: โต้ตอบกับเซิร์ฟเวอร์ opencode ผ่าน HTTP
+description: โต้ตอบกับเซิร์ฟเวอร์ Guai Code ผ่าน HTTP
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-คำสั่ง `opencode serve` รันเซิร์ฟเวอร์ HTTP ที่ไม่มีหัวซึ่งเปิดเผยตำแหน่งข้อมูล OpenAPI ที่ไคลเอนต์ opencode สามารถใช้ได้
+คำสั่ง `opencode serve` รันเซิร์ฟเวอร์ HTTP ที่ไม่มีหัวซึ่งเปิดเผยตำแหน่งข้อมูล OpenAPI ที่ไคลเอนต์ Guai Code สามารถใช้ได้
 
 ---
 
@@ -51,13 +51,13 @@ OPENCODE_SERVER_PASSWORD=your-password opencode serve
 จุดสิ้นสุด ตำแหน่งข้อมูลนี้ยังใช้เพื่อสร้าง [SDK](/docs/sdk)
 
 :::tip
-ใช้เซิร์ฟเวอร์ opencode เพื่อโต้ตอบกับ opencode โดยทางโปรแกรม
+ใช้เซิร์ฟเวอร์ Guai Code เพื่อโต้ตอบกับ Guai Code โดยทางโปรแกรม
 :::
 
-สถาปัตยกรรมนี้ช่วยให้ opencode รองรับไคลเอนต์หลายตัว และช่วยให้คุณสามารถโต้ตอบกับ opencode โดยทางโปรแกรมได้
+สถาปัตยกรรมนี้ช่วยให้ Guai Code รองรับไคลเอนต์หลายตัว และช่วยให้คุณสามารถโต้ตอบกับ Guai Code โดยทางโปรแกรมได้
 
 คุณสามารถเรียกใช้ `opencode serve` เพื่อเริ่มเซิร์ฟเวอร์แบบสแตนด์อโลน ถ้าคุณมี
-opencode TUI ทำงาน `opencode serve` จะเริ่มเซิร์ฟเวอร์ใหม่
+Guai Code TUI ทำงาน `opencode serve` จะเริ่มเซิร์ฟเวอร์ใหม่
 
 ---
 
@@ -83,7 +83,7 @@ http://<hostname>:<port>/doc
 
 ## API
 
-เซิร์ฟเวอร์ opencode เปิดเผย API ต่อไปนี้
+เซิร์ฟเวอร์ Guai Code เปิดเผย API ต่อไปนี้
 
 ---
 

@@ -117,7 +117,7 @@ La funzione del plugin riceve:
 - `project`: informazioni sul progetto corrente.
 - `directory`: la working directory corrente.
 - `worktree`: il path del worktree git.
-- `client`: un client SDK di opencode per interagire con l'AI.
+- `client`: un client SDK di Guai Code per interagire con l'AI.
 - `$`: la [shell API](https://bun.com/docs/runtime/shell) di Bun per eseguire comandi.
 
 ---
@@ -210,7 +210,7 @@ I plugin possono sottoscrivere eventi come mostrato sotto nella sezione Esempi. 
 
 ## Esempi
 
-Ecco alcuni esempi di plugin che puoi usare per estendere opencode.
+Ecco alcuni esempi di plugin che puoi usare per estendere Guai Code.
 
 ---
 
@@ -241,7 +241,7 @@ Se usi l'app desktop di Guai Code, può inviare automaticamente notifiche di sis
 
 ### Protezione .env
 
-Impedisci a opencode di leggere i file `.env`:
+Impedisci a Guai Code di leggere i file `.env`:
 
 ```javascript title=".opencode/plugins/env-protection.js"
 export const EnvProtection = async ({ project, client, $, directory, worktree }) => {
@@ -276,7 +276,7 @@ export const InjectEnvPlugin = async () => {
 
 ### Strumenti personalizzati
 
-I plugin possono anche aggiungere strumenti personalizzati a opencode:
+I plugin possono anche aggiungere strumenti personalizzati a Guai Code:
 
 ```ts title=".opencode/plugins/custom-tools.ts"
 import { type Plugin, tool } from "@opencode-ai/plugin"
@@ -299,13 +299,13 @@ export const CustomToolsPlugin: Plugin = async (ctx) => {
 }
 ```
 
-L'helper `tool` crea uno strumento personalizzato che opencode può chiamare. Accetta una funzione di schema Zod e restituisce una definizione di tool con:
+L'helper `tool` crea uno strumento personalizzato che Guai Code può chiamare. Accetta una funzione di schema Zod e restituisce una definizione di tool con:
 
 - `description`: cosa fa lo strumento
 - `args`: schema Zod per gli argomenti dello strumento
 - `execute`: funzione eseguita quando lo strumento viene chiamato
 
-I tuoi strumenti personalizzati saranno disponibili in opencode insieme agli strumenti integrati.
+I tuoi strumenti personalizzati saranno disponibili in Guai Code insieme agli strumenti integrati.
 
 :::note
 Se uno strumento di un plugin usa lo stesso nome di uno strumento integrato, lo strumento del plugin ha la precedenza.

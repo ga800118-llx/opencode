@@ -1,13 +1,13 @@
 ---
 title: SDK
-description: Cliente JS seguro em tipos para o servidor opencode.
+description: Cliente JS seguro em tipos para o servidor Guai Code.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-O SDK JS/TS do opencode fornece um cliente seguro em tipos para interagir com o servidor.
-Use-o para construir integrações e controlar o opencode programaticamente.
+O SDK JS/TS do Guai Code fornece um cliente seguro em tipos para interagir com o servidor.
+Use-o para construir integrações e controlar o Guai Code programaticamente.
 
 [Saiba mais](/docs/server) sobre como o servidor funciona. Para exemplos, confira os [projetos](/docs/ecosystem#projects) construídos pela comunidade.
 
@@ -25,7 +25,7 @@ npm install @opencode-ai/sdk
 
 ## Criar cliente
 
-Crie uma instância do opencode:
+Crie uma instância do Guai Code:
 
 ```javascript
 import { createOpencode } from "@opencode-ai/sdk"
@@ -69,7 +69,7 @@ opencode.server.close()
 
 ## Apenas cliente
 
-Se você já tem uma instância do opencode em execução, pode criar uma instância de cliente para se conectar a ela:
+Se você já tem uma instância do Guai Code em execução, pode criar uma instância de cliente para se conectar a ela:
 
 ```javascript
 import { createOpencodeClient } from "@opencode-ai/sdk"
