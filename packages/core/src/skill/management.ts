@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto"
 import path from "path"
-import { Cause, Effect, Exit, Schema } from "effect"
+import { Cause, Effect, Exit, Ref, Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import { FSUtil } from "../fs-util"
 import type { Global } from "../global"
@@ -31,11 +31,12 @@ export class OperationError extends Schema.TaggedErrorClass<OperationError>()("S
 
 export class ProtectedError extends Schema.TaggedErrorClass<ProtectedError>()("SkillV2.ProtectedError", {
   id: Skill.ManagementID,
-  reason: Schema.Literals(["builtin", "remote", "plugin"]),
+  reason: Skill.DeleteBlocked,
 }) {}
 
 export class UnsafePathError extends Schema.TaggedErrorClass<UnsafePathError>()("SkillV2.UnsafePathError", {
   id: Skill.ManagementID,
+  reason: Schema.Literal("unsafe"),
 }) {}
 
 export type ManagementError = NotFoundError | OperationError | ProtectedError | UnsafePathError
@@ -107,6 +108,10 @@ export function updateState(
 }
 
 export function deleteTarget(entry: Installed, fs: FSUtil.Interface): Effect.Effect<DeletionTarget> {
+  return resolveDeleteTarget(entry, fs).pipe(Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })))
+}
+
+function resolveDeleteTarget(entry: Installed, fs: FSUtil.Interface): Effect.Effect<DeletionTarget, FSUtil.Error> {
   const sourceInfo = source(entry.source)
   if (sourceInfo.type === "builtin") return Effect.succeed({ blocked: "builtin" })
   if (sourceInfo.type === "url") return Effect.succeed({ blocked: "remote" })
@@ -126,7 +131,25 @@ export function deleteTarget(entry: Installed, fs: FSUtil.Interface): Effect.Eff
     if (candidateReal === sourceReal || !FSUtil.contains(sourceReal, candidateReal)) return { blocked: "unsafe" as const }
     if (sourceReal !== sourceRoot || candidateReal !== candidate) return { blocked: "unsafe" as const }
     return { target: AbsolutePath.make(candidate) }
-  }).pipe(Effect.catch(() => Effect.succeed({ blocked: "unsafe" as const })))
+  })
+}
+
+function requireDeleteTarget(
+  entry: Installed,
+  fs: FSUtil.Interface,
+  installationID: Skill.ManagementID,
+): Effect.Effect<AbsolutePath, ManagementError> {
+  return resolveDeleteTarget(entry, fs).pipe(
+    Effect.mapError((cause) => new OperationError({ operation: "delete", cause })),
+    Effect.flatMap((resolution): Effect.Effect<AbsolutePath, ProtectedError | UnsafePathError> => {
+      if ("target" in resolution) return Effect.succeed(resolution.target)
+      if (resolution.blocked === "unsafe") {
+        return Effect.fail(new UnsafePathError({ id: installationID, reason: "unsafe" }))
+      }
+      return Effect.fail(new ProtectedError({ id: installationID, reason: resolution.blocked }))
+    }),
+    Effect.catchCause(normalizeDeleteCause),
+  )
 }
 
 export function management(entries: readonly Installed[], disabled: DisabledState, fs: FSUtil.Interface) {
@@ -144,19 +167,16 @@ export function remove(
 ) {
   const installationID = id(entry)
   return Effect.gen(function* () {
-    const resolution = yield* deleteTarget(entry, fs)
-    if ("blocked" in resolution) {
-      if (resolution.blocked === "unsafe") return yield* new UnsafePathError({ id: installationID })
-      return yield* new ProtectedError({ id: installationID, reason: resolution.blocked })
-    }
-
-    yield* withStateLock(
+    yield* requireDeleteTarget(entry, fs, installationID)
+    return yield* withDeleteLock(
       flock,
       file,
-      "delete",
       Effect.gen(function* () {
-        const verified = yield* deleteTarget(entry, fs)
-        if ("blocked" in verified) return yield* new OperationError({ operation: "delete" })
+        const verified = yield* requireDeleteTarget(entry, fs, installationID)
+        const previous = yield* readStateRecord(fs, file)
+        const disabled = new Set(previous.disabled)
+        const stateChanged = disabled.delete(installationID)
+        const stateTouched = yield* Ref.make(false)
 
         const deletedAt = new Date().toISOString()
         const record = `${Date.now()}-${installationID.slice(0, 12)}-${randomUUID()}`
@@ -167,30 +187,36 @@ export function remove(
           yield* fs.makeDirectory(staging)
           yield* fs.writeFileString(
             path.join(staging, "metadata.json"),
-            JSON.stringify({ id: installationID, originalPath: verified.target, deletedAt }, null, 2) + "\n",
+            JSON.stringify({ id: installationID, originalPath: verified, deletedAt }, null, 2) + "\n",
             { flag: "wx", mode: 0o600 },
           )
-          yield* fs.rename(verified.target, path.join(staging, "payload"))
+          yield* fs.rename(verified, path.join(staging, "payload"))
           yield* fs.rename(staging, final)
-
-          const disabled = yield* readStateForMutation(fs, file)
-          if (!disabled.delete(installationID)) return
+          if (!stateChanged) return
+          yield* Ref.set(stateTouched, true)
           yield* writeStateForMutation(fs, file, disabled, "delete")
-        }).pipe(
-          Effect.onExit((exit) =>
-            Exit.isSuccess(exit) ? Effect.void : rollback(fs, verified.target, staging, final),
+        })
+        return yield* withCompensation(
+          transaction,
+          rollbackRemoval(fs, verified, staging, final, stateTouched, file, previous.content),
+        ).pipe(
+          Effect.as(verified),
+          Effect.mapError((cause) =>
+            cause instanceof OperationError && cause.operation === "delete"
+              ? cause
+              : new OperationError({ operation: "delete", cause }),
           ),
         )
-        yield* transaction
       }).pipe(
         Effect.mapError((cause) =>
-          cause instanceof OperationError && cause.operation === "delete"
+          (cause instanceof OperationError && cause.operation === "delete") ||
+          cause instanceof ProtectedError ||
+          cause instanceof UnsafePathError
             ? cause
             : new OperationError({ operation: "delete", cause }),
         ),
       ),
     )
-    return resolution.target
   })
 }
 
@@ -226,17 +252,22 @@ export function effective(entries: readonly Installed[], disabled: DisabledState
 }
 
 function readStateForMutation(fs: FSUtil.Interface, file: string) {
+  return readStateRecord(fs, file).pipe(Effect.map((state) => state.disabled))
+}
+
+function readStateRecord(fs: FSUtil.Interface, file: string) {
   return Effect.gen(function* () {
     const content = yield* fs.readFileString(file).pipe(
       Effect.map((content): string | undefined => content),
       Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)),
       Effect.mapError((cause) => new OperationError({ operation: "read", cause })),
     )
-    if (content === undefined) return new Set<Skill.ManagementID>()
-    return yield* decodeStateFile(content).pipe(
+    if (content === undefined) return { content, disabled: new Set<Skill.ManagementID>() }
+    const disabled = yield* decodeStateFile(content).pipe(
       Effect.map((state) => new Set(state.disabled)),
       Effect.catch(() => warn(file)),
     )
+    return { content, disabled }
   })
 }
 
@@ -246,19 +277,27 @@ function writeStateForMutation(
   disabled: ReadonlySet<Skill.ManagementID>,
   operation: "write" | "delete",
 ) {
+  return replaceState(
+    fs,
+    file,
+    JSON.stringify({ version: 1, disabled: Array.from(disabled).toSorted() }, null, 2) + "\n",
+  ).pipe(
+    Effect.mapError((cause) => new OperationError({ operation, cause })),
+  )
+}
+
+function restoreState(fs: FSUtil.Interface, file: string, content: string | undefined) {
+  if (content === undefined) return fs.remove(file, { force: true })
+  return replaceState(fs, file, content)
+}
+
+function replaceState(fs: FSUtil.Interface, file: string, content: string) {
   const tempfile = `${file}.${process.pid}.${randomUUID()}.tmp`
   return Effect.gen(function* () {
     yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-    yield* fs.writeFileString(
-      tempfile,
-      JSON.stringify({ version: 1, disabled: Array.from(disabled).toSorted() }, null, 2) + "\n",
-      { flag: "wx", mode: 0o600 },
-    )
+    yield* fs.writeFileString(tempfile, content, { flag: "wx", mode: 0o600 })
     yield* fs.rename(tempfile, file)
-  }).pipe(
-    Effect.mapError((cause) => new OperationError({ operation, cause })),
-    Effect.ensuring(fs.remove(tempfile, { force: true }).pipe(Effect.ignore)),
-  )
+  }).pipe(Effect.ensuring(fs.remove(tempfile, { force: true }).pipe(Effect.ignore)))
 }
 
 function withStateLock<A, R>(
@@ -278,19 +317,99 @@ function withStateLock<A, R>(
   )
 }
 
+function withDeleteLock<R>(
+  flock: EffectFlock.Interface,
+  file: string,
+  body: Effect.Effect<AbsolutePath, ManagementError, R>,
+): Effect.Effect<AbsolutePath, ManagementError, R> {
+  return Effect.gen(function* () {
+    const committed = yield* Ref.make<AbsolutePath | undefined>(undefined)
+    const tracked = Effect.uninterruptibleMask((restore) =>
+      restore(body).pipe(Effect.flatMap((target) => Ref.set(committed, target).pipe(Effect.as(target)))),
+    )
+    return yield* flock.withLock(tracked, file).pipe(
+      Effect.catchCause((cause) =>
+        Ref.get(committed).pipe(
+          Effect.flatMap((target) => {
+            if (target !== undefined) return Effect.succeed(target)
+            return normalizeDeleteCause(cause)
+          }),
+        ),
+      ),
+    )
+  })
+}
+
+function normalizeDeleteCause(cause: Cause.Cause<unknown>): Effect.Effect<never, ManagementError> {
+  if (Cause.hasInterrupts(cause)) return Effect.interrupt
+  const error = Cause.squash(cause)
+  if (
+    !Cause.hasDies(cause) &&
+    (error instanceof NotFoundError ||
+      error instanceof ProtectedError ||
+      error instanceof UnsafePathError ||
+      (error instanceof OperationError && error.operation === "delete"))
+  ) {
+    return Effect.fail(error)
+  }
+  return Effect.fail(new OperationError({ operation: "delete", cause: error }))
+}
+
+function withCompensation<A, E, R, E2, R2>(
+  action: Effect.Effect<A, E, R>,
+  compensation: Effect.Effect<void, E2, R2>,
+): Effect.Effect<A, E | OperationError, R | R2> {
+  return Effect.uninterruptibleMask((restore) =>
+    restore(action).pipe(
+      Effect.catchCause((original) =>
+        compensation.pipe(
+          Effect.exit,
+          Effect.flatMap((result) =>
+            Exit.isSuccess(result)
+              ? Effect.failCause(original as Cause.Cause<E | OperationError>)
+              : Effect.fail<E | OperationError>(
+                  new OperationError({ operation: "delete", cause: Cause.combine(original, result.cause) }),
+                ),
+          ),
+        ),
+      ),
+    ),
+  )
+}
+
 function rollback(fs: FSUtil.Interface, target: AbsolutePath, staging: string, final: string) {
   return Effect.gen(function* () {
-    const container = (yield* fs.exists(path.join(final, "payload")).pipe(Effect.orElseSucceed(() => false)))
-      ? final
-      : staging
+    const container = (yield* fs.exists(path.join(final, "payload"))) ? final : staging
     const payload = path.join(container, "payload")
-    if (!(yield* fs.exists(payload).pipe(Effect.orElseSucceed(() => false)))) {
-      yield* fs.remove(staging, { recursive: true, force: true }).pipe(Effect.ignore)
+    if (!(yield* fs.exists(payload))) {
+      yield* fs.remove(staging, { recursive: true, force: true })
       return
     }
     yield* fs.rename(payload, target)
     yield* fs.remove(container, { recursive: true, force: true })
-  }).pipe(Effect.ignore)
+  })
+}
+
+function rollbackRemoval(
+  fs: FSUtil.Interface,
+  target: AbsolutePath,
+  staging: string,
+  final: string,
+  stateTouched: Ref.Ref<boolean>,
+  file: string,
+  content: string | undefined,
+) {
+  return Effect.gen(function* () {
+    const payload = yield* rollback(fs, target, staging, final).pipe(Effect.exit)
+    const state = (yield* Ref.get(stateTouched))
+      ? yield* restoreState(fs, file, content).pipe(Effect.exit)
+      : Exit.succeed(undefined)
+    if (Exit.isFailure(payload) && Exit.isFailure(state)) {
+      return yield* Effect.failCause(Cause.combine(payload.cause, state.cause))
+    }
+    if (Exit.isFailure(payload)) return yield* Effect.failCause(payload.cause)
+    if (Exit.isFailure(state)) return yield* Effect.failCause(state.cause)
+  })
 }
 
 function warn(file: string) {
