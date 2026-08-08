@@ -552,9 +552,14 @@ describe("createModelProfileFormController", () => {
     create.form.addManualModel("coder", "Coder")
     expect(create.form.canSelectDefault()).toBe(false)
     await expect(create.form.selectDefault()).rejects.toThrow(
-      "Choose a model from a saved model source before making it the default.",
+      /^Choose a model from a saved model source before making it the default\.$/,
     )
     expect(create.defaults).toEqual([])
+
+    const unselected = fixture({ profile })
+    unselected.form.removeModel("coder")
+    expect(unselected.form.state.selectedModelID).toBeUndefined()
+    expect(unselected.form.canSelectDefault()).toBe(false)
 
     const edit = fixture({ profile })
     edit.form.setTestReport(undefined)
