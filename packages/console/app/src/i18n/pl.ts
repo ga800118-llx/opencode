@@ -14,7 +14,7 @@ export const dict = {
   "nav.home": "Strona główna",
   "nav.openMenu": "Otwórz menu",
   "nav.getStartedFree": "Zacznij za darmo",
-  "nav.logoAlt": "OpenCode",
+  "nav.logoAlt": "Guai Code",
 
   "nav.context.copyLogo": "Skopiuj logo jako SVG",
   "nav.context.copyWordmark": "Skopiuj logotyp jako SVG",
@@ -36,14 +36,14 @@ export const dict = {
   "email.subscribe": "Subskrybuj",
   "email.success": "Prawie gotowe, sprawdź skrzynkę i potwierdź swój adres e-mail",
 
-  "notFound.title": "Nie znaleziono | opencode",
+  "notFound.title": "Nie znaleziono | Guai Code",
   "notFound.heading": "404 - Nie znaleziono strony",
   "notFound.home": "Strona główna",
   "notFound.docs": "Dokumentacja",
   "notFound.github": "GitHub",
   "notFound.discord": "Discord",
-  "notFound.logoLightAlt": "jasne logo opencode",
-  "notFound.logoDarkAlt": "ciemne logo opencode",
+  "notFound.logoLightAlt": "jasne logo Guai Code",
+  "notFound.logoDarkAlt": "ciemne logo Guai Code",
 
   "user.logout": "Wyloguj się",
 
@@ -80,25 +80,25 @@ export const dict = {
   "error.reloadAmountMin": "Kwota doładowania musi wynosić co najmniej ${{amount}}",
   "error.reloadTriggerMin": "Próg salda musi wynosić co najmniej ${{amount}}",
 
-  "app.meta.description": "OpenCode - Otwartoźródłowy agent programistyczny.",
+  "app.meta.description": "Guai Code - Otwartoźródłowy agent programistyczny.",
 
-  "home.title": "OpenCode | Open source'owy agent AI do kodowania",
+  "home.title": "Guai Code | Open source'owy agent AI do kodowania",
 
-  "temp.title": "opencode | Agent AI do kodowania zbudowany dla terminala",
+  "temp.title": "Guai Code | Agent AI do kodowania zbudowany dla terminala",
   "temp.hero.title": "Agent AI do kodowania zbudowany dla terminala",
-  "temp.zen": "opencode zen",
+  "temp.zen": "OpenCode Zen",
   "temp.getStarted": "Rozpocznij",
   "temp.feature.native.title": "Natywny TUI",
   "temp.feature.native.body": "Responsywny, natywny, tematyczny interfejs terminala",
   "temp.feature.zen.beforeLink": "A",
   "temp.feature.zen.link": "wyselekcjonowana lista modeli",
-  "temp.feature.zen.afterLink": "dostarczana przez opencode",
+  "temp.feature.zen.afterLink": "dostarczana przez OpenCode",
   "temp.feature.models.beforeLink": "Obsługuje 75+ dostawców LLM przez",
   "temp.feature.models.afterLink": ", w tym modele lokalne",
-  "temp.screenshot.caption": "OpenCode TUI z motywem tokyonight",
-  "temp.screenshot.alt": "OpenCode TUI z motywem tokyonight",
-  "temp.logoLightAlt": "jasne logo opencode",
-  "temp.logoDarkAlt": "ciemne logo opencode",
+  "temp.screenshot.caption": "Guai Code TUI z motywem tokyonight",
+  "temp.screenshot.alt": "Guai Code TUI z motywem tokyonight",
+  "temp.logoLightAlt": "jasne logo Guai Code",
+  "temp.logoDarkAlt": "ciemne logo Guai Code",
 
   "home.banner.badge": "Nowość",
   "home.banner.text": "Przedstawiamy karty w aplikacji desktopowej.",
@@ -116,9 +116,9 @@ export const dict = {
 
   "home.install.ariaLabel": "Opcje instalacji",
 
-  "home.what.title": "Czym jest OpenCode?",
+  "home.what.title": "Czym jest Guai Code?",
   "home.what.body":
-    "OpenCode to open source'owy agent, który pomaga pisać kod w terminalu, IDE lub aplikacji desktopowej.",
+    "Guai Code to open source'owy agent, który pomaga pisać kod w terminalu, IDE lub aplikacji desktopowej.",
   "home.what.lsp.title": "LSP włączone",
   "home.what.lsp.body": "Automatycznie ładuje odpowiednie LSP dla LLM",
   "home.what.multiSession.title": "Wielosesyjność",
@@ -137,43 +137,43 @@ export const dict = {
 
   "home.growth.title": "Open source'owy agent AI do kodowania",
   "home.growth.body":
-    "Z ponad <strong>{{stars}}</strong> gwiazdkami na GitHubie, <strong>{{contributors}}</strong> współtwórcami i ponad <strong>{{commits}}</strong> commitami, OpenCode jest używany i ceniony przez ponad <strong>{{monthlyUsers}}</strong> deweloperów każdego miesiąca.",
+    "Z ponad <strong>{{stars}}</strong> gwiazdkami na GitHubie, <strong>{{contributors}}</strong> współtwórcami i ponad <strong>{{commits}}</strong> commitami, Guai Code jest używany i ceniony przez ponad <strong>{{monthlyUsers}}</strong> deweloperów każdego miesiąca.",
   "home.growth.githubStars": "Gwiazdki GitHub",
   "home.growth.contributors": "Współtwórcy",
   "home.growth.monthlyDevs": "Miesięczni użytkownicy",
 
   "home.privacy.title": "Zbudowany z myślą o prywatności",
   "home.privacy.body":
-    "OpenCode nie przechowuje Twojego kodu ani danych kontekstowych, dzięki czemu może działać w środowiskach wrażliwych na prywatność.",
+    "Guai Code nie przechowuje Twojego kodu ani danych kontekstowych, dzięki czemu może działać w środowiskach wrażliwych na prywatność.",
   "home.privacy.learnMore": "Dowiedz się więcej o",
   "home.privacy.link": "prywatności",
 
-  "home.faq.q1": "Czym jest OpenCode?",
+  "home.faq.q1": "Czym jest Guai Code?",
   "home.faq.a1":
-    "OpenCode to open source'owy agent, który pomaga pisać i uruchamiać kod z dowolnym modelem AI. Jest dostępny jako interfejs terminalowy, aplikacja desktopowa lub rozszerzenie IDE.",
-  "home.faq.q2": "Jak korzystać z OpenCode?",
+    "Guai Code to open source'owy agent, który pomaga pisać i uruchamiać kod z dowolnym modelem AI. Jest dostępny jako interfejs terminalowy, aplikacja desktopowa lub rozszerzenie IDE.",
+  "home.faq.q2": "Jak korzystać z Guai Code?",
   "home.faq.a2.before": "Najłatwiej zacząć od przeczytania",
   "home.faq.a2.link": "wprowadzenia",
-  "home.faq.q3": "Czy potrzebuję dodatkowych subskrypcji AI, aby używać OpenCode?",
+  "home.faq.q3": "Czy potrzebuję dodatkowych subskrypcji AI, aby używać Guai Code?",
   "home.faq.a3.p1":
-    "Niekoniecznie. OpenCode posiada zestaw darmowych modeli, z których możesz korzystać bez zakładania konta.",
+    "Niekoniecznie. Guai Code posiada zestaw darmowych modeli, z których możesz korzystać bez zakładania konta.",
   "home.faq.a3.p2.beforeZen": "Poza tym możesz używać dowolnych popularnych modeli do kodowania, tworząc konto",
   "home.faq.a3.p2.afterZen": ".",
   "home.faq.a3.p3":
-    "Chociaż zachęcamy do korzystania z Zen, OpenCode działa również ze wszystkimi popularnymi dostawcami, takimi jak OpenAI, Anthropic, xAI itp.",
+    "Chociaż zachęcamy do korzystania z Zen, Guai Code działa również ze wszystkimi popularnymi dostawcami, takimi jak OpenAI, Anthropic, xAI itp.",
   "home.faq.a3.p4.beforeLocal": "Możesz nawet podłączyć swoje",
   "home.faq.a3.p4.localLink": "lokalne modele",
-  "home.faq.q4": "Czy mogę używać moich istniejących subskrypcji AI z OpenCode?",
+  "home.faq.q4": "Czy mogę używać moich istniejących subskrypcji AI z Guai Code?",
   "home.faq.a4.p1":
-    "Tak, OpenCode obsługuje plany subskrypcyjne od wszystkich głównych dostawców. Możesz używać swoich subskrypcji Claude Pro/Max, ChatGPT Plus/Pro lub GitHub Copilot.",
-  "home.faq.q5": "Czy mogę używać OpenCode tylko w terminalu?",
-  "home.faq.a5.beforeDesktop": "Już nie! OpenCode jest teraz dostępny jako aplikacja na",
+    "Tak, Guai Code obsługuje plany subskrypcyjne od wszystkich głównych dostawców. Możesz używać swoich subskrypcji Claude Pro/Max, ChatGPT Plus/Pro lub GitHub Copilot.",
+  "home.faq.q5": "Czy mogę używać Guai Code tylko w terminalu?",
+  "home.faq.a5.beforeDesktop": "Już nie! Guai Code jest teraz dostępny jako aplikacja na",
   "home.faq.a5.desktop": "pulpit (desktop)",
   "home.faq.a5.and": "i",
   "home.faq.a5.web": "web",
-  "home.faq.q6": "Ile kosztuje OpenCode?",
+  "home.faq.q6": "Ile kosztuje Guai Code?",
   "home.faq.a6":
-    "OpenCode jest w 100% darmowy. Zawiera również zestaw darmowych modeli. Mogą pojawić się dodatkowe koszty, jeśli podłączysz innego dostawcę.",
+    "Guai Code jest w 100% darmowy. Zawiera również zestaw darmowych modeli. Mogą pojawić się dodatkowe koszty, jeśli podłączysz innego dostawcę.",
   "home.faq.q7": "A co z danymi i prywatnością?",
   "home.faq.a7.p1":
     "Twoje dane i informacje są przechowywane tylko wtedy, gdy używasz naszych darmowych modeli lub tworzysz linki do udostępniania.",
@@ -181,8 +181,8 @@ export const dict = {
   "home.faq.a7.p2.modelsLink": "naszych modelach",
   "home.faq.a7.p2.and": "i",
   "home.faq.a7.p2.shareLink": "stronach udostępniania",
-  "home.faq.q8": "Czy OpenCode jest open source?",
-  "home.faq.a8.p1": "Tak, OpenCode jest w pełni open source. Kod źródłowy jest publicznie dostępny na",
+  "home.faq.q8": "Czy Guai Code jest open source?",
+  "home.faq.a8.p1": "Tak, Guai Code jest w pełni open source. Kod źródłowy jest publicznie dostępny na",
   "home.faq.a8.p2": "na licencji",
   "home.faq.a8.mitLicense": "MIT License",
   "home.faq.a8.p3":
@@ -453,15 +453,15 @@ export const dict = {
     "Dostęp do modeli skonfigurowanych pod kątem optymalnej wydajności - bez degradacji jakości czy przekierowywania do tańszych dostawców.",
   "workspace.newUser.feature.lockin.title": "Brak blokady (Lock-in)",
   "workspace.newUser.feature.lockin.body":
-    "Używaj Zen z dowolnym agentem kodującym i kontynuuj korzystanie z innych dostawców z OpenCode, kiedy tylko chcesz.",
+    "Używaj Zen z dowolnym agentem kodującym i kontynuuj korzystanie z innych dostawców z Guai Code, kiedy tylko chcesz.",
   "workspace.newUser.copyApiKey": "Skopiuj klucz API",
   "workspace.newUser.copyKey": "Skopiuj klucz",
   "workspace.newUser.copied": "Skopiowano!",
   "workspace.newUser.step.enableBilling": "Włącz rozliczenia",
   "workspace.newUser.step.login.before": "Uruchom",
-  "workspace.newUser.step.login.after": "i wybierz opencode",
+  "workspace.newUser.step.login.after": "i wybierz Guai Code",
   "workspace.newUser.step.pasteKey": "Wklej swój klucz API",
-  "workspace.newUser.step.models.before": "Uruchom opencode i wpisz",
+  "workspace.newUser.step.models.before": "Uruchom Guai Code i wpisz",
   "workspace.newUser.step.models.after": "aby wybrać model",
 
   "workspace.models.title": "Modele",
@@ -507,10 +507,10 @@ export const dict = {
   "workspace.cost.subscriptionShort": "sub",
 
   "workspace.keys.title": "Klucze API",
-  "workspace.keys.subtitle": "Zarządzaj kluczami API do usług opencode.",
+  "workspace.keys.subtitle": "Zarządzaj kluczami API do usług Guai Code.",
   "workspace.keys.create": "Utwórz klucz API",
   "workspace.keys.placeholder": "Wpisz nazwę klucza",
-  "workspace.keys.empty": "Utwórz klucz API bramy opencode",
+  "workspace.keys.empty": "Utwórz klucz API bramy Guai Code",
   "workspace.keys.table.name": "Nazwa",
   "workspace.keys.table.key": "Klucz",
   "workspace.keys.table.createdBy": "Utworzony przez",
@@ -711,15 +711,15 @@ export const dict = {
   "workspace.referral.apply.confirmBody": "Wykorzystaj {{amount}}, aby zmniejszyć aktualne użycie w tym workspace.",
   "workspace.referral.apply.confirmAction": "Wykorzystaj",
 
-  "download.title": "OpenCode | Pobierz",
-  "download.meta.description": "Pobierz OpenCode na macOS, Windows i Linux",
-  "download.hero.title": "Pobierz OpenCode Desktop",
+  "download.title": "Guai Code | Pobierz",
+  "download.meta.description": "Pobierz Guai Code na macOS, Windows i Linux",
+  "download.hero.title": "Pobierz Guai Code Desktop",
   "download.hero.subtitle": "Dostępne w wersji Beta na macOS, Windows i Linux",
   "download.hero.button": "Pobierz na {{os}}",
-  "download.section.terminal": "Terminal OpenCode",
-  "download.section.desktop": "Pulpit OpenCode",
-  "download.section.extensions": "Rozszerzenia OpenCode",
-  "download.section.integrations": "Integracje OpenCode",
+  "download.section.terminal": "Terminal Guai Code",
+  "download.section.desktop": "Pulpit Guai Code",
+  "download.section.extensions": "Rozszerzenia Guai Code",
+  "download.section.integrations": "Integracje Guai Code",
   "download.action.download": "Pobierz",
   "download.action.install": "Zainstaluj",
 
@@ -730,27 +730,27 @@ export const dict = {
   "download.platform.linuxRpm": "Linux (.rpm)",
 
   "download.faq.a3.beforeLocal":
-    "Niekoniecznie, ale prawdopodobnie. Będziesz potrzebować subskrypcji AI, jeśli chcesz połączyć OpenCode z płatnym dostawcą, chociaż możesz pracować z",
+    "Niekoniecznie, ale prawdopodobnie. Będziesz potrzebować subskrypcji AI, jeśli chcesz połączyć Guai Code z płatnym dostawcą, chociaż możesz pracować z",
   "download.faq.a3.localLink": "modelami lokalnymi",
   "download.faq.a3.afterLocal.beforeZen": "za darmo. Chociaż zachęcamy użytkowników do korzystania z",
   "download.faq.a3.afterZen":
-    ", OpenCode współpracuje ze wszystkimi popularnymi dostawcami, takimi jak OpenAI, Anthropic, xAI itp.",
+    ", Guai Code współpracuje ze wszystkimi popularnymi dostawcami, takimi jak OpenAI, Anthropic, xAI itp.",
 
-  "download.faq.a5.p1": "OpenCode jest w 100% darmowy.",
+  "download.faq.a5.p1": "Guai Code jest w 100% darmowy.",
   "download.faq.a5.p2.beforeZen":
-    "Wszelkie dodatkowe koszty będą pochodzić z Twojej subskrypcji u dostawcy modelu. Chociaż OpenCode współpracuje z dowolnym dostawcą modeli, zalecamy korzystanie z",
+    "Wszelkie dodatkowe koszty będą pochodzić z Twojej subskrypcji u dostawcy modelu. Chociaż Guai Code współpracuje z dowolnym dostawcą modeli, zalecamy korzystanie z",
   "download.faq.a5.p2.afterZen": ".",
 
   "download.faq.a6.p1":
-    "Twoje dane i informacje są przechowywane tylko wtedy, gdy tworzysz linki do udostępniania w OpenCode.",
+    "Twoje dane i informacje są przechowywane tylko wtedy, gdy tworzysz linki do udostępniania w Guai Code.",
   "download.faq.a6.p2.beforeShare": "Dowiedz się więcej o",
   "download.faq.a6.shareLink": "stronach udostępniania",
 
-  "enterprise.title": "OpenCode | Rozwiązania Enterprise dla Twojej organizacji",
-  "enterprise.meta.description": "Skontaktuj się z OpenCode w sprawie rozwiązań dla przedsiębiorstw",
+  "enterprise.title": "Guai Code | Rozwiązania Enterprise dla Twojej organizacji",
+  "enterprise.meta.description": "Skontaktuj się z Guai Code w sprawie rozwiązań dla przedsiębiorstw",
   "enterprise.hero.title": "Twój kod jest Twój",
   "enterprise.hero.body1":
-    "OpenCode działa bezpiecznie wewnątrz Twojej organizacji bez przechowywania danych czy kontekstu, oraz bez ograniczeń licencyjnych czy roszczeń własnościowych. Rozpocznij okres próbny ze swoim zespołem, a następnie wdróż go w całej organizacji, integrując z SSO i wewnętrzną bramą AI.",
+    "Guai Code działa bezpiecznie wewnątrz Twojej organizacji bez przechowywania danych czy kontekstu, oraz bez ograniczeń licencyjnych czy roszczeń własnościowych. Rozpocznij okres próbny ze swoim zespołem, a następnie wdróż go w całej organizacji, integrując z SSO i wewnętrzną bramą AI.",
   "enterprise.hero.body2": "Daj nam znać, jak możemy pomóc.",
   "enterprise.form.name.label": "Imię i nazwisko",
   "enterprise.form.name.placeholder": "Jeff Bezos",
@@ -772,29 +772,29 @@ export const dict = {
   "enterprise.form.error.invalidEmailFormat": "Nieprawidłowy format adresu e-mail.",
   "enterprise.form.error.internalServer": "Wewnętrzny błąd serwera.",
   "enterprise.faq.title": "FAQ",
-  "enterprise.faq.q1": "Czym jest OpenCode Enterprise?",
+  "enterprise.faq.q1": "Czym jest Guai Code Enterprise?",
   "enterprise.faq.a1":
-    "OpenCode Enterprise jest dla organizacji, które chcą mieć pewność, że ich kod i dane nigdy nie opuszczą ich infrastruktury. Można to osiągnąć dzięki scentralizowanej konfiguracji, która integruje się z Twoim SSO i wewnętrzną bramą AI.",
-  "enterprise.faq.q2": "Jak zacząć z OpenCode Enterprise?",
+    "Guai Code Enterprise jest dla organizacji, które chcą mieć pewność, że ich kod i dane nigdy nie opuszczą ich infrastruktury. Można to osiągnąć dzięki scentralizowanej konfiguracji, która integruje się z Twoim SSO i wewnętrzną bramą AI.",
+  "enterprise.faq.q2": "Jak zacząć z Guai Code Enterprise?",
   "enterprise.faq.a2":
-    "Po prostu rozpocznij wewnętrzny okres próbny ze swoim zespołem. OpenCode domyślnie nie przechowuje Twojego kodu ani danych kontekstowych, co ułatwia start. Następnie skontaktuj się z nami, aby omówić opcje cenowe i wdrożeniowe.",
+    "Po prostu rozpocznij wewnętrzny okres próbny ze swoim zespołem. Guai Code domyślnie nie przechowuje Twojego kodu ani danych kontekstowych, co ułatwia start. Następnie skontaktuj się z nami, aby omówić opcje cenowe i wdrożeniowe.",
   "enterprise.faq.q3": "Jak działa cennik enterprise?",
   "enterprise.faq.a3":
     "Oferujemy cennik enterprise za stanowisko (per-seat). Jeśli masz własną bramę LLM, nie pobieramy opłat za wykorzystane tokeny. Aby uzyskać więcej szczegółów, skontaktuj się z nami w celu uzyskania wyceny dostosowanej do potrzeb Twojej organizacji.",
-  "enterprise.faq.q4": "Czy moje dane są bezpieczne z OpenCode Enterprise?",
+  "enterprise.faq.q4": "Czy moje dane są bezpieczne z Guai Code Enterprise?",
   "enterprise.faq.a4":
-    "Tak. OpenCode nie przechowuje Twojego kodu ani danych kontekstowych. Całe przetwarzanie odbywa się lokalnie lub poprzez bezpośrednie wywołania API do Twojego dostawcy AI. Dzięki centralnej konfiguracji i integracji SSO, Twoje dane pozostają bezpieczne w infrastrukturze Twojej organizacji.",
+    "Tak. Guai Code nie przechowuje Twojego kodu ani danych kontekstowych. Całe przetwarzanie odbywa się lokalnie lub poprzez bezpośrednie wywołania API do Twojego dostawcy AI. Dzięki centralnej konfiguracji i integracji SSO, Twoje dane pozostają bezpieczne w infrastrukturze Twojej organizacji.",
 
-  "brand.title": "OpenCode | Marka",
-  "brand.meta.description": "Wytyczne marki OpenCode",
+  "brand.title": "Guai Code | Marka",
+  "brand.meta.description": "Wytyczne marki Guai Code",
   "brand.heading": "Wytyczne marki",
-  "brand.subtitle": "Zasoby i aktywa, które pomogą Ci pracować z marką OpenCode.",
+  "brand.subtitle": "Zasoby i aktywa, które pomogą Ci pracować z marką Guai Code.",
   "brand.downloadAll": "Pobierz wszystkie zasoby",
 
-  "changelog.title": "OpenCode | Dziennik zmian",
-  "changelog.meta.description": "Notatki o wydaniu i dziennik zmian OpenCode",
+  "changelog.title": "Guai Code | Dziennik zmian",
+  "changelog.meta.description": "Notatki o wydaniu i dziennik zmian Guai Code",
   "changelog.hero.title": "Dziennik zmian",
-  "changelog.hero.subtitle": "Nowe aktualizacje i ulepszenia OpenCode",
+  "changelog.hero.subtitle": "Nowe aktualizacje i ulepszenia Guai Code",
   "changelog.empty": "Nie znaleziono wpisów w dzienniku zmian.",
   "changelog.viewJson": "Zobacz JSON",
 

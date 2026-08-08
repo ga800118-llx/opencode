@@ -14,7 +14,7 @@ function AppMeta() {
   const i18n = useI18n()
   return (
     <>
-      <Title>opencode</Title>
+      <Title>Guai Code</Title>
       <Meta name="description" content={i18n.t("app.meta.description")} />
       <Favicon />
       <Font />
