@@ -1622,9 +1622,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         </div>
       </DockShellForm>
       <Show when={store.mode === "normal" || store.mode === "shell"}>
-        <DockTray attach="top">
-          <div class="px-1.75 pt-5.5 pb-2 flex items-center gap-2 min-w-0">
-            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
+        <DockTray attach="top" class="h-auto">
+          <div class="px-1.75 pt-5.5 pb-2 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative max-[480px]:basis-full">
               <div
                 class="h-7 flex items-center gap-1.5 min-w-0 absolute inset-0"
                 style={{
@@ -1781,15 +1781,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         </TooltipKeybind>
                       </div>
                     </Show>
-                    <Show when={permission.supportsModes()}>
-                      <div data-component="prompt-permission-mode-control" style={control()}>
-                        <PermissionModeControl sessionID={props.controls.session.id} onClose={restoreFocus} />
-                      </div>
-                    </Show>
                   </Show>
                 </Show>
               </div>
             </div>
+            <Show when={permission.supportsModes() && store.mode !== "shell"}>
+              <div
+                data-component="prompt-permission-mode-control"
+                class="min-w-0 shrink-0 max-[480px]:basis-full"
+                style={control()}
+              >
+                <PermissionModeControl sessionID={props.controls.session.id} onClose={restoreFocus} />
+              </div>
+            </Show>
           </div>
         </DockTray>
       </Show>

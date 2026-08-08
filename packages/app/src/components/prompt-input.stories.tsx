@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createStore } from "solid-js/store"
-import { onMount } from "solid-js"
+import { onCleanup, onMount } from "solid-js"
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { createPromptState } from "@/context/prompt"
 import { SessionComposerRegion, createSessionComposerRegionController } from "@/pages/session/composer"
@@ -99,9 +99,19 @@ function PromptInputExample(props: { openPermissionMenu?: boolean } = {}) {
   let root: HTMLDivElement | undefined
   onMount(() => {
     if (!props.openPermissionMenu) return
-    requestAnimationFrame(() =>
-      root?.querySelector<HTMLButtonElement>('[data-component="prompt-permission-mode-control"] button')?.click(),
-    )
+    let frame = 0
+    let attempts = 0
+    const open = () => {
+      const trigger = root?.querySelector<HTMLButtonElement>('[data-component="prompt-permission-mode-control"] button')
+      if (trigger) {
+        trigger.click()
+        return
+      }
+      attempts += 1
+      if (attempts < 10) frame = requestAnimationFrame(open)
+    }
+    frame = requestAnimationFrame(open)
+    onCleanup(() => cancelAnimationFrame(frame))
   })
 
   return (

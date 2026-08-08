@@ -207,7 +207,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
           </Show>
         </div>
 
-        <div class="flex h-11 items-center px-2">
+        <div class="flex h-11 items-center gap-1 px-2 max-[480px]:h-auto max-[480px]:flex-wrap max-[480px]:py-2">
           <div
             class="flex min-w-0 flex-1 items-center gap-1"
             aria-hidden={state.mode === "shell"}
@@ -261,17 +261,31 @@ export function PromptInputV2(props: PromptInputV2Props) {
                 </Show>
               )}
             </Show>
-            {props.footerControl}
           </div>
-          <PromptInputV2SubmitButton
-            mode={state.mode}
-            stopping={view.submit.stopping()}
-            disabled={!props.controller.canSubmit()}
-            sendLabel={copy().send}
-            stopLabel={copy().stop}
-            onSubmit={props.controller.submit}
-            onStop={props.controller.stop}
-          />
+          <Show when={props.footerControl}>
+            <div
+              class="shrink-0"
+              classList={{
+                "max-[480px]:order-3 max-[480px]:basis-full": state.mode === "normal",
+              }}
+              aria-hidden={state.mode === "shell"}
+              inert={state.mode === "shell" ? true : undefined}
+              style={buttons()}
+            >
+              {props.footerControl}
+            </div>
+          </Show>
+          <div class="shrink-0">
+            <PromptInputV2SubmitButton
+              mode={state.mode}
+              stopping={view.submit.stopping()}
+              disabled={!props.controller.canSubmit()}
+              sendLabel={copy().send}
+              stopLabel={copy().stop}
+              onSubmit={props.controller.submit}
+              onStop={props.controller.stop}
+            />
+          </div>
         </div>
       </form>
     </div>
