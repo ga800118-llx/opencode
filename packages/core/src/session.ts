@@ -37,7 +37,8 @@ import { SessionRevert } from "./session/revert"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
-import { PermissionV2 } from "./permission"
+import type { Permission } from "@opencode-ai/schema/permission"
+import { KeyedMutex } from "./effect/keyed-mutex"
 
 export const RevertState = Revert.State
 export type RevertState = Revert.State
@@ -82,7 +83,7 @@ type CreateInput = {
   parentID?: SessionSchema.ID
   agent?: AgentV2.ID
   model?: ModelV2.Ref
-  permissionMode?: PermissionV2.Mode
+  permissionMode?: Permission.Mode
   location: Location.Ref
 }
 
@@ -149,7 +150,7 @@ export interface Interface {
   }) => Effect.Effect<void, NotFoundError>
   readonly switchPermissionMode: (input: {
     sessionID: SessionSchema.ID
-    mode: PermissionV2.Mode
+    mode: Permission.Mode
   }) => Effect.Effect<void, NotFoundError>
   readonly prompt: (input: {
     id?: SessionMessage.ID
@@ -198,6 +199,7 @@ const layer = Layer.effect(
     const execution = yield* SessionExecution.Service
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
+    const mutex = yield* KeyedMutex.make<SessionSchema.ID>()
     const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
     const decode = (row: typeof SessionMessageTable.$inferSelect) =>
@@ -214,69 +216,88 @@ const layer = Layer.effect(
     const result = Service.of({
       create: Effect.fn("V2Session.create")(function* (input) {
         const sessionID = input.id ?? SessionSchema.ID.create()
-        const recorded = yield* store.get(sessionID)
-        if (recorded) return recorded
-        const permissionMode =
-          input.permissionMode ??
-          (input.parentID ? ((yield* store.get(input.parentID))?.permissionMode ?? "standard") : "standard")
-        const project = yield* projects.resolve(input.location.directory)
-        yield* db
-          .insert(ProjectTable)
-          .values({ id: project.id, worktree: project.directory, vcs: project.vcs?.type, sandboxes: [] })
-          .onConflictDoNothing()
-          .run()
-          .pipe(Effect.orDie)
-        const now = Date.now()
-        const info = SessionV1.SessionInfo.make({
-          id: sessionID,
-          slug: Slug.create(),
-          version: InstallationVersion,
-          projectID: project.id,
-          directory: input.location.directory,
-          path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
-          parentID: input.parentID,
-          workspaceID: input.location.workspaceID ? WorkspaceV2.ID.make(input.location.workspaceID) : undefined,
-          title: `New session - ${new Date(now).toISOString()}`,
-          agent: input.agent,
-          model: input.model
-            ? {
-                id: ModelV2.ID.make(input.model.id),
-                providerID: input.model.providerID,
-                variant: input.model.variant,
-              }
-            : undefined,
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          time: { created: now, updated: now },
-        })
-        const projected = yield* events
-          .publish(SessionV1.Event.Created, { sessionID, info }, { location: input.location })
-          .pipe(
-            Effect.as({ type: "created" } as const),
-            Effect.catchDefect((defect) => {
-              if (!(defect instanceof SessionProjector.SessionAlreadyProjected)) {
-                return Effect.die(defect)
-              }
-              // Concurrent creation lost the projection race. The existing Session identity wins.
-              return store
-                .get(sessionID)
-                .pipe(
-                  Effect.flatMap((session) =>
-                    session ? Effect.succeed({ type: "existing", session } as const) : Effect.die(defect),
-                  ),
-                )
-            }),
-          )
-        if (projected.type === "existing") return projected.session
-        if (permissionMode !== "standard") {
-          yield* events.publish(SessionEvent.PermissionModeSwitched, {
-            sessionID,
-            timestamp: yield* DateTime.now,
-            mode: permissionMode,
-          })
-        }
-        // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
-        return yield* result.get(sessionID).pipe(Effect.orDie)
+        return yield* mutex.withLock(sessionID)(
+          Effect.gen(function* () {
+            const recorded = yield* store.get(sessionID)
+            if (recorded) return recorded
+            const permissionMode =
+              input.permissionMode ??
+              (input.parentID ? ((yield* store.get(input.parentID))?.permissionMode ?? "standard") : "standard")
+            const project = yield* projects.resolve(input.location.directory)
+            yield* db
+              .insert(ProjectTable)
+              .values({ id: project.id, worktree: project.directory, vcs: project.vcs?.type, sandboxes: [] })
+              .onConflictDoNothing()
+              .run()
+              .pipe(Effect.orDie)
+            const now = Date.now()
+            const info = SessionV1.SessionInfo.make({
+              id: sessionID,
+              slug: Slug.create(),
+              version: InstallationVersion,
+              projectID: project.id,
+              directory: input.location.directory,
+              path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
+              parentID: input.parentID,
+              workspaceID: input.location.workspaceID ? WorkspaceV2.ID.make(input.location.workspaceID) : undefined,
+              title: `New session - ${new Date(now).toISOString()}`,
+              agent: input.agent,
+              model: input.model
+                ? {
+                    id: ModelV2.ID.make(input.model.id),
+                    providerID: input.model.providerID,
+                    variant: input.model.variant,
+                  }
+                : undefined,
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+            })
+            const projected = yield* events
+              .publish(
+                SessionV1.Event.Created,
+                { sessionID, info },
+                permissionMode === "standard"
+                  ? { location: input.location }
+                  : {
+                      location: input.location,
+                      commit: () =>
+                        db
+                          .update(SessionTable)
+                          .set({ permission_mode: permissionMode })
+                          .where(eq(SessionTable.id, sessionID))
+                          .run()
+                          .pipe(Effect.orDie),
+                    },
+              )
+              .pipe(
+                Effect.as({ type: "created" } as const),
+                Effect.catchDefect((defect) => {
+                  if (!(defect instanceof SessionProjector.SessionAlreadyProjected)) {
+                    return Effect.die(defect)
+                  }
+                  // Concurrent creation lost the projection race. The existing Session identity wins.
+                  return store
+                    .get(sessionID)
+                    .pipe(
+                      Effect.flatMap((session) =>
+                        session ? Effect.succeed({ type: "existing", session } as const) : Effect.die(defect),
+                      ),
+                    )
+                }),
+              )
+            if (projected.type === "existing") return projected.session
+            if (permissionMode !== "standard") {
+              yield* events.publish(SessionEvent.PermissionModeSwitched, {
+                sessionID,
+                timestamp: yield* DateTime.now,
+                mode: permissionMode,
+              })
+            }
+            // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
+            return yield* result.get(sessionID).pipe(Effect.orDie)
+          }),
+        )
       }),
       get: Effect.fn("V2Session.get")(function* (sessionID) {
         const session = yield* store.get(sessionID)
@@ -432,15 +453,19 @@ const layer = Layer.effect(
           model: input.model,
         })
       }),
-      switchPermissionMode: Effect.fn("V2Session.switchPermissionMode")(function* (input) {
-        const session = yield* result.get(input.sessionID)
-        if ((session.permissionMode ?? "standard") === input.mode) return
-        yield* events.publish(SessionEvent.PermissionModeSwitched, {
-          sessionID: input.sessionID,
-          timestamp: yield* DateTime.now,
-          mode: input.mode,
-        })
-      }),
+      switchPermissionMode: Effect.fn("V2Session.switchPermissionMode")((input) =>
+        mutex.withLock(input.sessionID)(
+          Effect.gen(function* () {
+            const session = yield* result.get(input.sessionID)
+            if ((session.permissionMode ?? "standard") === input.mode) return
+            yield* events.publish(SessionEvent.PermissionModeSwitched, {
+              sessionID: input.sessionID,
+              timestamp: yield* DateTime.now,
+              mode: input.mode,
+            })
+          }),
+        ),
+      ),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         yield* result.get(input.sessionID)
         return yield* new OperationUnavailableError({ operation: "compact" })
