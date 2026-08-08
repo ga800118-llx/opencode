@@ -1405,11 +1405,19 @@
   background-color: var(--v2-background-bg-layer-01);
 }
 
-.settings-v2-skills-filters {
-  align-self: flex-start;
-  max-width: 100%;
+.settings-v2-skills-filters-scroll {
+  width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px;
+  margin: -2px;
   scrollbar-width: thin;
+}
+
+.settings-v2-skills-filters {
+  width: max-content;
+  min-width: 232px;
+  flex: none;
 }
 
 .settings-v2-tab-body.settings-v2-skills {

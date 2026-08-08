@@ -78,4 +78,23 @@ describe("Skill management API", () => {
     expect(isSkillManagementNotFound(new SkillManagementRequestError(500))).toBe(false)
     expect(isSkillManagementNotFound(new Error("404"))).toBe(false)
   })
+
+  test("reads authenticated headers for every request", async () => {
+    const authorizations: Array<string | null> = []
+    const credentials = { authorization: "Basic Zmlyc3Q6cGFzcw==" }
+    const api = createSkillManagementApi({
+      baseUrl: "https://server.example",
+      headers: () => ({ Authorization: credentials.authorization }),
+      fetch: async (_input, init) => {
+        authorizations.push(new Headers(init?.headers).get("Authorization"))
+        return Response.json(response)
+      },
+    })
+
+    await api.list("/repo")
+    credentials.authorization = "Basic c2Vjb25kOnBhc3M="
+    await api.list("/repo")
+
+    expect(authorizations).toEqual(["Basic Zmlyc3Q6cGFzcw==", "Basic c2Vjb25kOnBhc3M="])
+  })
 })

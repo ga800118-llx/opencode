@@ -199,6 +199,7 @@ type ServerSDKBase = {
 
 function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerScope): ServerSDKBase {
   const platform = usePlatform()
+  const servers = useServer()
   const abort = new AbortController()
 
   const eventFetch = (() => {
@@ -363,15 +364,20 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   const currentApi: ServerApi = createApiForServer({ server: server.http, fetch: platform.fetch })
   const skillManagement = createSkillManagementApi({
     baseUrl: server.http.url,
-    fetch: platform.fetch,
-    headers: server.http.password
-      ? {
-          Authorization: `Basic ${authTokenFromCredentials({
-            username: server.http.username,
-            password: server.http.password,
-          })}`,
-        }
-      : undefined,
+    fetch: platform.fetch ?? fetch,
+    headers: () => {
+      const http =
+        servers.list.find((connection) => ServerConnection.key(connection) === ServerConnection.key(server))?.http ??
+        server.http
+      return http.password
+        ? {
+            Authorization: `Basic ${authTokenFromCredentials({
+              username: http.username,
+              password: http.password,
+            })}`,
+          }
+        : undefined
+    },
   })
   const legacy = (directory?: string) =>
     createSdkForServer({

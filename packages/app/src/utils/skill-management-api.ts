@@ -12,6 +12,7 @@ export type SkillManagementApi = {
 }
 
 type SkillManagementFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+type SkillManagementHeaders = HeadersInit | (() => HeadersInit | undefined)
 
 export class SkillManagementRequestError extends Error {
   constructor(readonly status: number) {
@@ -26,10 +27,9 @@ export function isSkillManagementNotFound(error: unknown) {
 
 export function createSkillManagementApi(input: {
   baseUrl: string
-  headers?: HeadersInit
-  fetch?: SkillManagementFetch
+  headers?: SkillManagementHeaders
+  fetch: SkillManagementFetch
 }): SkillManagementApi {
-  const fetcher = input.fetch ?? globalThis.fetch
   const request = async (
     method: "GET" | "PATCH" | "DELETE",
     directory: string,
@@ -40,9 +40,9 @@ export function createSkillManagementApi(input: {
       `${input.baseUrl.replace(/\/+$/, "")}/api/skill/management${id ? `/${encodeURIComponent(id)}` : ""}`,
     )
     url.searchParams.set("location[directory]", directory)
-    const headers = new Headers(input.headers)
+    const headers = new Headers(typeof input.headers === "function" ? input.headers() : input.headers)
     if (method === "PATCH") headers.set("Content-Type", "application/json")
-    const response = await fetcher(url, {
+    const response = await input.fetch(url, {
       method,
       headers,
       body: method === "PATCH" ? JSON.stringify({ enabled }) : undefined,
