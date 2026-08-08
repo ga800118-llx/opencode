@@ -63,6 +63,35 @@ describe("SkillV2", () => {
     }),
   )
 
+  it.live("retains later source origin metadata without changing source position", () =>
+    Effect.gen(function* () {
+      const skill = yield* SkillV2.Service
+      const first = AbsolutePath.make("/repo/first")
+      const duplicate = AbsolutePath.make("/repo/duplicate")
+      yield* skill.transform((editor) => {
+        editor.source({ type: "directory", path: first })
+        editor.source({ type: "directory", path: duplicate })
+        editor.source(
+          SkillV2.DirectorySource.make({
+            type: "directory",
+            path: first,
+            origin: { scope: "project", type: "config-file", value: "/repo/opencode.json" },
+          }),
+        )
+        editor.source({ type: "directory", path: first })
+      })
+
+      expect(yield* skill.sources()).toEqual([
+        {
+          type: "directory",
+          path: first,
+          origin: { scope: "project", type: "config-file", value: "/repo/opencode.json" },
+        },
+        { type: "directory", path: duplicate },
+      ])
+    }),
+  )
+
   it.live("registers sources and resolves later source precedence", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

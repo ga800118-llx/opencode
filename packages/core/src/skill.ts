@@ -63,7 +63,11 @@ const layer = Layer.effect(
       initial: () => ({ sources: [] }),
       draft: (draft) => ({
         source: (source) => {
-          if (draft.sources.some((item) => Source.equals(item, source))) return
+          const index = draft.sources.findIndex((item) => Source.equals(item, source))
+          if (index !== -1) {
+            if (source.origin !== undefined) draft.sources[index] = source as Types.DeepMutable<Source>
+            return
+          }
           draft.sources.push(source as Types.DeepMutable<Source>)
         },
         list: () => draft.sources as Source[],

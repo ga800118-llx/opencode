@@ -24,6 +24,7 @@ export const Plugin = define({
             location: AbsolutePath.make("/builtin/customize-opencode.md"),
             content: CustomizeOpencodeContent,
           }),
+          origin: { scope: "global", type: "builtin", value: "customize-opencode" },
         }),
       )
     })

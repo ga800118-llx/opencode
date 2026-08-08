@@ -14,6 +14,12 @@ describe("SkillPlugin.Plugin", () => {
       const skill = yield* SkillV2.Service
       yield* SkillPlugin.Plugin.effect(host({ skill: { ...skill, reload: skill.reload } }))
 
+      expect(yield* skill.sources()).toContainEqual(
+        expect.objectContaining({
+          type: "embedded",
+          origin: { scope: "global", type: "builtin", value: "customize-opencode" },
+        }),
+      )
       expect(yield* skill.list()).toContainEqual(
         expect.objectContaining({
           name: "customize-opencode",
