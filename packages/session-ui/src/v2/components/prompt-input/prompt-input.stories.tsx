@@ -3,7 +3,7 @@ import { createStore } from "solid-js/store"
 import { PromptInputV2, type PromptInputV2PersistedState, type PromptInputV2Suggestion } from "."
 import { createPromptInputV2Controller } from "./interaction"
 import { createPromptInputV2Store } from "./store"
-import { createEffect } from "solid-js"
+import { createSignal } from "solid-js"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon } from "@opencode-ai/ui/v2/icon"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
@@ -108,8 +108,17 @@ const commandSuggestions: PromptInputV2Suggestion[] = [
 ]
 
 function PermissionModeStoryControl(props: { defaultOpen?: boolean }) {
+  const [open, setOpen] = createSignal(false)
   return (
-    <MenuV2 gutter={6} modal={false} placement="top-start" defaultOpen={props.defaultOpen}>
+    <MenuV2
+      gutter={6}
+      modal={false}
+      placement="top-start"
+      open={props.defaultOpen || open()}
+      onOpenChange={(value) => {
+        if (!props.defaultOpen) setOpen(value)
+      }}
+    >
       <MenuV2.Trigger as={ButtonV2} variant="ghost-muted" class="max-w-[148px] justify-start">
         <Icon name="shield" />
         <span class="truncate whitespace-nowrap">Standard</span>

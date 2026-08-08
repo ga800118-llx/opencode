@@ -267,17 +267,19 @@ export function PromptInputV2(props: PromptInputV2Props) {
             </Show>
           </div>
           <Show when={props.footerControl}>
-            <div
-              class="shrink-0"
-              classList={{
-                "max-[480px]:order-3 max-[480px]:basis-full": state.mode === "normal",
-              }}
-              aria-hidden={state.mode === "shell"}
-              inert={state.mode === "shell" ? true : undefined}
-              style={buttons()}
-            >
-              {props.footerControl}
-            </div>
+            {(footerControl) => (
+              <div
+                class="shrink-0"
+                classList={{
+                  "max-[480px]:order-3 max-[480px]:basis-full": state.mode === "normal",
+                }}
+                aria-hidden={state.mode === "shell"}
+                inert={state.mode === "shell" ? true : undefined}
+                style={buttons()}
+              >
+                {footerControl()}
+              </div>
+            )}
           </Show>
           <div class="shrink-0">
             <PromptInputV2SubmitButton
