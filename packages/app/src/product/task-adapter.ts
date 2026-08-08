@@ -6,8 +6,6 @@ import { Identifier } from "@/utils/id"
 import type { CompatibleApi } from "@/utils/server-compat"
 import type {
   ProductFilePart,
-  ProductCreateTaskInput,
-  ProductCreateTaskOutput,
   ProductPromptPart,
   ProductTaskAdapter,
   ProductTextPart,
@@ -20,12 +18,6 @@ export type ProductTaskAdapterIDs = {
 }
 
 type LegacyPart = (TextPartInput | FilePartInput | AgentPartInput) & { readonly id: string }
-type CompatibleCreateTaskInput = Omit<ProductCreateTaskInput, "permissionMode"> & {
-  readonly permissionMode?: Permission.Mode
-}
-type CompatibleTaskAdapter = Omit<ProductTaskAdapter<SessionInfo>, "create"> & {
-  readonly create: (input: CompatibleCreateTaskInput) => Promise<ProductCreateTaskOutput<SessionInfo>>
-}
 type PermissionModeSessionApi = Omit<CompatibleApi["session"], "create"> & {
   readonly create: (
     input: NonNullable<Parameters<CompatibleApi["session"]["create"]>[0]> & {
@@ -34,7 +26,7 @@ type PermissionModeSessionApi = Omit<CompatibleApi["session"], "create"> & {
   ) => ReturnType<CompatibleApi["session"]["create"]>
 }
 
-export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAdapterIDs = {}): CompatibleTaskAdapter {
+export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAdapterIDs = {}): ProductTaskAdapter<SessionInfo> {
   const messageID = ids.messageID ?? (() => Identifier.ascending("message"))
   const operationID = ids.operationID ?? (() => Event.ID.create())
 
@@ -48,7 +40,7 @@ export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAda
             providerID: input.model.providerID,
             variant: input.model.variant,
           },
-          permissionMode: input.permissionMode,
+          ...(input.permissionMode === undefined ? {} : { permissionMode: input.permissionMode }),
           location: { directory: input.directory },
         }),
       )

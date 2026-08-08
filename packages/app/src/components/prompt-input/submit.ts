@@ -371,8 +371,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.onNewSessionWorktreeReset?.()
     }
 
-    const permissionMode = permissionState.projectMode(sessionDirectory)
-    const shouldAutoAccept = isNewSession && !permissionState.supportsModes() && input.autoAccept()
+    const supportsPermissionModes = permissionState.supportsModes()
+    const shouldAutoAccept = isNewSession && !supportsPermissionModes && input.autoAccept()
 
     let session = input.info()
     if (!session && isNewSession) {
@@ -381,7 +381,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           directory: sessionDirectory,
           agent: currentAgent.name,
           model: { modelID: currentModel.id, providerID: currentModel.provider.id, variant },
-          permissionMode,
+          ...(supportsPermissionModes ? { permissionMode: permissionState.projectMode(sessionDirectory) } : {}),
         })
         .then((output) => normalizeSessionInfo(output.record))
         .catch((err) => {

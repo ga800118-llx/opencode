@@ -73,6 +73,7 @@ describe("createProductTaskAdapter", () => {
         location: { directory: "/repo" },
       },
     ])
+    expect("permissionMode" in (calls.create[0] as Record<string, unknown>)).toBe(false)
   })
 
   test("maps ordered prompt parts to legacy and modern transport fields", async () => {

@@ -387,13 +387,11 @@ describe("prompt submit worktree selection", () => {
         agent: "agent",
         directory: "/repo/worktree-a",
         model: { modelID: "model", providerID: "provider", variant: undefined },
-        permissionMode: "standard",
       },
       {
         agent: "agent",
         directory: "/repo/worktree-b",
         model: { modelID: "model", providerID: "provider", variant: undefined },
-        permissionMode: "standard",
       },
     ])
     expect(sentShell).toEqual([
@@ -410,7 +408,7 @@ describe("prompt submit worktree selection", () => {
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
   })
 
-  test("applies auto-accept to newly created sessions", async () => {
+  test("omits unsupported permission modes and applies legacy auto-accept after creation", async () => {
     const submit = createPromptSubmit({
       prompt,
       info: () => undefined,
@@ -435,6 +433,7 @@ describe("prompt submit worktree selection", () => {
 
     await submit.handleSubmit(event)
 
+    expect("permissionMode" in sessionCreateInputs[0]!).toBe(false)
     expect(enabledAutoAccept).toEqual([{ server: "server-a", sessionID: "session-1", directory: "/repo/worktree-a" }])
   })
 

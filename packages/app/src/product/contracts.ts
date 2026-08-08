@@ -120,7 +120,7 @@ export type ProductCreateTaskInput = {
   readonly directory: ProductDirectory
   readonly agent: string
   readonly model: ProductModelSelection
-  readonly permissionMode: Permission.Mode
+  readonly permissionMode?: Permission.Mode
 }
 
 export type ProductCreateTaskOutput<SessionRecord = unknown> = {
