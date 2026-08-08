@@ -329,6 +329,139 @@ describe("util.effect-flock", () => {
   )
 
   it.live(
+    "does not remove a replacement breaker generation during release",
+    Effect.gen(function* () {
+      const fsService = yield* FSUtil.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:release-breaker-generation"
+      const breaker = lock(dir, key) + ".breaker"
+      const observed = yield* Deferred.make<string>()
+      const resume = yield* Deferred.make<void>()
+      const state = { bodyFinished: false, paused: false }
+      const filesystem = FSUtil.Service.of({
+        ...fsService,
+        stat: (target) => {
+          const result = fsService.stat(target)
+          if (!state.bodyFinished || state.paused || path.dirname(target) !== breaker) return result
+          state.paused = true
+          return result.pipe(
+            Effect.flatMap((info) =>
+              Deferred.succeed(observed, target).pipe(Effect.andThen(Deferred.await(resume)), Effect.as(info)),
+            ),
+          )
+        },
+      })
+      const layer = Layer.fresh(
+        AppNodeBuilder.build(EffectFlock.node, [
+          [Global.node, testGlobal],
+          [FSUtil.node, Layer.succeed(FSUtil.Service, filesystem)],
+        ]),
+      )
+      const context = yield* Layer.build(layer)
+      const flock = Context.get(context, EffectFlock.Service)
+
+      const owner = yield* flock
+        .withLock(
+          Effect.sync(() => {
+            state.bodyFinished = true
+          }),
+          key,
+          dir,
+        )
+        .pipe(Effect.forkScoped)
+      const oldTokenPath = yield* Deferred.await(observed).pipe(Effect.timeout("1 second"))
+      const newTokenPath = path.join(breaker, "replacement-generation")
+      yield* Effect.promise(async () => {
+        await fs.rm(breaker, { recursive: true })
+        await fs.mkdir(breaker)
+        await fs.writeFile(newTokenPath, "replacement-generation")
+      })
+
+      yield* Deferred.succeed(resume, undefined)
+      expect(Exit.isSuccess(yield* Fiber.await(owner))).toBe(true)
+      expect(yield* Effect.promise(() => exists(oldTokenPath))).toBe(false)
+      expect(yield* Effect.promise(() => exists(newTokenPath))).toBe(true)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "does not remove a replacement breaker generation during stale cleanup",
+    Effect.gen(function* () {
+      const fsService = yield* FSUtil.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:stale-breaker-generation"
+      const lockDir = lock(dir, key)
+      const breaker = lockDir + ".breaker"
+      const oldTokenPath = path.join(breaker, "stale-generation")
+      const newTokenPath = path.join(breaker, "replacement-generation")
+      const observed = yield* Deferred.make<void>()
+      const resume = yield* Deferred.make<void>()
+      const retried = yield* Deferred.make<void>()
+      const state = { paused: false, reads: 0 }
+      const filesystem = FSUtil.Service.of({
+        ...fsService,
+        stat: (target) => {
+          const result = fsService.stat(target)
+          if (target !== oldTokenPath || state.paused) return result
+          state.paused = true
+          return result.pipe(
+            Effect.flatMap((info) =>
+              Deferred.succeed(observed, undefined).pipe(Effect.andThen(Deferred.await(resume)), Effect.as(info)),
+            ),
+          )
+        },
+        readDirectory: (target) => {
+          const result = fsService.readDirectory(target)
+          if (target !== breaker) return result
+          state.reads++
+          if (state.reads !== 2) return result
+          return result.pipe(Effect.tap(() => Deferred.succeed(retried, undefined)))
+        },
+      })
+      const layer = Layer.fresh(
+        AppNodeBuilder.build(EffectFlock.node, [
+          [Global.node, testGlobal],
+          [FSUtil.node, Layer.succeed(FSUtil.Service, filesystem)],
+        ]),
+      )
+      const context = yield* Layer.build(layer)
+      const flock = Context.get(context, EffectFlock.Service)
+
+      yield* Effect.promise(async () => {
+        await fs.mkdir(lockDir, { recursive: true })
+        await fs.mkdir(breaker)
+        await fs.writeFile(oldTokenPath, "stale-generation")
+        const stale = new Date(Date.now() - 120_000)
+        await fs.utimes(lockDir, stale, stale)
+        await fs.utimes(breaker, stale, stale)
+        await fs.utimes(oldTokenPath, stale, stale)
+      })
+      const contender = yield* flock.withLock(Effect.void, key, dir).pipe(Effect.forkScoped)
+      yield* Deferred.await(observed).pipe(Effect.timeout("1 second"))
+      yield* Effect.promise(async () => {
+        await fs.rm(breaker, { recursive: true })
+        await fs.mkdir(breaker)
+        await fs.writeFile(newTokenPath, "replacement-generation")
+      })
+
+      yield* Deferred.succeed(resume, undefined)
+      yield* Deferred.await(retried).pipe(Effect.timeout("2 seconds"))
+      expect(yield* Effect.promise(() => exists(oldTokenPath))).toBe(false)
+      expect(yield* Effect.promise(() => exists(newTokenPath))).toBe(true)
+
+      yield* Effect.promise(async () => {
+        await fs.rm(newTokenPath)
+        await fs.rmdir(breaker)
+      })
+      expect(Exit.isSuccess(yield* Fiber.await(contender).pipe(Effect.timeout("2 seconds")))).toBe(true)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
     "breaks stale lock dirs",
     Effect.gen(function* () {
       const flock = yield* EffectFlock.Service

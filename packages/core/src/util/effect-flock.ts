@@ -113,7 +113,15 @@ export namespace EffectFlock {
 
       const forceRemove = (target: string) => fs.remove(target, { recursive: true }).pipe(Effect.ignore)
 
-      type BreakerHandle = { token: string; path: string; ownerPath: string }
+      type BreakerHandle = { token: string; path: string; tokenPath: string }
+
+      const removeBreakerGeneration = (handle: BreakerHandle) =>
+        Effect.gen(function* () {
+          const generation = yield* safeStat(handle.tokenPath)
+          if (!generation) return
+          yield* fs.remove(handle.tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
+          yield* fs.removeEmptyDirectory(handle.path).pipe(Effect.ignore)
+        })
 
       const tryAcquireBreaker = (breakerPath: string) =>
         Effect.gen(function* () {
@@ -127,25 +135,31 @@ export namespace EffectFlock {
           )
           if (!created) return
 
+          const token = randomUUID()
           const handle = {
-            token: randomUUID(),
+            token,
             path: breakerPath,
-            ownerPath: path.join(breakerPath, "owner"),
+            tokenPath: path.join(breakerPath, token),
           } satisfies BreakerHandle
-          yield* fs.writeFileString(handle.ownerPath, handle.token, { flag: "wx" }).pipe(
-            Effect.catch((error) => forceRemove(breakerPath).pipe(Effect.andThen(Effect.fail(error)))),
+          const written = yield* fs.writeFileString(handle.tokenPath, handle.token, { flag: "wx" }).pipe(
+            Effect.as(true),
+            Effect.catchIf(isPathGone, () => Effect.succeed(false)),
+            Effect.catch((error) => removeBreakerGeneration(handle).pipe(Effect.andThen(Effect.fail(error)))),
             Effect.orDie,
           )
+          if (!written) return
+          const entries = yield* fs.readDirectory(breakerPath).pipe(
+            Effect.catchIf(isPathGone, () => Effect.succeed([] as string[])),
+            Effect.orDie,
+          )
+          if (entries.length !== 1 || entries[0] !== path.basename(handle.tokenPath)) {
+            yield* removeBreakerGeneration(handle)
+            return
+          }
           return handle
         })
 
-      const releaseBreaker = (handle: BreakerHandle) =>
-        Effect.gen(function* () {
-          const owner = yield* fs.readFileString(handle.ownerPath).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (owner === handle.token) yield* forceRemove(handle.path)
-        })
+      const releaseBreaker = (handle: BreakerHandle) => removeBreakerGeneration(handle)
 
       const withBreaker = <A, E, R>(
         handle: BreakerHandle,
@@ -154,7 +168,7 @@ export namespace EffectFlock {
         Effect.scoped(
           Effect.gen(function* () {
             yield* fs
-              .utimes(handle.path, new Date(), new Date())
+              .utimes(handle.tokenPath, new Date(), new Date())
               .pipe(Effect.ignore, Effect.repeat(Schedule.spaced(HEARTBEAT_MS)), Effect.forkScoped)
             return yield* body
           }),
@@ -183,8 +197,25 @@ export namespace EffectFlock {
         )
 
       const cleanStaleBreaker = Effect.fnUntraced(function* (breakerPath: string) {
-        const bs = yield* safeStat(breakerPath)
-        if (bs && wall() - mtimeMs(bs) > STALE_MS) yield* forceRemove(breakerPath)
+        const entries = yield* fs.readDirectory(breakerPath).pipe(
+          Effect.catchIf(isPathGone, () => Effect.succeed([] as string[])),
+          Effect.orDie,
+        )
+        if (entries.length === 0) {
+          const info = yield* safeStat(breakerPath)
+          if (info && wall() - mtimeMs(info) > STALE_MS) yield* fs.removeEmptyDirectory(breakerPath).pipe(Effect.ignore)
+          return false
+        }
+        yield* Effect.forEach(entries, (entry) =>
+          Effect.gen(function* () {
+            const tokenPath = path.join(breakerPath, entry)
+            const info = yield* safeStat(tokenPath)
+            if (info && wall() - mtimeMs(info) > STALE_MS) {
+              yield* fs.remove(tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
+            }
+          }),
+        )
+        yield* fs.removeEmptyDirectory(breakerPath).pipe(Effect.ignore)
         return false
       })
 

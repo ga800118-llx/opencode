@@ -36,6 +36,7 @@ export namespace FSUtil {
     readonly readJson: (path: string) => Effect.Effect<unknown, Error>
     readonly writeJson: (path: string, data: unknown, mode?: number) => Effect.Effect<void, Error>
     readonly ensureDir: (path: string) => Effect.Effect<void, Error>
+    readonly removeEmptyDirectory: (path: string) => Effect.Effect<void, Error>
     readonly writeWithDirs: (path: string, content: string | Uint8Array, mode?: number) => Effect.Effect<void, Error>
     readonly readDirectoryEntries: (path: string) => Effect.Effect<DirEntry[], Error>
     readonly resolve: (path: string) => Effect.Effect<string>
@@ -124,6 +125,13 @@ export namespace FSUtil {
         )
       })
 
+      const removeEmptyDirectory = Effect.fn("FileSystem.removeEmptyDirectory")(function* (path: string) {
+        yield* Effect.tryPromise({
+          try: () => NFS.rmdir(path),
+          catch: (cause) => new FileSystemError({ method: "removeEmptyDirectory", cause }),
+        })
+      })
+
       const writeWithDirs = Effect.fn("FileSystem.writeWithDirs")(function* (
         path: string,
         content: string | Uint8Array,
@@ -208,6 +216,7 @@ export namespace FSUtil {
         readJson,
         writeJson,
         ensureDir,
+        removeEmptyDirectory,
         writeWithDirs,
         findUp,
         up,
