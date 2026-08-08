@@ -238,17 +238,21 @@ export function PromptInputV2(props: PromptInputV2Props) {
               fallback={
                 <Show when={view.model}>
                   {(control) => (
-                    <PromptInputV2ConfiguredSelect
-                      title={copy().chooseModel}
-                      keybind={["Mod", "M"]}
-                      control={control()}
-                      model
-                    />
+                    <div class="min-w-0 max-[480px]:flex-1 max-[480px]:[&_[data-component=button-v2]]:w-full">
+                      <PromptInputV2ConfiguredSelect
+                        title={copy().chooseModel}
+                        keybind={["Mod", "M"]}
+                        control={control()}
+                        model
+                      />
+                    </div>
                   )}
                 </Show>
               }
             >
-              {props.modelControl}
+              <div class="min-w-0 max-[480px]:flex-1 max-[480px]:[&_[data-component=button-v2]]:w-full">
+                {props.modelControl}
+              </div>
             </Show>
             <Show when={(props.variantControlVisible ?? true) && view.variant}>
               {(control) => (
@@ -507,6 +511,7 @@ export function PromptInputV2AddMenu(props: {
 }) {
   return (
     <TooltipV2
+      class="min-w-0 shrink-0"
       placement="top"
       value={
         <>
@@ -584,6 +589,7 @@ export function PromptInputV2Select(props: {
 }) {
   return (
     <TooltipV2
+      class="min-w-0 shrink-0"
       placement="top"
       value={
         <>
@@ -597,7 +603,7 @@ export function PromptInputV2Select(props: {
           as={ButtonV2}
           variant="ghost-muted"
           size="normal"
-          class={`max-w-[220px] justify-start ![font-weight:440] ${props.class ?? ""}`}
+          class={`min-w-0 max-w-[220px] justify-start ![font-weight:440] ${props.class ?? ""}`}
           aria-label={props.title}
         >
           {props.currentIcon}

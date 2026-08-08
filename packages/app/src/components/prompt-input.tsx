@@ -1649,6 +1649,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <Show when={!agentsLoading()}>
                   <div
                     data-component="prompt-agent-control"
+                    class="min-w-0 max-[480px]:shrink-0"
                     classList={{ "animate-in fade-in duration-300": agentsShouldFadeIn() }}
                   >
                     <TooltipKeybind
@@ -1678,6 +1679,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <Show when={store.mode !== "shell"}>
                     <div
                       data-component="prompt-model-control"
+                      class="min-w-0 max-[480px]:flex-1"
                       classList={{ "animate-in fade-in duration-300": providersShouldFadeIn() }}
                     >
                       <Show
@@ -1694,7 +1696,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               as="div"
                               variant="ghost"
                               size="normal"
-                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group max-[480px]:w-full"
                               style={control()}
                               onClick={() => {
                                 dialog.show(() => <DialogSelectModelUnpaid model={props.controls.model.selection} />)
@@ -1730,7 +1732,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                 variant="ghost"
                                 size="normal"
                                 style={control()}
-                                class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                                class="min-w-0 max-w-[320px] text-13-regular text-text-base group max-[480px]:w-full"
                                 data-action="prompt-model"
                               >
                                 <Show when={props.controls.model.selection.current()?.provider?.id}>
@@ -1755,6 +1757,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <Show when={showVariantControl()}>
                       <div
                         data-component="prompt-variant-control"
+                        class="min-w-0 max-[480px]:shrink-0"
                         classList={{ "animate-in fade-in duration-300": providersShouldFadeIn() }}
                       >
                         <TooltipKeybind

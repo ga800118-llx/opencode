@@ -103,10 +103,8 @@ function PromptInputExample(props: { openPermissionMenu?: boolean } = {}) {
     let attempts = 0
     const open = () => {
       const trigger = root?.querySelector<HTMLButtonElement>('[data-component="prompt-permission-mode-control"] button')
-      if (trigger) {
-        trigger.click()
-        return
-      }
+      if (trigger?.getAttribute("aria-expanded") === "true") return
+      trigger?.click()
       attempts += 1
       if (attempts < 10) frame = requestAnimationFrame(open)
     }
