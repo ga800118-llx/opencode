@@ -136,7 +136,9 @@ describe("v2 location HttpApi", () => {
     const initial = Schema.decodeUnknownSync(ManagementResponse)(await listed.json())
     const installation = initial.data.find((entry) => entry.name === "http-management-fixture")
     expect(installation).toBeDefined()
-    expect(installation?.deletable).toBe(true)
+    expect(installation).toMatchObject(
+      process.platform === "win32" ? { deletable: false, deleteBlocked: "unsafe" } : { deletable: true },
+    )
     expect(initial.location.directory).toBe(AbsolutePath.make(tmp.path))
 
     const disabled = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
@@ -153,6 +155,19 @@ describe("v2 location HttpApi", () => {
     })
 
     const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
+    if (process.platform === "win32") {
+      expect(removed.status).toBe(403)
+      expect(await removed.json()).toEqual({
+        _tag: "SkillManagementForbiddenError",
+        id: installation!.id,
+        reason: "unsafe",
+        message: "Skill cannot be deleted.",
+      })
+      expect(await fs.stat(tmp.extra)).toBeDefined()
+      expect(await fs.stat(path.join(tmp.extra, "SKILL.md"))).toBeDefined()
+      return
+    }
+
     expect(removed.status).toBe(200)
     const removedBody = Schema.decodeUnknownSync(ManagementResponse)(await removed.json())
     expect(removedBody.location.directory).toBe(AbsolutePath.make(tmp.path))
@@ -163,7 +178,7 @@ describe("v2 location HttpApi", () => {
     const recovery = records.find((record) => record.includes(installation!.id.slice(0, 12)))
     expect(recovery).toBeDefined()
     const metadata = path.join(Global.Path.state, "skills", "trash", recovery!, "metadata.json")
-    if (process.platform !== "win32") expect((await fs.stat(metadata)).mode & 0o777).toBe(0o600)
+    expect((await fs.stat(metadata)).mode & 0o777).toBe(0o600)
     expect(JSON.parse(await Bun.file(metadata).text())).toMatchObject({ id: installation!.id, originalPath: tmp.extra })
     expect(await fs.stat(path.join(Global.Path.state, "skills", "trash", recovery!, "payload"))).toBeDefined()
   })
