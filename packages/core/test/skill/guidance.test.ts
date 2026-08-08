@@ -37,6 +37,7 @@ const layer = (list: () => SkillV2.Info[]) =>
         management: {
           list: () => Effect.succeed([]),
           setEnabled: () => Effect.die("unused"),
+          remove: () => Effect.die("unused"),
         },
       }),
     ],

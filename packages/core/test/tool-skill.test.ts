@@ -66,6 +66,7 @@ describe("SkillTool", () => {
               management: {
                 list: () => Effect.succeed([]),
                 setEnabled: () => Effect.die("unused"),
+                remove: () => Effect.die("unused"),
               },
             }),
           )

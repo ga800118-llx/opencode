@@ -15,13 +15,16 @@ import { SkillDiscovery } from "./skill/discovery"
 import {
   effective,
   id,
+  management,
   NotFoundError,
   OperationError,
-  project,
+  ProtectedError,
   readState,
+  remove,
   scope,
   statePaths,
   updateState,
+  UnsafePathError,
   type Installed,
   type ManagementError,
 } from "./skill/management"
@@ -55,7 +58,7 @@ export type ManagementSource = typeof ManagementSource.Type
 export const ManagementInfo = Skill.ManagementInfo
 export type ManagementInfo = Skill.ManagementInfo
 
-export { NotFoundError, OperationError }
+export { NotFoundError, OperationError, ProtectedError, UnsafePathError }
 export type { ManagementError }
 
 export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
@@ -86,6 +89,7 @@ export interface Interface extends State.Transformable<Draft> {
       id: ManagementID,
       enabled: boolean,
     ) => Effect.Effect<ManagementInfo[], ManagementError>
+    readonly remove: (id: ManagementID) => Effect.Effect<ManagementInfo[], ManagementError>
   }
 }
 
@@ -171,7 +175,7 @@ const layer = Layer.effect(
       return effective(yield* installed(), yield* disabled())
     })
     const managementList = Effect.fn("SkillV2.management.list")(function* () {
-      return project(yield* installed(), yield* disabled())
+      return yield* management(yield* installed(), yield* disabled(), fs)
     })
 
     return Service.of({
@@ -190,6 +194,13 @@ const layer = Layer.effect(
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
           yield* updateState(fs, flock, paths[scope(installation.source)], installationID, enabled)
+          return yield* managementList()
+        }),
+        remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {
+          const installation = (yield* installed()).find((entry) => id(entry) === installationID)
+          if (!installation) return yield* new NotFoundError({ id: installationID })
+          yield* remove(fs, flock, global, paths[scope(installation.source)], installation)
+          cache.delete(Source.key(installation.source))
           return yield* managementList()
         }),
       },
