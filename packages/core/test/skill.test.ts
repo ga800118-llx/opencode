@@ -9,6 +9,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
+import { project, type Installed } from "@opencode-ai/core/skill/management"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
@@ -39,6 +40,80 @@ description: ${description}
 }
 
 describe("SkillV2", () => {
+  it.live("projects built-in, configured, and plugin-owned management sources", () =>
+    Effect.sync(() => {
+      const builtin = SkillV2.Info.make({
+        name: "builtin",
+        location: AbsolutePath.make("/builtin/builtin.md"),
+        content: "Builtin",
+      })
+      const directory = SkillV2.Info.make({
+        name: "directory",
+        location: AbsolutePath.make("/repo/.opencode/skills/directory/SKILL.md"),
+        content: "Directory",
+      })
+      const url = SkillV2.Info.make({
+        name: "url",
+        location: AbsolutePath.make("/cache/skills/url/SKILL.md"),
+        content: "URL",
+      })
+      const plugin = SkillV2.Info.make({
+        name: "plugin",
+        location: AbsolutePath.make("/plugins/example/skills/plugin/SKILL.md"),
+        content: "Plugin",
+      })
+      const entries: Installed[] = [
+        {
+          source: SkillV2.EmbeddedSource.make({
+            type: "embedded",
+            skill: builtin,
+            origin: { scope: "global", type: "builtin", value: "builtin" },
+          }),
+          info: builtin,
+        },
+        {
+          source: SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make("/repo/.opencode/skills"),
+            origin: { scope: "project", type: "config-directory", value: "/repo/.opencode" },
+          }),
+          info: directory,
+        },
+        {
+          source: SkillV2.UrlSource.make({
+            type: "url",
+            url: "https://example.test/skills/",
+            origin: { scope: "global", type: "config-file", value: "/home/user/.config/opencode.json" },
+          }),
+          info: url,
+        },
+        {
+          source: SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make("/plugins/example/skills"),
+            origin: { scope: "project", type: "plugin", value: "example-plugin" },
+          }),
+          info: plugin,
+        },
+      ]
+
+      const managed = project(entries, new Set())
+      expect(managed.map((item) => ({ deleteBlocked: item.deleteBlocked, source: item.source }))).toEqual([
+        { deleteBlocked: "builtin", source: { type: "builtin", scope: "global", value: "builtin" } },
+        {
+          deleteBlocked: "unsafe",
+          source: { type: "directory", scope: "project", value: AbsolutePath.make("/repo/.opencode/skills") },
+        },
+        {
+          deleteBlocked: "remote",
+          source: { type: "url", scope: "global", value: "https://example.test/skills/" },
+        },
+        { deleteBlocked: "plugin", source: { type: "plugin", scope: "project", value: "example-plugin" } },
+      ])
+      expect(managed.every((item) => !("content" in item))).toBe(true)
+    }),
+  )
+
   it.live("retains source origin metadata", () =>
     Effect.gen(function* () {
       const skill = yield* SkillV2.Service

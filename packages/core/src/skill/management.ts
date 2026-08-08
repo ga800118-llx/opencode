@@ -13,22 +13,28 @@ export function id(entry: Installed) {
 }
 
 export function project(entries: readonly Installed[], disabled: ReadonlySet<Skill.ManagementID>) {
-  const enabled = entries.filter((entry) => !disabled.has(id(entry)))
-  const active = new Map(enabled.map((entry) => [entry.info.name, id(entry)]))
-  return entries.map((entry) => {
-    const installationID = id(entry)
-    const isEnabled = !disabled.has(installationID)
+  const identified = entries.map((entry) => ({ entry, id: id(entry) }))
+  const active = new Map(
+    identified
+      .filter((item) => !disabled.has(item.id))
+      .map((item) => [item.entry.info.name, item.id]),
+  )
+  return identified.map((item) => {
+    const isEnabled = !disabled.has(item.id)
     return toInfo(
-      entry,
-      installationID,
-      isEnabled ? (active.get(entry.info.name) === installationID ? "active" : "shadowed") : "disabled",
+      item.entry,
+      item.id,
+      isEnabled ? (active.get(item.entry.info.name) === item.id ? "active" : "shadowed") : "disabled",
     )
   })
 }
 
 export function effective(entries: readonly Installed[], disabled: ReadonlySet<Skill.ManagementID>) {
   const skills = new Map<string, Skill.Info>()
-  entries.filter((entry) => !disabled.has(id(entry))).forEach((entry) => skills.set(entry.info.name, entry.info))
+  entries
+    .map((entry) => ({ entry, id: id(entry) }))
+    .filter((item) => !disabled.has(item.id))
+    .forEach((item) => skills.set(item.entry.info.name, item.entry.info))
   return Array.from(skills.values())
 }
 
@@ -64,6 +70,14 @@ function source(input: Skill.Source): typeof Skill.ManagementSource.Type {
       type: "plugin",
       scope: "project",
       value: input.type === "directory" ? input.path : input.type === "url" ? input.url : input.skill.name,
+    }
+  }
+  if (input.origin.type === "plugin") {
+    return {
+      type: "plugin",
+      scope: input.origin.scope,
+      value:
+        input.origin.value ?? (input.type === "directory" ? input.path : input.type === "url" ? input.url : input.skill.name),
     }
   }
   if (input.origin.type === "builtin") {
