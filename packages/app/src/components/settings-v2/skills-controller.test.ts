@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
-import { filterSkills, isPending, scopeKey, sourceKey, statusKey } from "./skills-controller"
+import {
+  blockedKey,
+  createSkillRefreshQueue,
+  filterSkills,
+  isPending,
+  scopeKey,
+  sourceKey,
+  statusKey,
+} from "./skills-controller"
 
 const decode = Schema.decodeUnknownSync(Skill.ManagementInfo)
 
@@ -69,6 +77,9 @@ describe("Skill settings controller", () => {
       "review",
     ])
     expect(filterSkills(items, { query: "example.com", status: "all" }).map((item) => item.name)).toEqual(["docs"])
+    expect(filterSkills(items, { query: "implementation plan", status: "all" }).map((item) => item.name)).toEqual([
+      "plan",
+    ])
     expect(filterSkills(items, { query: "", status: "disabled" }).every((item) => item.status === "disabled")).toBe(
       true,
     )
@@ -85,10 +96,38 @@ describe("Skill settings controller", () => {
     expect(statusKey(items[0]!)).toBe("settings.skills.status.active")
     expect(statusKey(items[1]!)).toBe("settings.skills.status.disabled")
     expect(statusKey(items[2]!)).toBe("settings.skills.status.shadowed")
+    expect(blockedKey(items[0]!)).toBeUndefined()
+    expect(blockedKey(items[1]!)).toBe("settings.skills.deleteBlocked.unsafe")
+    expect(blockedKey(items[2]!)).toBe("settings.skills.deleteBlocked.builtin")
+    expect(blockedKey(items[3]!)).toBe("settings.skills.deleteBlocked.remote")
+    expect(blockedKey(items[4]!)).toBe("settings.skills.deleteBlocked.plugin")
   })
 
-  test("marks only the installation matching the pending ID", () => {
-    expect(items.map((item) => isPending(items[1]!.id, item))).toEqual([false, true, false, false, false])
-    expect(items.every((item) => !isPending(undefined, item))).toBe(true)
+  test("tracks one or multiple pending installations independently", () => {
+    const one = new Set([items[1]!.id])
+    const concurrent = new Set([items[1]!.id, items[3]!.id])
+    expect(items.map((item) => isPending(one, item))).toEqual([false, true, false, false, false])
+    expect(items.map((item) => isPending(concurrent, item))).toEqual([false, true, false, true, false])
+    expect(items.every((item) => !isPending(new Set(), item))).toBe(true)
+  })
+
+  test("serializes concurrent cache refreshes in mutation completion order", async () => {
+    const calls: string[] = []
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const refresh = createSkillRefreshQueue(async (key: string) => {
+      calls.push(key)
+      if (key === "first") await gate
+    })
+
+    const first = refresh("first")
+    const second = refresh("second")
+    await Promise.resolve()
+    expect(calls).toEqual(["first"])
+    release()
+    await Promise.all([first, second])
+    expect(calls).toEqual(["first", "second"])
   })
 })

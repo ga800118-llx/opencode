@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
-import { createSkillManagementApi, SkillManagementRequestError } from "./skill-management-api"
+import {
+  createSkillManagementApi,
+  isSkillManagementNotFound,
+  SkillManagementRequestError,
+} from "./skill-management-api"
 
 const id = Schema.decodeUnknownSync(Skill.ManagementID)("skill/id with spaces")
 const response = {
@@ -67,5 +71,11 @@ describe("Skill management API", () => {
     expect((error as Error).message).toBe("Skill management request failed (500)")
     expect((error as Error).message).not.toContain("secret")
     expect((error as Error).message).not.toContain("/Users/test")
+  })
+
+  test("classifies only management 404 responses as missing installations", () => {
+    expect(isSkillManagementNotFound(new SkillManagementRequestError(404))).toBe(true)
+    expect(isSkillManagementNotFound(new SkillManagementRequestError(500))).toBe(false)
+    expect(isSkillManagementNotFound(new Error("404"))).toBe(false)
   })
 })

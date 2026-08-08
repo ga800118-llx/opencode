@@ -13,8 +13,18 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type Component, createMemo, createSignal, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
+import { isSkillManagementNotFound } from "@/utils/skill-management-api"
 import { showToast } from "@/utils/toast"
-import { filterSkills, isPending, scopeKey, sourceKey, statusKey, type SkillStatusFilter } from "./skills-controller"
+import {
+  blockedKey,
+  createSkillRefreshQueue,
+  filterSkills,
+  isPending,
+  scopeKey,
+  sourceKey,
+  statusKey,
+  type SkillStatusFilter,
+} from "./skills-controller"
 import { SettingsListV2 } from "./parts/list"
 import "./settings-v2.css"
 
@@ -27,7 +37,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
   const queryClient = useQueryClient()
   const [query, setQuery] = createSignal("")
   const [status, setStatus] = createSignal<SkillStatusFilter>("all")
-  const [pendingID, setPendingID] = createSignal<Skill.ManagementID>()
+  const [pendingIDs, setPendingIDs] = createSignal<ReadonlySet<Skill.ManagementID>>(new Set())
   const queryKey = () => [serverSDK().scope, props.directory, "skill-management"] as const
   const skills = useQuery(() => ({
     queryKey: queryKey(),
@@ -37,55 +47,64 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
   }))
   const items = createMemo(() => skills.data ?? [])
   const filtered = createMemo(() => filterSkills(items(), { query: query(), status: status() }))
+  const refreshSkills = createSkillRefreshQueue((key: ReturnType<typeof queryKey>) =>
+    queryClient.invalidateQueries({ queryKey: key, exact: true }),
+  )
+  const begin = (id: Skill.ManagementID) => {
+    if (pendingIDs().has(id)) return false
+    setPendingIDs(new Set([...pendingIDs(), id]))
+    return true
+  }
+  const end = (id: Skill.ManagementID) => setPendingIDs(new Set([...pendingIDs()].filter((value) => value !== id)))
 
   const setEnabled = async (item: Skill.ManagementInfo, enabled: boolean) => {
-    if (!props.directory || pendingID()) return false
+    if (!props.directory || !begin(item.id)) return false
     const directory = props.directory
     const key = queryKey()
-    setPendingID(item.id)
-    return serverSDK()
-      .skillManagement.setEnabled(directory, item.id, enabled)
-      .then((next) => {
-        queryClient.setQueryData(key, next)
-        showToast({
-          title: language.t(enabled ? "settings.skills.enable.success" : "settings.skills.disable.success", {
-            name: item.name,
-          }),
-        })
-        return true
+    const api = serverSDK().skillManagement
+    try {
+      await api.setEnabled(directory, item.id, enabled)
+      await refreshSkills(key).catch(() => undefined)
+      showToast({
+        title: language.t(enabled ? "settings.skills.enable.success" : "settings.skills.disable.success", {
+          name: item.name,
+        }),
       })
-      .catch(() => {
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: language.t(enabled ? "settings.skills.enable.failure" : "settings.skills.disable.failure", {
-            name: item.name,
-          }),
-        })
-        return false
+      return true
+    } catch (error) {
+      if (isSkillManagementNotFound(error)) await refreshSkills(key).catch(() => undefined)
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t(enabled ? "settings.skills.enable.failure" : "settings.skills.disable.failure", {
+          name: item.name,
+        }),
       })
-      .finally(() => setPendingID(undefined))
+      return false
+    } finally {
+      end(item.id)
+    }
   }
 
   const remove = async (item: Skill.ManagementInfo) => {
-    if (!props.directory || pendingID()) return false
+    if (!props.directory || !begin(item.id)) return false
     const directory = props.directory
     const key = queryKey()
-    setPendingID(item.id)
-    return serverSDK()
-      .skillManagement.remove(directory, item.id)
-      .then((next) => {
-        queryClient.setQueryData(key, next)
-        showToast({ title: language.t("settings.skills.delete.success", { name: item.name }) })
-        return true
+    const api = serverSDK().skillManagement
+    try {
+      await api.remove(directory, item.id)
+      await refreshSkills(key).catch(() => undefined)
+      showToast({ title: language.t("settings.skills.delete.success", { name: item.name }) })
+      return true
+    } catch (error) {
+      if (isSkillManagementNotFound(error)) await refreshSkills(key).catch(() => undefined)
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t("settings.skills.delete.failure", { name: item.name }),
       })
-      .catch(() => {
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: language.t("settings.skills.delete.failure", { name: item.name }),
-        })
-        return false
-      })
-      .finally(() => setPendingID(undefined))
+      return false
+    } finally {
+      end(item.id)
+    }
   }
 
   const confirmRemove = (item: Skill.ManagementInfo) => {
@@ -93,7 +112,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     void dialog.push(() => (
       <DialogDeleteSkill
         item={item}
-        pending={() => isPending(pendingID(), item)}
+        pending={() => isPending(pendingIDs(), item)}
         remove={() => remove(item)}
       />
     ))
@@ -106,8 +125,17 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
           <h2 class="settings-v2-tab-title">{language.t("settings.skills.title")}</h2>
           <span class="settings-v2-skills-count">{language.t("settings.skills.count", { count: items().length })}</span>
         </div>
-        <Show when={items().length > 1}>
-          <div class="settings-v2-tab-search settings-v2-skills-search">
+        <div class="settings-v2-tab-search settings-v2-skills-search">
+          <Show
+            when={items().length > 1}
+            fallback={
+              <div
+                class="settings-v2-skills-search-placeholder"
+                data-loading={props.directory && skills.isPending ? "" : undefined}
+                aria-hidden="true"
+              />
+            }
+          >
             <TextInputV2
               type="search"
               appearance="base"
@@ -120,8 +148,8 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
               autocomplete="off"
               autocapitalize="off"
             />
-          </div>
-        </Show>
+          </Show>
+        </div>
         <SegmentedControlV2
           class="settings-v2-skills-filters"
           value={status()}
@@ -150,8 +178,12 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                         const source = () => language.t(sourceKey(item))
                         const scope = () => language.t(scopeKey(item))
                         const state = () => language.t(statusKey(item))
+                        const blocked = () => {
+                          const key = blockedKey(item)
+                          return key ? language.t(key) : undefined
+                        }
                         const location = () => (item.source.type === "url" ? item.source.value : item.location)
-                        const pending = () => isPending(pendingID(), item)
+                        const pending = () => isPending(pendingIDs(), item)
                         return (
                           <div class="settings-v2-skills-row">
                             <div class="settings-v2-skills-copy">
@@ -178,6 +210,13 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                                   </span>
                                   <span aria-hidden="true">{state()}</span>
                                 </Tag>
+                                <Show when={blocked()}>
+                                  {(reason) => (
+                                    <span class="settings-v2-skills-blocked" title={reason()}>
+                                      {reason()}
+                                    </span>
+                                  )}
+                                </Show>
                               </div>
                               <div
                                 class="settings-v2-skills-location"

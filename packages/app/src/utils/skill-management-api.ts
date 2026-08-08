@@ -20,6 +20,10 @@ export class SkillManagementRequestError extends Error {
   }
 }
 
+export function isSkillManagementNotFound(error: unknown) {
+  return error instanceof SkillManagementRequestError && error.status === 404
+}
+
 export function createSkillManagementApi(input: {
   baseUrl: string
   headers?: HeadersInit

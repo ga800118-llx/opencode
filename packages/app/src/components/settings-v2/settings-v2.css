@@ -1389,6 +1389,22 @@
   width: 100%;
 }
 
+.settings-v2-skills-search {
+  min-height: 32px;
+}
+
+.settings-v2-skills-search-placeholder {
+  width: 100%;
+  height: 32px;
+  border: 0.5px solid transparent;
+  border-radius: 6px;
+}
+
+.settings-v2-skills-search-placeholder[data-loading] {
+  border-color: var(--v2-border-border-muted);
+  background-color: var(--v2-background-bg-layer-01);
+}
+
 .settings-v2-skills-filters {
   align-self: flex-start;
   max-width: 100%;
@@ -1454,6 +1470,17 @@
 
 .settings-v2-skills-meta [data-component="tag"] {
   max-width: 100%;
+}
+
+.settings-v2-skills-blocked {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--v2-text-text-faint);
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-v2-skills-location {

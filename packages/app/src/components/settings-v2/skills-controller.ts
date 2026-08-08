@@ -37,6 +37,22 @@ export function scopeKey(item: Skill.ManagementInfo) {
     : ("settings.skills.scope.project" as const)
 }
 
-export function isPending(pendingID: Skill.ManagementID | undefined, item: Skill.ManagementInfo) {
-  return pendingID === item.id
+export function blockedKey(item: Skill.ManagementInfo) {
+  if (item.deleteBlocked === "builtin") return "settings.skills.deleteBlocked.builtin" as const
+  if (item.deleteBlocked === "remote") return "settings.skills.deleteBlocked.remote" as const
+  if (item.deleteBlocked === "plugin") return "settings.skills.deleteBlocked.plugin" as const
+  if (item.deleteBlocked === "unsafe") return "settings.skills.deleteBlocked.unsafe" as const
+}
+
+export function isPending(pendingIDs: ReadonlySet<Skill.ManagementID>, item: Skill.ManagementInfo) {
+  return pendingIDs.has(item.id)
+}
+
+export function createSkillRefreshQueue<Key>(refresh: (key: Key) => Promise<void>) {
+  let queue = Promise.resolve()
+  return (key: Key) => {
+    const current = queue.then(() => refresh(key))
+    queue = current.catch(() => undefined)
+    return current
+  }
 }
