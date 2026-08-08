@@ -48,6 +48,7 @@ describe("ConfigSkillPlugin.Plugin", () => {
             entries: () =>
               Effect.succeed([
                 new Config.Directory({ type: "directory", path: globalConfig }),
+                new Config.Directory({ type: "directory", path: AbsolutePath.make(path.join(globalConfig, "..skills")) }),
                 new Config.Directory({ type: "directory", path: AbsolutePath.make("/home/test/.config/opencode-backup") }),
                 new Config.Directory({ type: "directory", path: AbsolutePath.make("/repo/.opencode") }),
                 new Config.Document({
@@ -79,6 +80,16 @@ describe("ConfigSkillPlugin.Plugin", () => {
           type: "directory",
           path: AbsolutePath.make(path.join(globalConfig, "skills")),
           origin: { scope: "global", type: "config-directory", value: globalConfig },
+        }),
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make(path.join(globalConfig, "..skills", "skill")),
+          origin: { scope: "global", type: "config-directory", value: path.join(globalConfig, "..skills") },
+        }),
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make(path.join(globalConfig, "..skills", "skills")),
+          origin: { scope: "global", type: "config-directory", value: path.join(globalConfig, "..skills") },
         }),
         SkillV2.DirectorySource.make({
           type: "directory",

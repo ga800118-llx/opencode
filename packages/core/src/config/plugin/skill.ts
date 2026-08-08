@@ -61,6 +61,6 @@ export const Plugin = define({
 function scope(globalConfig: string, entryPath: string | undefined) {
   if (!entryPath) return "project" as const
   const relative = path.relative(globalConfig, entryPath)
-  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return "global" as const
-  return "project" as const
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return "project" as const
+  return "global" as const
 }
