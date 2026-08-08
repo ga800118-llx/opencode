@@ -131,6 +131,7 @@ export const node = makeGlobalNode({ service: Service, layer, deps: [] })
 
 async function probeLibrary() {
   if (process.platform !== "darwin" && process.platform !== "linux") return undefined
+  if (process.arch !== "x64" && process.arch !== "arm64") return undefined
   for (const candidate of libraryCandidates()) {
     const native = await openNative(candidate).catch(() => undefined)
     if (!native) continue
