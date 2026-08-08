@@ -12,6 +12,7 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { Permission } from "@opencode-ai/schema/permission"
 import { batch } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { message as cleanMessage } from "@/utils/diffs"
@@ -24,6 +25,14 @@ import { createV2SessionReducer, type V2SessionReduction } from "./server-sessio
 import type { ServerApi } from "@/utils/server"
 
 type MessageApi = ServerApi["message"]
+type ProjectedSession = Session & { readonly permissionMode?: Permission.Mode }
+
+function isPermissionModeSwitched(value: unknown): value is { sessionID: string; mode: Permission.Mode } {
+  if (!value || typeof value !== "object") return false
+  if (!("sessionID" in value) || typeof value.sessionID !== "string") return false
+  if (!("mode" in value)) return false
+  return value.mode === "restricted" || value.mode === "standard" || value.mode === "auto"
+}
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const cmpMessage = (a: Message, b: Message) => a.time.created - b.time.created || cmp(a.id, b.id)
@@ -194,7 +203,7 @@ export function createServerSession(
   const sessionApi = messageApi ? (sessionApiOrOptions as SessionApi) : undefined
   const options = messageApi ? currentOptions : (sessionApiOrOptions as ServerSessionOptions | undefined)
   const [data, setData] = createStore({
-    info: {} as Record<string, Session | undefined>,
+    info: {} as Record<string, ProjectedSession | undefined>,
     session_status: {} as Record<string, SessionStatus>,
     session_diff: {} as Record<string, FileDiffInfo[]>,
     todo: {} as Record<string, Todo[]>,
@@ -257,7 +266,7 @@ export function createServerSession(
     )
   }
 
-  const remember = (session: Session) => {
+  const remember = (session: ProjectedSession) => {
     setData("info", session.id, reconcile(session))
     infoSeen.delete(session.id)
     infoSeen.add(session.id)
@@ -1004,6 +1013,14 @@ export function createServerSession(
         const info = (event.properties as { info: Session }).info
         remember(info)
         if (info.time.archived) evict([info.id])
+        return
+      }
+      case "session.next.permission-mode.switched": {
+        if (!isPermissionModeSwitched(event.properties)) return
+        const properties = event.properties
+        const info = data.info[properties.sessionID]
+        if (!info) return
+        remember({ ...info, permissionMode: properties.mode })
         return
       }
       case "session.deleted": {

@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
+  acceptKey,
   autoRespondsPermission,
+  directoryAcceptKey,
   isDirectoryAutoAccepting,
   modeAutoRespondsPermission,
+  normalizeAcceptKeys,
   sessionAutoAccept,
 } from "./permission-auto-respond"
 
@@ -18,6 +21,21 @@ const permission = (sessionID: string) =>
   ({
     sessionID,
   }) as Pick<PermissionRequest, "sessionID">
+
+describe("permission storage keys", () => {
+  test("normalizes trailing slashes and Windows separators", () => {
+    expect(directoryAcceptKey("/repo/")).toBe(directoryAcceptKey("/repo"))
+    expect(acceptKey("session", "C:\\repo\\")).toBe(acceptKey("session", "C:/repo"))
+  })
+
+  test("migrates legacy directory keys and lets canonical values win", () => {
+    const legacy = `${base64Encode("/repo/")}/*`
+    const canonical = directoryAcceptKey("/repo")
+
+    expect(normalizeAcceptKeys({ [legacy]: true })).toEqual({ [canonical]: true })
+    expect(normalizeAcceptKeys({ [legacy]: true, [canonical]: false })).toEqual({ [canonical]: false })
+  })
+})
 
 describe("autoRespondsPermission", () => {
   test("uses a parent session's directory-scoped auto-accept", () => {
@@ -126,6 +144,11 @@ describe("isDirectoryAutoAccepting", () => {
     const directory = "/tmp/project"
     const autoAccept = { [`${base64Encode(directory)}/*`]: false }
     expect(isDirectoryAutoAccepting(autoAccept, directory)).toBe(false)
+  })
+
+  test("reads a legacy equivalent directory key before persistence migration", () => {
+    const autoAccept = { [`${base64Encode("/tmp/project/")}/*`]: true }
+    expect(isDirectoryAutoAccepting(autoAccept, "/tmp/project")).toBe(true)
   })
 })
 

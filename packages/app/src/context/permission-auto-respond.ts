@@ -1,23 +1,53 @@
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Decode, base64Encode } from "@opencode-ai/core/util/encode"
 import type { Permission } from "@opencode-ai/schema/permission"
+import { pathKey } from "@/utils/path-key"
+
+export function normalizeAcceptKey(key: string) {
+  const separator = key.indexOf("/")
+  if (separator <= 0) return key
+
+  try {
+    const directory = base64Decode(key.slice(0, separator))
+    return `${base64Encode(pathKey(directory))}${key.slice(separator)}`
+  } catch {
+    return key
+  }
+}
+
+export function normalizeAcceptKeys<T>(values: Record<string, T>) {
+  const entries = Object.entries(values)
+  const legacy = entries
+    .filter(([key]) => normalizeAcceptKey(key) !== key)
+    .map(([key, value]): [string, T] => [normalizeAcceptKey(key), value])
+  const canonical = entries.filter(([key]) => normalizeAcceptKey(key) === key)
+  return legacy.concat(canonical).reduce<Record<string, T>>((result, [key, value]) => {
+    result[key] = value
+    return result
+  }, {})
+}
+
+export function storedAcceptValue<T>(values: Record<string, T>, key: string) {
+  if (key in values) return values[key]
+  return Object.entries(values).find(([candidate]) => normalizeAcceptKey(candidate) === key)?.[1]
+}
 
 export function acceptKey(sessionID: string, directory?: string) {
   if (!directory) return sessionID
-  return `${base64Encode(directory)}/${sessionID}`
+  return `${base64Encode(pathKey(directory))}/${sessionID}`
 }
 
 export function directoryAcceptKey(directory: string) {
-  return `${base64Encode(directory)}/*`
+  return `${base64Encode(pathKey(directory))}/*`
 }
 
 function accepted(autoAccept: Record<string, boolean>, sessionID: string, directory?: string) {
   const key = acceptKey(sessionID, directory)
-  return autoAccept[key] ?? autoAccept[sessionID]
+  return storedAcceptValue(autoAccept, key) ?? autoAccept[sessionID]
 }
 
 export function isDirectoryAutoAccepting(autoAccept: Record<string, boolean>, directory: string) {
   const key = directoryAcceptKey(directory)
-  return autoAccept[key] ?? false
+  return storedAcceptValue(autoAccept, key) ?? false
 }
 
 function sessionLineage(session: { id: string; parentID?: string }[], sessionID: string) {

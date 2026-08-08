@@ -1,7 +1,9 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import type { Permission } from "@opencode-ai/schema/permission"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { createRoot } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { ServerSDK } from "./server-sdk"
 import type { ServerSync } from "./server-sync"
 import { directoryAcceptKey } from "./permission-auto-respond"
@@ -29,6 +31,10 @@ describe("projectPermissionMode", () => {
     expect(projectPermissionMode({ [directoryAcceptKey("/project")]: "auto" }, "/project")).toBe("auto")
   })
 
+  test("reads legacy equivalent project keys before persistence migration", () => {
+    expect(projectPermissionMode({ [`${base64Encode("/project/")}/*`]: "auto" }, "/project")).toBe("auto")
+  })
+
   test("ignores invalid persisted modes", () => {
     expect(projectPermissionMode({ [directoryAcceptKey("/project")]: "always" }, "/project")).toBe("standard")
   })
@@ -44,6 +50,12 @@ describe("migratePermissionModes", () => {
         session: true,
       }),
     ).toEqual({ [directory]: "auto" })
+  })
+
+  test("normalizes legacy directory keys while migrating", () => {
+    expect(migratePermissionModes({ [`${base64Encode("C:\\project\\")}/*`]: true })).toEqual({
+      [directoryAcceptKey("C:/project")]: "auto",
+    })
   })
 })
 
@@ -113,6 +125,35 @@ describe("V2 permission mode state", () => {
     expect(harness.state.mode("session", "/project")).toBe("restricted")
   })
 
+  test("serializes same-session switches and lets the latest request win after an older failure", async () => {
+    const first = Promise.withResolvers<void>()
+    const second = Promise.withResolvers<void>()
+    const requests = [first, second]
+    const harness = setup({
+      permissionMode: "standard",
+      switchMode: () => requests.shift()!.promise,
+    })
+
+    const older = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
+    await Bun.sleep(0)
+    const latest = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    await Bun.sleep(0)
+
+    expect(harness.switches).toEqual([{ sessionID: "session", mode: "auto" }])
+
+    first.reject(new Error("older switch failed"))
+    await expect(older).rejects.toThrow("older switch failed")
+    await Bun.sleep(0)
+    expect(harness.switches).toEqual([
+      { sessionID: "session", mode: "auto" },
+      { sessionID: "session", mode: "restricted" },
+    ])
+
+    second.resolve()
+    await latest
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+  })
+
   test("entering auto responds to existing pending requests once", async () => {
     const request = permission("permission", "session")
     const harness = setup({ permissionMode: "standard", pending: [request, request] })
@@ -130,10 +171,106 @@ describe("V2 permission mode state", () => {
     ])
   })
 
+  test("waits for capability before deciding against legacy auto-accept", async () => {
+    const capability = Promise.withResolvers<boolean>()
+    const request = permission("permission", "session")
+    const harness = setup({
+      permissionMode: "restricted",
+      supportsPermissionModes: false,
+      permissionModeCapability: capability.promise,
+    })
+
+    harness.state.enableAutoAccept("session", "/project")
+    harness.ask(request)
+    await Bun.sleep(0)
+    expect(harness.replies).toEqual([])
+
+    capability.resolve(true)
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+    expect(harness.replies).toEqual([])
+  })
+
+  test("sweeps startup pending requests when capability resolves", async () => {
+    const capability = Promise.withResolvers<boolean>()
+    const request = permission("permission", "session")
+    const harness = setup({
+      permissionMode: "auto",
+      supportsPermissionModes: false,
+      permissionModeCapability: capability.promise,
+      pending: [request],
+    })
+
+    await Bun.sleep(0)
+    expect(harness.replies).toEqual([])
+    capability.resolve(true)
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+
+    expect(harness.replies).toEqual([
+      {
+        sessionID: "session",
+        requestID: "permission",
+        reply: "once",
+        location: { directory: "/project" },
+      },
+    ])
+  })
+
+  test("sweeps pending requests loaded by bootstrap after capability is ready", async () => {
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "auto" })
+
+    harness.bootstrap(request)
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+
+    expect(harness.replies).toEqual([
+      {
+        sessionID: "session",
+        requestID: "permission",
+        reply: "once",
+        location: { directory: "/project" },
+      },
+    ])
+  })
+
+  test("does not sweep pending requests for restricted or standard tasks", async () => {
+    for (const mode of ["restricted", "standard"] as const) {
+      const capability = Promise.withResolvers<boolean>()
+      const harness = setup({
+        permissionMode: mode,
+        supportsPermissionModes: false,
+        permissionModeCapability: capability.promise,
+        pending: [permission(`permission-${mode}`, "session")],
+      })
+
+      capability.resolve(true)
+      await Bun.sleep(0)
+      await Bun.sleep(0)
+      expect(harness.replies).toEqual([])
+    }
+  })
+
+  test("applies cross-window mode events and sweeps newly auto tasks", async () => {
+    const request = permission("permission", "session")
+    const harness = setup({ permissionMode: "standard", pending: [request] })
+
+    harness.switchEvent("auto")
+    await Bun.sleep(0)
+    await Bun.sleep(0)
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+    expect(harness.replies).toHaveLength(1)
+
+    harness.switchEvent("restricted")
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+  })
+
   test("leaving auto invalidates delayed pending responses", async () => {
     const request = permission("permission", "session")
     const list = Promise.withResolvers<{ data: ReturnType<typeof currentPermission>[] }>()
     const harness = setup({ permissionMode: "standard", pending: [request], list: () => list.promise })
+    await Bun.sleep(0)
 
     const entering = harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
     await Bun.sleep(0)
@@ -236,15 +373,23 @@ function setup(input: {
   const pending = input.pending ?? []
   const replies: unknown[] = []
   const switches: Array<{ sessionID: string; mode: Permission.Mode }> = []
-  const events: {
-    permission?: (event: { name: string; details: { type: "permission.asked"; properties: PermissionRequest } }) => void
-  } = {}
+  type TestEvent =
+    | { name: string; details: { type: "permission.asked"; properties: PermissionRequest } }
+    | {
+        name: string
+        details: {
+          type: "session.next.permission-mode.switched"
+          properties: { sessionID: string; mode: Permission.Mode }
+        }
+      }
+  const events: { permission?: (event: TestEvent) => void } = {}
+  const [sessionData, setSessionData] = createStore({
+    info: { session: record } as Record<string, Session | undefined>,
+    permission: { session: pending } as Record<string, PermissionRequest[]>,
+  })
   const sync = {
     session: {
-      data: {
-        info: { session: record },
-        permission: { session: pending },
-      },
+      data: sessionData,
       lineage: {
         peek: () => ({ session: record, root: record }),
         resolve: async () => ({ session: record, root: record }),
@@ -256,8 +401,7 @@ function setup(input: {
     scope: `permission-mode-test-${scope++}`,
     protocol: Promise.resolve(input.protocol ?? "v2"),
     protocolKind: () => input.protocol ?? "v2",
-    permissionModeCapability:
-      input.permissionModeCapability ?? Promise.resolve(input.supportsPermissionModes ?? true),
+    permissionModeCapability: input.permissionModeCapability ?? Promise.resolve(input.supportsPermissionModes ?? true),
     supportsPermissionModes: () => input.supportsPermissionModes ?? true,
     api: {
       session: {
@@ -304,6 +448,19 @@ function setup(input: {
     ask(request: PermissionRequest) {
       pending.push(request)
       events.permission?.({ name: "/project", details: { type: "permission.asked", properties: request } })
+    },
+    bootstrap(request: PermissionRequest) {
+      pending.push(request)
+      setSessionData("permission", request.sessionID, [request])
+    },
+    switchEvent(mode: Permission.Mode) {
+      events.permission?.({
+        name: "/project",
+        details: {
+          type: "session.next.permission-mode.switched",
+          properties: { sessionID: "session", mode },
+        },
+      })
     },
   }
 }

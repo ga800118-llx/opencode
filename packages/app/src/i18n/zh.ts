@@ -185,7 +185,8 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "授权码无效",
   "provider.connect.oauth.auto.visit.prefix": "访问 ",
   "provider.connect.oauth.auto.visit.link": "此链接",
-  "provider.connect.oauth.auto.visit.suffix": " 并输入以下代码，以连接你的帐户并在 Guai Code 中使用 {{provider}} 模型。",
+  "provider.connect.oauth.auto.visit.suffix":
+    " 并输入以下代码，以连接你的帐户并在 Guai Code 中使用 {{provider}} 模型。",
   "provider.connect.oauth.auto.confirmationCode": "确认码",
   "provider.connect.toast.connected.title": "{{provider}} 已连接",
   "provider.connect.toast.connected.description": "现在可以使用 {{provider}} 模型了。",
@@ -285,7 +286,7 @@ export const dict = {
   "permission.mode.auto.description": "自动批准权限请求。",
   "permission.mode.auto.confirm.title": "启用自动批准？",
   "permission.mode.auto.confirm.description":
-    "自动批准应用内权限请求，但不会授予系统沙箱或进程本身没有的权限。",
+    "Guai Code 不提供系统沙箱。获批命令将以 Guai Code 进程的权限运行，且不会获得该进程原本没有的权限。",
   "permission.mode.auto.confirm.cancel": "取消",
   "permission.mode.auto.confirm.action": "启用自动批准",
   "permission.mode.switchFailed": "无法更改权限模式",

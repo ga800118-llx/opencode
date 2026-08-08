@@ -162,6 +162,18 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
+  test("projects permission mode switch events into session info", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+
+    ctx.store.apply({
+      type: "session.next.permission-mode.switched",
+      properties: { sessionID: "child", mode: "auto" },
+    })
+
+    expect(ctx.store.data.info.child?.permissionMode).toBe("auto")
+  })
+
   test("projects V2 session events into current and legacy message state", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
