@@ -4,7 +4,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { type Accessor, batch, createMemo, createResource, onCleanup, onMount } from "solid-js"
-import { createApiForServer, createSdkForServer, type ServerApi } from "@/utils/server"
+import { authTokenFromCredentials, createApiForServer, createSdkForServer, type ServerApi } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { ServerConnection, useServer } from "./server"
@@ -18,6 +18,7 @@ import {
 } from "@/utils/server-protocol"
 import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
 import { normalizeProductEvent, type ProductEvent } from "@/product/events"
+import { createSkillManagementApi, type SkillManagementApi } from "@/utils/skill-management-api"
 
 const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
@@ -185,6 +186,7 @@ type ServerSDKBase = {
   client: ReturnType<typeof createSdkForServer>
   api: CompatibleApi
   currentApi: ServerApi
+  skillManagement: SkillManagementApi
   event: {
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
@@ -359,6 +361,18 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     throwOnError: true,
   })
   const currentApi: ServerApi = createApiForServer({ server: server.http, fetch: platform.fetch })
+  const skillManagement = createSkillManagementApi({
+    baseUrl: server.http.url,
+    fetch: platform.fetch,
+    headers: server.http.password
+      ? {
+          Authorization: `Basic ${authTokenFromCredentials({
+            username: server.http.username,
+            password: server.http.password,
+          })}`,
+        }
+      : undefined,
+  })
   const legacy = (directory?: string) =>
     createSdkForServer({
       server: server.http,
@@ -379,6 +393,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     client: sdk,
     api,
     currentApi,
+    skillManagement,
     event: {
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),

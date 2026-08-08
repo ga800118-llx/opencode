@@ -14,8 +14,9 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
+import { SettingsSkillsV2 } from "./skills"
 
-export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers"
+export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers" | "skills"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -88,6 +89,10 @@ export const DialogSettings: Component<{
                       <Icon name="server" />
                       {language.t("status.popover.tab.servers")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="skills">
+                      <Icon name="code" />
+                      {language.t("settings.skills.title")}
+                    </TabsV2.Trigger>
                   </div>
                 </div>
               </div>
@@ -112,6 +117,9 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 onOpenProviders={() => setTab("providers")} />
+        </TabsV2.Content>
+        <TabsV2.Content value="skills" class="settings-v2-panel">
+          <SettingsSkillsV2 directory={directory()} />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>

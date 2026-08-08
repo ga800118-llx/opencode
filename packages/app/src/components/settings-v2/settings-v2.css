@@ -1364,3 +1364,203 @@
   line-height: 1;
   color: var(--v2-state-fg-danger);
 }
+
+.settings-v2-skills-header {
+  gap: 20px;
+  padding-bottom: 24px;
+  background: var(--v2-background-bg-base);
+  box-shadow: 0 1px 0 var(--v2-border-border-muted);
+}
+
+.settings-v2-skills-heading {
+  min-width: 0;
+}
+
+.settings-v2-skills-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-v2-skills-search [data-component="text-input-v2"] {
+  width: 100%;
+}
+
+.settings-v2-skills-filters {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.settings-v2-tab-body.settings-v2-skills {
+  gap: 0;
+  padding-top: 8px;
+}
+
+.settings-v2-skills [data-component="settings-v2-list"] {
+  padding-inline: 20px;
+  border-radius: 8px;
+}
+
+.settings-v2-skills-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding-block: 16px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+.settings-v2-skills-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-v2-skills-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+
+.settings-v2-skills-name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 16px;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-skills-description {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 18px;
+  color: var(--v2-text-text-muted);
+}
+
+.settings-v2-skills-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-v2-skills-meta [data-component="tag"] {
+  max-width: 100%;
+}
+
+.settings-v2-skills-location {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--v2-text-text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  cursor: text;
+}
+
+.settings-v2-skills-actions {
+  display: grid;
+  grid-template-columns: 32px 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-v2-skills-action {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-v2-skills-action [data-component="switch"] {
+  display: inline-flex;
+}
+
+.settings-v2-skills-action [data-component="icon-button-v2"]:focus-visible {
+  outline: 2px solid var(--v2-border-border-focus);
+  outline-offset: 2px;
+}
+
+.settings-v2-skills-state {
+  display: flex;
+  min-height: 112px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+  text-align: center;
+}
+
+[data-component="dialog-v2"].settings-v2-skill-delete-dialog [data-slot="dialog-container"] {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  height: auto;
+  border-radius: 8px;
+  align-items: stretch;
+}
+
+[data-component="dialog-v2"].settings-v2-skill-delete-dialog [data-slot="dialog-content"] {
+  width: 100%;
+  align-items: stretch;
+}
+
+[data-component="dialog-v2"].settings-v2-skill-delete-dialog [data-slot="dialog-header"] {
+  padding: 24px 24px 16px;
+}
+
+.settings-v2-skill-delete-body {
+  padding: 20px 24px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+[data-component="dialog-v2"].settings-v2-skill-delete-dialog [data-slot="dialog-footer"] {
+  padding: 16px 24px 24px;
+}
+
+@media (max-width: 639px) {
+  .settings-v2-skills-header {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .settings-v2-tab-body.settings-v2-skills {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .settings-v2-skills-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .settings-v2-skills-location {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .settings-v2-skills-actions {
+    justify-self: end;
+  }
+}

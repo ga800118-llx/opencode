@@ -1,0 +1,94 @@
+import { describe, expect, test } from "bun:test"
+import { Schema } from "effect"
+import { Skill } from "@opencode-ai/schema/skill"
+import { filterSkills, isPending, scopeKey, sourceKey, statusKey } from "./skills-controller"
+
+const decode = Schema.decodeUnknownSync(Skill.ManagementInfo)
+
+const items = [
+  decode({
+    id: "project-deploy",
+    name: "deploy",
+    description: "Deploy the current release",
+    location: "/repo/.opencode/skills/deploy/SKILL.md",
+    source: { type: "directory", scope: "project", value: "/repo/.opencode/skills" },
+    status: "active",
+    enabled: true,
+    deletable: true,
+    deleteTarget: "/repo/.opencode/skills/deploy",
+  }),
+  decode({
+    id: "global-review",
+    name: "review",
+    description: "Review a change",
+    location: "/repo/.opencode/skills/review/SKILL.md",
+    source: { type: "directory", scope: "global", value: "/Users/test/.config/opencode/skills" },
+    status: "disabled",
+    enabled: false,
+    deletable: false,
+    deleteBlocked: "unsafe",
+  }),
+  decode({
+    id: "builtin-plan",
+    name: "plan",
+    description: "Build an implementation plan",
+    location: "/embedded/plan/SKILL.md",
+    source: { type: "builtin", scope: "global", value: "builtin" },
+    status: "shadowed",
+    enabled: true,
+    deletable: false,
+    deleteBlocked: "builtin",
+  }),
+  decode({
+    id: "remote-docs",
+    name: "docs",
+    location: "/cache/skills/docs/SKILL.md",
+    source: { type: "url", scope: "project", value: "https://example.com/docs/SKILL.md" },
+    status: "active",
+    enabled: true,
+    deletable: false,
+    deleteBlocked: "remote",
+  }),
+  decode({
+    id: "plugin-release",
+    name: "release",
+    location: "/plugins/release/SKILL.md",
+    source: { type: "plugin", scope: "global", value: "release-plugin" },
+    status: "active",
+    enabled: true,
+    deletable: false,
+    deleteBlocked: "plugin",
+  }),
+]
+
+describe("Skill settings controller", () => {
+  test("filters by searchable fields and normalized status", () => {
+    expect(filterSkills(items, { query: " deploy ", status: "all" }).map((item) => item.name)).toEqual(["deploy"])
+    expect(filterSkills(items, { query: "/REPO/.OPENCODE", status: "all" }).map((item) => item.name)).toEqual([
+      "deploy",
+      "review",
+    ])
+    expect(filterSkills(items, { query: "example.com", status: "all" }).map((item) => item.name)).toEqual(["docs"])
+    expect(filterSkills(items, { query: "", status: "disabled" }).every((item) => item.status === "disabled")).toBe(
+      true,
+    )
+  })
+
+  test("maps project, global, built-in, remote, and plugin presentation keys", () => {
+    expect(sourceKey(items[0]!)).toBe("settings.skills.source.project")
+    expect(sourceKey(items[1]!)).toBe("settings.skills.source.global")
+    expect(sourceKey(items[2]!)).toBe("settings.skills.source.builtin")
+    expect(sourceKey(items[3]!)).toBe("settings.skills.source.remote")
+    expect(sourceKey(items[4]!)).toBe("settings.skills.source.plugin")
+    expect(scopeKey(items[0]!)).toBe("settings.skills.scope.project")
+    expect(scopeKey(items[1]!)).toBe("settings.skills.scope.global")
+    expect(statusKey(items[0]!)).toBe("settings.skills.status.active")
+    expect(statusKey(items[1]!)).toBe("settings.skills.status.disabled")
+    expect(statusKey(items[2]!)).toBe("settings.skills.status.shadowed")
+  })
+
+  test("marks only the installation matching the pending ID", () => {
+    expect(items.map((item) => isPending(items[1]!.id, item))).toEqual([false, true, false, false, false])
+    expect(items.every((item) => !isPending(undefined, item))).toBe(true)
+  })
+})
