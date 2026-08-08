@@ -1,6 +1,6 @@
-# OpenCode Desktop
+# Guai Code Desktop
 
-The OpenCode Desktop app, built with Electron.
+The Guai Code Desktop app, built with Electron.
 
 ## Development
 

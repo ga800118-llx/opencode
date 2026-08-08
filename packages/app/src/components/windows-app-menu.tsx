@@ -16,7 +16,7 @@ import {
   type DesktopMenuItem,
 } from "@/desktop-menu"
 
-const appName = "OpenCode"
+const appName = "Guai Code"
 
 export function WindowsAppMenu(props: {
   command: ReturnType<typeof useCommand>
@@ -67,7 +67,7 @@ export function WindowsAppMenu(props: {
             variant="ghost-muted"
             size="large"
             icon={<IconV2 name="menu" />}
-            aria-label="OpenCode menu"
+            aria-label="Guai Code menu"
             onPointerDown={rememberFocus}
             onKeyDown={rememberFocus}
           />
@@ -78,7 +78,7 @@ export function WindowsAppMenu(props: {
           icon="menu"
           variant="ghost"
           class="titlebar-icon rounded-md shrink-0"
-          aria-label="OpenCode menu"
+          aria-label="Guai Code menu"
           onPointerDown={rememberFocus}
           onKeyDown={rememberFocus}
         />

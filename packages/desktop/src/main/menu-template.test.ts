@@ -66,7 +66,7 @@ describe("desktop menu template", () => {
     const reload = app?.submenu?.find((item) => item.label === "重新加载界面")
     const updates = app?.submenu?.find((item) => item.label === "检查更新...")
     const help = template.find((item) => item.label === "帮助")
-    const documentation = help?.submenu?.find((item) => item.label === "OpenCode 文档")
+    const documentation = help?.submenu?.find((item) => item.label === "Guai Code 文档")
 
     settings?.click?.()
     reload?.click?.()
