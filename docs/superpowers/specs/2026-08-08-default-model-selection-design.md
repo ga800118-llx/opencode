@@ -27,6 +27,8 @@ The selected model must still belong to the saved source. Capability reports do 
 
 Selecting the default updates the existing global OpenCode `model` configuration. New tasks use that model when no task-specific or agent-specific model selection takes precedence. Existing explicit task model selections are not overwritten.
 
+Default selection does not refresh provider catalogs after the configuration write. The provider and model inventory has not changed, and the global configuration update already drives configuration synchronization. A failing provider refetch must not turn an already-persisted default-model change into a product error.
+
 ### Capability Information
 
 Capability testing remains unchanged and continues to show whether the selected model supports chat, streaming, and structured tool calls. Untested, chat-only, partially compatible, and incompatible results do not block default selection.
@@ -50,6 +52,7 @@ Add or update focused tests proving that:
 - a model outside the profile is still rejected;
 - the editor enables **Make default** for a selected model without a capability report;
 - save and delete activity still disables the action;
+- selecting a default completes after the global config update without an unrelated provider refresh;
 - English and Chinese empty-state copy no longer requires capability testing.
 
 ## Out Of Scope

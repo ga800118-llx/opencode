@@ -165,22 +165,52 @@ Run the command from Step 2. Expected: the copy test passes.
 ### Task 4: Verify The Integrated Behavior
 
 **Files:**
-- Verify only; no additional files expected
+- Modify: `packages/app/src/product/model-center/controller.test.ts`
+- Modify: `packages/app/src/product/model-center/controller.ts`
 
-- [ ] **Step 1: Run the relevant unit tests together**
+- [ ] **Step 1: Prove default selection does not require a provider refresh**
+
+Update the default-selection call-order assertion to expect only the operations that belong to the transaction:
+
+```ts
+expect(selecting.calls).toEqual(["list", "select-default", "update-config"])
+```
+
+Run from `packages/app`:
+
+```bash
+bun test --conditions=solid --preload ./happydom.ts ./src/product/model-center/controller.test.ts
+```
+
+Expected: the assertion fails because the controller still calls `refreshProviders` after the global config write.
+
+- [ ] **Step 2: Remove the redundant refresh from default selection**
+
+Keep the default selection transaction focused on the profile selection and global config update:
+
+```ts
+const selected = await safe(() => options.modelCenter.selectDefault(input))
+await safe(() => options.updateConfig(defaultModelPatch(selected, input.modelID)))
+return selected
+```
+
+Run the command from Step 1. Expected: all tests in `controller.test.ts` pass.
+
+- [ ] **Step 3: Run the relevant unit tests together**
 
 Run from `packages/app`:
 
 ```bash
 bun test --conditions=solid --preload ./happydom.ts \
   ./src/product/model-center/config.test.ts \
+  ./src/product/model-center/controller.test.ts \
   ./src/components/settings-v2/model-center-controller.test.ts \
   ./src/i18n/model-center-copy.test.ts
 ```
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Run the package typecheck**
+- [ ] **Step 4: Run the package typecheck**
 
 Run from `packages/app`:
 
@@ -190,11 +220,11 @@ bun typecheck
 
 Expected: exit code 0.
 
-- [ ] **Step 3: Check the desktop interaction**
+- [ ] **Step 5: Check the desktop interaction**
 
 In the running desktop development app, open **Settings > Models**, edit the private endpoint, select `DeepSeek V4 Pro`, and confirm **Make default** is enabled without running the capability test. Click it and verify the Default model row shows `DeepSeek V4 Pro`.
 
-- [ ] **Step 4: Review the final diff**
+- [ ] **Step 6: Review the final diff**
 
 Run:
 
