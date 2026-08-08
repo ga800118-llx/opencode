@@ -143,4 +143,20 @@ describe("createModelProbe capability classification", () => {
       expect(JSON.stringify(result)).not.toContain("private fixture detail")
     })
   })
+
+  test("preserves a specific provider error instead of the probe-stage fallback", async () => {
+    await withServer("tool-auth-error", async (baseURL) => {
+      const result = await createModelProbe({ requestID: () => "req-tool-auth" }).test({
+        target: target(baseURL),
+        modelID: "coder",
+      })
+
+      expect(result).toMatchObject({
+        classification: "partially-compatible",
+        checks: { basicChat: true, streaming: true, toolCalling: false },
+        diagnostic: { kind: "authentication", status: 401, requestID: "req-tool-auth" },
+      })
+      expect(JSON.stringify(result)).not.toContain("private fixture detail")
+    })
+  })
 })

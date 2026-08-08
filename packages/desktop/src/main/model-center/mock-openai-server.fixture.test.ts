@@ -3,6 +3,7 @@ export type MockModelServerMode =
   | "partial"
   | "chat-only"
   | "stream-http-error"
+  | "tool-auth-error"
   | "tool-http-error"
   | "incompatible"
   | "malformed-models"
@@ -68,6 +69,9 @@ export function startMockModelServer(mode: MockModelServerMode = "agent", option
       }
       const tools = bodyField(body, "tools")
       if (Array.isArray(tools) && tools.length) {
+        if (mode === "tool-auth-error") {
+          return Response.json({ error: "private fixture detail" }, { status: 401 })
+        }
         if (mode === "tool-http-error") {
           return Response.json({ error: "private fixture detail" }, { status: 400 })
         }
