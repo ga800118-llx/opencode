@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createStore } from "solid-js/store"
+import { onMount } from "solid-js"
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { createPromptState } from "@/context/prompt"
 import { SessionComposerRegion, createSessionComposerRegionController } from "@/pages/session/composer"
@@ -20,7 +21,7 @@ function createPromptInputStoryRuntime() {
   }
 }
 
-function PromptInputExample() {
+function PromptInputExample(props: { openPermissionMenu?: boolean } = {}) {
   const input = createPromptInputStoryRuntime()
   const [controls, setControls] = createStore({
     agent: "build",
@@ -95,8 +96,16 @@ function PromptInputExample() {
     })
   }
 
+  let root: HTMLDivElement | undefined
+  onMount(() => {
+    if (!props.openPermissionMenu) return
+    requestAnimationFrame(() =>
+      root?.querySelector<HTMLButtonElement>('[data-component="prompt-permission-mode-control"] button')?.click(),
+    )
+  })
+
   return (
-    <div class="flex flex-col gap-3">
+    <div ref={root} class="flex flex-col gap-3">
       <PromptInput controls={inputControls} {...input} />
       <div>
         <button
@@ -220,4 +229,21 @@ export const DockAlreadyOpen = {
       <PromptInputWithOpenDock />
     </div>
   ),
+}
+
+export const PermissionModeStandard = {
+  render: () => (
+    <div class="mx-auto max-w-full pt-10" style={{ width: "760px" }}>
+      <PromptInputExample />
+    </div>
+  ),
+}
+
+export const PermissionModeMenuMobile = {
+  render: () => (
+    <div class="mx-auto max-w-full pt-10" style={{ width: "390px" }}>
+      <PromptInputExample openPermissionMenu />
+    </div>
+  ),
+  parameters: { viewport: { defaultViewport: "mobile1" } },
 }

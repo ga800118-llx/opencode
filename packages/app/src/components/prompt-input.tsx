@@ -46,6 +46,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
+import { PermissionModeControl } from "@/components/permission-mode-control"
 import { useCommand } from "@/context/command"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
@@ -1778,6 +1779,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             variant="ghost"
                           />
                         </TooltipKeybind>
+                      </div>
+                    </Show>
+                    <Show when={permission.supportsModes()}>
+                      <div data-component="prompt-permission-mode-control" style={control()}>
+                        <PermissionModeControl sessionID={props.controls.session.id} onClose={restoreFocus} />
                       </div>
                     </Show>
                   </Show>

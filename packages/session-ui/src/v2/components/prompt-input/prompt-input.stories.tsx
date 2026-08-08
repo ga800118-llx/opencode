@@ -4,6 +4,9 @@ import { PromptInputV2, type PromptInputV2PersistedState, type PromptInputV2Sugg
 import { createPromptInputV2Controller } from "./interaction"
 import { createPromptInputV2Store } from "./store"
 import { createEffect } from "solid-js"
+import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
+import { Icon } from "@opencode-ai/ui/v2/icon"
+import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 
 const agents = [
   { id: "build", label: "Build" },
@@ -104,7 +107,49 @@ const commandSuggestions: PromptInputV2Suggestion[] = [
   },
 ]
 
-function ControlledPromptInput() {
+function PermissionModeStoryControl(props: { defaultOpen?: boolean }) {
+  return (
+    <MenuV2 gutter={6} modal={false} placement="top-start" defaultOpen={props.defaultOpen}>
+      <MenuV2.Trigger as={ButtonV2} variant="ghost-muted" class="max-w-[148px] justify-start">
+        <Icon name="shield" />
+        <span class="truncate whitespace-nowrap">Standard</span>
+        <Icon name="chevron-down" />
+      </MenuV2.Trigger>
+      <MenuV2.Portal>
+        <MenuV2.Content style={{ width: "min(320px, calc(100vw - 24px))", "min-width": "0" }}>
+          <MenuV2.RadioGroup value="standard">
+            <MenuV2.RadioItem value="restricted" style={{ height: "auto", "min-height": "48px" }}>
+              <span class="flex min-w-0 flex-col gap-1">
+                <span class="whitespace-nowrap">Restricted</span>
+                <span class="text-[11px] leading-4 text-v2-text-text-muted">
+                  Ask before edits, commands, and outside access.
+                </span>
+              </span>
+            </MenuV2.RadioItem>
+            <MenuV2.RadioItem value="standard" style={{ height: "auto", "min-height": "48px" }}>
+              <span class="flex min-w-0 flex-col gap-1">
+                <span class="whitespace-nowrap">Standard</span>
+                <span class="text-[11px] leading-4 text-v2-text-text-muted">
+                  Use the project's configured permissions.
+                </span>
+              </span>
+            </MenuV2.RadioItem>
+            <MenuV2.RadioItem value="auto" style={{ height: "auto", "min-height": "48px" }}>
+              <span class="flex min-w-0 flex-col gap-1 text-v2-state-fg-warning">
+                <span class="whitespace-nowrap">Auto approve</span>
+                <span class="text-[11px] leading-4 text-v2-text-text-muted">
+                  Automatically approve permission requests.
+                </span>
+              </span>
+            </MenuV2.RadioItem>
+          </MenuV2.RadioGroup>
+        </MenuV2.Content>
+      </MenuV2.Portal>
+    </MenuV2>
+  )
+}
+
+function ControlledPromptInput(props: { width: number; permissionMenuOpen?: boolean }) {
   // Agent choice is a persisted user/workspace preference in v1, not part of PromptStore.
   const [preferences, setPreferences] = createStore({ agent: "build" })
 
@@ -204,8 +249,11 @@ function ControlledPromptInput() {
   }
 
   return (
-    <div class="mx-auto flex max-w-[760px] flex-col gap-4 pt-32">
-      <PromptInputV2 controller={controller} />
+    <div class="mx-auto flex max-w-full flex-col gap-4 pt-32" style={{ width: `${props.width}px` }}>
+      <PromptInputV2
+        controller={controller}
+        footerControl={<PermissionModeStoryControl defaultOpen={props.permissionMenuOpen} />}
+      />
     </div>
   )
 }
@@ -217,5 +265,14 @@ export default {
 }
 
 export const ControlledComposition = {
-  render: () => <ControlledPromptInput />,
+  render: () => <ControlledPromptInput width={760} />,
+}
+
+export const StandardDesktop = {
+  render: () => <ControlledPromptInput width={760} />,
+}
+
+export const OpenMenuMobile = {
+  render: () => <ControlledPromptInput width={390} permissionMenuOpen />,
+  parameters: { viewport: { defaultViewport: "mobile1" } },
 }

@@ -65,6 +65,10 @@ const icons = {
     viewBox: "0 0 16 16",
     body: `<path d="M3.53613 8.17857L6.39328 11.75L12.4647 4.25" stroke="currentColor"/>`,
   },
+  shield: {
+    viewBox: "0 0 16 16",
+    body: `<path d="M8 1.75L13 3.75V7.25C13 10.45 10.95 13.1 8 14.25C5.05 13.1 3 10.45 3 7.25V3.75L8 1.75Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 5V9" stroke="currentColor" stroke-linecap="round"/><path d="M8 11.25H8.01" stroke="currentColor" stroke-linecap="round"/>`,
+  },
   monitor: {
     viewBox: "0 0 16 16",
     body: `<path d="M4.05559 9.38889H0.500007C0.500007 9.38889 0.500017 8.59298 0.500017 7.61112V2.27778C0.500017 1.29594 0.500102 0.5 0.500102 0.5H13.3889C13.3889 0.5 13.3889 1.29594 13.3889 2.27778V7.61112C13.3889 8.59298 13.3889 9.38889 13.3889 9.38889H9.83336M4.05559 9.38889V11.6111H6.94448H9.83336V9.38889M4.05559 9.38889H9.83336" transform="translate(1.05556 1.94444)" stroke="currentColor"/>`,
