@@ -48,6 +48,9 @@ export const endpointNames = {
   "permission.saved.list": "listSaved",
   "permission.saved.remove": "removeSaved",
   "question.request.list": "listRequests",
+  "skill.management.list": "managementList",
+  "skill.management.setEnabled": "managementSetEnabled",
+  "skill.management.remove": "managementRemove",
 } as const
 
 export const omitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken"])

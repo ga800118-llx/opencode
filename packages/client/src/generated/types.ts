@@ -82,6 +82,31 @@ export type PermissionNotFoundError = {
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
 
+export type SkillManagementNotFoundError = {
+  readonly _tag: "SkillManagementNotFoundError"
+  readonly id: string
+  readonly message: string
+}
+export const isSkillManagementNotFoundError = (value: unknown): value is SkillManagementNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementNotFoundError"
+
+export type SkillManagementForbiddenError = {
+  readonly _tag: "SkillManagementForbiddenError"
+  readonly id: string
+  readonly reason: "builtin" | "remote" | "plugin" | "unsafe"
+  readonly message: string
+}
+export const isSkillManagementForbiddenError = (value: unknown): value is SkillManagementForbiddenError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementForbiddenError"
+
+export type SkillManagementOperationError = {
+  readonly _tag: "SkillManagementOperationError"
+  readonly operation: "read" | "write" | "delete"
+  readonly message: string
+}
+export const isSkillManagementOperationError = (value: unknown): value is SkillManagementOperationError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SkillManagementOperationError"
+
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PtyNotFoundError"
@@ -2593,6 +2618,99 @@ export type SkillsListOutput = {
     readonly slash?: boolean
     readonly location: string
     readonly content: string
+  }>
+}
+
+export type SkillsManagementListInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type SkillsManagementListOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly location: string
+    readonly source: {
+      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly scope: "global" | "project"
+      readonly value: string
+    }
+    readonly status: "active" | "shadowed" | "disabled"
+    readonly enabled: boolean
+    readonly deletable: boolean
+    readonly deleteTarget?: string
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+  }>
+}
+
+export type SkillsManagementSetEnabledInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly enabled: { readonly enabled: boolean }["enabled"]
+}
+
+export type SkillsManagementSetEnabledOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly location: string
+    readonly source: {
+      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly scope: "global" | "project"
+      readonly value: string
+    }
+    readonly status: "active" | "shadowed" | "disabled"
+    readonly enabled: boolean
+    readonly deletable: boolean
+    readonly deleteTarget?: string
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+  }>
+}
+
+export type SkillsManagementRemoveInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type SkillsManagementRemoveOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly location: string
+    readonly source: {
+      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly scope: "global" | "project"
+      readonly value: string
+    }
+    readonly status: "active" | "shadowed" | "disabled"
+    readonly enabled: boolean
+    readonly deletable: boolean
+    readonly deleteTarget?: string
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
   }>
 }
 

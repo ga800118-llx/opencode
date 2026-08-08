@@ -87,6 +87,12 @@ import type {
   CommandsListOutput,
   SkillsListInput,
   SkillsListOutput,
+  SkillsManagementListInput,
+  SkillsManagementListOutput,
+  SkillsManagementSetEnabledInput,
+  SkillsManagementSetEnabledOutput,
+  SkillsManagementRemoveInput,
+  SkillsManagementRemoveOutput,
   EventsSubscribeOutput,
   PtysListInput,
   PtysListOutput,
@@ -819,6 +825,43 @@ export function make(options: ClientOptions) {
             query: { location: input?.["location"] },
             successStatus: 200,
             declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      managementList: (input?: SkillsManagementListInput, requestOptions?: RequestOptions) =>
+        request<SkillsManagementListOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/management`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      managementSetEnabled: (input: SkillsManagementSetEnabledInput, requestOptions?: RequestOptions) =>
+        request<SkillsManagementSetEnabledOutput>(
+          {
+            method: "PATCH",
+            path: `/api/skill/management/${encodeURIComponent(input.id)}`,
+            query: { location: input["location"] },
+            body: { enabled: input["enabled"] },
+            successStatus: 200,
+            declaredStatuses: [404, 403, 500, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      managementRemove: (input: SkillsManagementRemoveInput, requestOptions?: RequestOptions) =>
+        request<SkillsManagementRemoveOutput>(
+          {
+            method: "DELETE",
+            path: `/api/skill/management/${encodeURIComponent(input.id)}`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [404, 403, 500, 401, 400],
             empty: false,
           },
           requestOptions,

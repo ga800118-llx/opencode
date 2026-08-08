@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Location as CoreLocation } from "@opencode-ai/core/location"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -42,6 +43,22 @@ test("client and Server contracts generate identically", () => {
   const client = compile(ClientApi, { groupNames, endpointNames, omitEndpoints })
 
   expect(emitPromise(client)).toEqual(emitPromise(server))
+})
+
+test("generated clients expose stable skill management method names", async () => {
+  const promiseModule = await import("../src/generated/client")
+  const effectModule = await import("../src/generated-effect/client")
+  const promiseClient = promiseModule.make({ baseUrl: "http://localhost" })
+  const effectClient = await Effect.runPromise(
+    effectModule.make({ baseUrl: "http://localhost" }).pipe(Effect.provide(FetchHttpClient.layer)),
+  )
+
+  expect(promiseClient.skills.managementList).toBeFunction()
+  expect(promiseClient.skills.managementSetEnabled).toBeFunction()
+  expect(promiseClient.skills.managementRemove).toBeFunction()
+  expect(effectClient.skills.managementList).toBeFunction()
+  expect(effectClient.skills.managementSetEnabled).toBeFunction()
+  expect(effectClient.skills.managementRemove).toBeFunction()
 })
 
 test("shared DTO schemas construct and decode plain objects", () => {

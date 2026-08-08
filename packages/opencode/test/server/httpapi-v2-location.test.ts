@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { EventV2 } from "@opencode-ai/core/event"
+import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
+import { SkillV2 } from "@opencode-ai/core/skill"
+import { managementError } from "@opencode-ai/server/handlers/skill"
 import { Context, Schema } from "effect"
+import fs from "fs/promises"
+import path from "path"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 const context = Context.empty() as Context.Context<unknown>
+Global.Path.state = await fs.realpath(Global.Path.state)
 
 function request(route: string, directory: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
@@ -25,6 +31,14 @@ const Event = Schema.Struct({
   type: Schema.String,
   location: Schema.optional(Location.Ref),
   data: Schema.Unknown,
+})
+
+const ManagementResponse = Schema.Struct({
+  location: Schema.Struct({
+    directory: Schema.String,
+    project: Schema.Struct({ id: Schema.String }),
+  }),
+  data: Schema.Array(SkillV2.ManagementInfo),
 })
 
 async function* eventStream(body: ReadableStream<Uint8Array>) {
@@ -92,7 +106,7 @@ describe("v2 location HttpApi", () => {
   test("returns command and skill snapshots with resolved locations", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    for (const route of ["/api/command", "/api/skill"]) {
+    for (const route of ["/api/command", "/api/skill", "/api/skill/management"]) {
       const response = await request(route, tmp.path)
       expect(response.status).toBe(200)
       const body = (await response.json()) as {
@@ -103,6 +117,101 @@ describe("v2 location HttpApi", () => {
       expect(body.location.directory).toBe(tmp.path)
       expect(body.location.project.id).toBeTruthy()
     }
+  })
+
+  test("manages a disposable local Skill through location-scoped HTTP routes", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (directory) => {
+        const skill = path.join(directory, ".opencode", "skills", "http-management-fixture")
+        await fs.mkdir(skill, { recursive: true })
+        await Bun.write(
+          path.join(skill, "SKILL.md"),
+          "---\nname: http-management-fixture\ndescription: Disposable HTTP management fixture.\n---\nFixture.\n",
+        )
+        return skill
+      },
+    })
+
+    const listed = await request("/api/skill/management", tmp.path)
+    expect(listed.status).toBe(200)
+    const initial = Schema.decodeUnknownSync(ManagementResponse)(await listed.json())
+    const installation = initial.data.find((entry) => entry.name === "http-management-fixture")
+    expect(installation).toBeDefined()
+    expect(installation?.deletable).toBe(true)
+    expect(initial.location.directory).toBe(tmp.path)
+
+    const disabled = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    })
+    expect(disabled.status).toBe(200)
+    const disabledBody = Schema.decodeUnknownSync(ManagementResponse)(await disabled.json())
+    expect(disabledBody.location.directory).toBe(tmp.path)
+    expect(disabledBody.data.find((entry) => entry.id === installation!.id)).toMatchObject({
+      enabled: false,
+      status: "disabled",
+    })
+
+    const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
+    expect(removed.status).toBe(200)
+    const removedBody = Schema.decodeUnknownSync(ManagementResponse)(await removed.json())
+    expect(removedBody.location.directory).toBe(tmp.path)
+    expect(removedBody.data.some((entry) => entry.id === installation!.id)).toBe(false)
+    expect(await fs.stat(tmp.extra).catch(() => undefined)).toBeUndefined()
+
+    const records = await fs.readdir(path.join(Global.Path.state, "skills", "trash"))
+    const recovery = records.find((record) => record.includes(installation!.id.slice(0, 12)))
+    expect(recovery).toBeDefined()
+    expect(
+      JSON.parse(await Bun.file(path.join(Global.Path.state, "skills", "trash", recovery!, "metadata.json")).text()),
+    ).toMatchObject({ id: installation!.id, originalPath: tmp.extra })
+    expect(await fs.stat(path.join(Global.Path.state, "skills", "trash", recovery!, "payload"))).toBeDefined()
+  })
+
+  test("returns typed safe management errors", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const missingID = "f".repeat(64)
+    const missing = await request(`/api/skill/management/${missingID}`, tmp.path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    })
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({
+      _tag: "SkillManagementNotFoundError",
+      id: missingID,
+      message: "Skill installation not found.",
+    })
+
+    const listed = Schema.decodeUnknownSync(ManagementResponse)(
+      await (await request("/api/skill/management", tmp.path)).json(),
+    )
+    const builtin = listed.data.find((entry) => entry.source.type === "builtin")
+    expect(builtin).toBeDefined()
+    const forbidden = await request(`/api/skill/management/${builtin!.id}`, tmp.path, { method: "DELETE" })
+    expect(forbidden.status).toBe(403)
+    expect(await forbidden.json()).toEqual({
+      _tag: "SkillManagementForbiddenError",
+      id: builtin!.id,
+      reason: "builtin",
+      message: "Skill cannot be deleted.",
+    })
+  })
+
+  test("maps operation failures without exposing their cause", () => {
+    const secretPath = "/private/skill/state.json"
+    const error = managementError(
+      new SkillV2.OperationError({ operation: "write", cause: new Error(`failed at ${secretPath}`) }),
+    )
+
+    expect(error).toMatchObject({
+      _tag: "SkillManagementOperationError",
+      operation: "write",
+      message: "Skill management operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secretPath)
   })
 
   test("streams native EventV2 payloads across locations", async () => {
