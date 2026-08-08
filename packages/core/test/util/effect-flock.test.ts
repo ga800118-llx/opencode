@@ -172,6 +172,37 @@ describe("util.effect-flock", () => {
   )
 
   it.live(
+    "interrupts a contender while another fiber holds the lock",
+    Effect.gen(function* () {
+      const flock = yield* EffectFlock.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:interrupt-contender"
+      const held = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const attempting = yield* Deferred.make<void>()
+      const holder = yield* flock
+        .withLock(Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))), key, dir)
+        .pipe(Effect.forkScoped)
+      yield* Deferred.await(held)
+      const contender = yield* Deferred.succeed(attempting, undefined)
+        .pipe(Effect.andThen(flock.withLock(Effect.void, key, dir)))
+        .pipe(Effect.forkScoped)
+      yield* Deferred.await(attempting)
+
+      yield* Fiber.interrupt(contender).pipe(Effect.timeout("1 second"))
+      const interrupted = yield* Fiber.await(contender)
+      expect(Exit.isFailure(interrupted)).toBe(true)
+      expect(Exit.isFailure(interrupted) && Cause.hasInterrupts(interrupted.cause)).toBe(true)
+      expect(yield* Effect.promise(() => exists(lock(dir, key)))).toBe(true)
+
+      yield* Deferred.succeed(release, undefined)
+      expect(Exit.isSuccess(yield* Fiber.await(holder))).toBe(true)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
     "writes owner metadata",
     Effect.gen(function* () {
       const flock = yield* EffectFlock.Service
@@ -457,6 +488,56 @@ describe("util.effect-flock", () => {
         await fs.rmdir(breaker)
       })
       expect(Exit.isSuccess(yield* Fiber.await(contender).pipe(Effect.timeout("2 seconds")))).toBe(true)
+      yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
+    }),
+  )
+
+  it.live(
+    "retries release while another owner holds the breaker",
+    Effect.gen(function* () {
+      const fsService = yield* FSUtil.Service
+      const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
+      const dir = path.join(tmp, "locks")
+      const key = "eflock:release-breaker-contention"
+      const lockDir = lock(dir, key)
+      const breaker = lockDir + ".breaker"
+      const token = path.join(breaker, "other-owner")
+      const attempted = yield* Deferred.make<void>()
+      const filesystem = FSUtil.Service.of({
+        ...fsService,
+        makeDirectory: (target, options) =>
+          fsService.makeDirectory(target, options).pipe(
+            Effect.tapError(() => (target === breaker ? Deferred.succeed(attempted, undefined) : Effect.void)),
+          ),
+      })
+      const layer = Layer.fresh(
+        AppNodeBuilder.build(EffectFlock.node, [
+          [Global.node, testGlobal],
+          [FSUtil.node, Layer.succeed(FSUtil.Service, filesystem)],
+        ]),
+      )
+      const context = yield* Layer.build(layer)
+      const flock = Context.get(context, EffectFlock.Service)
+
+      const owner = yield* flock
+        .withLock(
+          Effect.promise(async () => {
+            await fs.mkdir(breaker)
+            await fs.writeFile(token, "other-owner")
+          }),
+          key,
+          dir,
+        )
+        .pipe(Effect.forkScoped)
+      yield* Deferred.await(attempted).pipe(Effect.timeout("1 second"))
+      yield* Effect.promise(async () => {
+        await fs.rm(token)
+        await fs.rmdir(breaker)
+      })
+
+      expect(Exit.isSuccess(yield* Fiber.await(owner).pipe(Effect.timeout("1 second")))).toBe(true)
+      expect(yield* Effect.promise(() => exists(lockDir))).toBe(false)
+      yield* flock.withLock(Effect.void, key, dir).pipe(Effect.timeout("1 second"))
       yield* Effect.promise(() => fs.rm(tmp, { recursive: true, force: true }))
     }),
   )

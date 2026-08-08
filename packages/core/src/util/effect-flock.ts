@@ -51,6 +51,7 @@ export namespace EffectFlock {
     Schedule.jittered,
     Schedule.while((meta) => meta.elapsed < TIMEOUT_MS),
   )
+  const releaseSchedule = Schedule.spaced(25)
 
   // ---------------------------------------------------------------------------
   // Lock metadata schema
@@ -113,14 +114,24 @@ export namespace EffectFlock {
 
       const forceRemove = (target: string) => fs.remove(target, { recursive: true }).pipe(Effect.ignore)
 
+      const removeEmptyBreaker = (target: string) =>
+        fs.removeEmptyDirectory(target).pipe(
+          Effect.catch((error) => {
+            const cause = error.cause
+            const code = cause instanceof Error && "code" in cause ? cause.code : undefined
+            return code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST" ? Effect.void : Effect.die(error)
+          }),
+        )
+
       type BreakerHandle = { token: string; path: string; tokenPath: string }
 
       const removeBreakerGeneration = (handle: BreakerHandle) =>
         Effect.gen(function* () {
           const generation = yield* safeStat(handle.tokenPath)
-          if (!generation) return
-          yield* fs.remove(handle.tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
-          yield* fs.removeEmptyDirectory(handle.path).pipe(Effect.ignore)
+          if (generation) {
+            yield* fs.remove(handle.tokenPath).pipe(Effect.catchIf(isPathGone, () => Effect.void), Effect.orDie)
+          }
+          yield* removeEmptyBreaker(handle.path)
         })
 
       const tryAcquireBreaker = (breakerPath: string) =>
@@ -203,7 +214,7 @@ export namespace EffectFlock {
         )
         if (entries.length === 0) {
           const info = yield* safeStat(breakerPath)
-          if (info && wall() - mtimeMs(info) > STALE_MS) yield* fs.removeEmptyDirectory(breakerPath).pipe(Effect.ignore)
+          if (info && wall() - mtimeMs(info) > STALE_MS) yield* removeEmptyBreaker(breakerPath)
           return false
         }
         yield* Effect.forEach(entries, (entry) =>
@@ -215,7 +226,7 @@ export namespace EffectFlock {
             }
           }),
         )
-        yield* fs.removeEmptyDirectory(breakerPath).pipe(Effect.ignore)
+        yield* removeEmptyBreaker(breakerPath)
         return false
       })
 
@@ -294,7 +305,7 @@ export namespace EffectFlock {
       // -- retry wrapper (preserves Handle type) --
 
       const acquireHandle = (lockfile: string, key: string): Effect.Effect<Handle, LockError> =>
-        tryAcquireLockDir(lockfile, key).pipe(
+        Effect.uninterruptible(tryAcquireLockDir(lockfile, key)).pipe(
           Effect.retry({
             while: (err) => err._tag === "NotAcquired",
             schedule: retrySchedule,
@@ -307,10 +318,15 @@ export namespace EffectFlock {
       const releaseOwned = (handle: Handle, cause?: unknown) =>
         Effect.gen(function* () {
           const breakerPath = handle.lockDir + ".breaker"
-          const breaker = yield* tryAcquireBreaker(breakerPath)
-          if (!breaker) {
-            return yield* Effect.die(cause ?? new ReleaseError({ detail: "breaker already owned" }))
-          }
+          const breaker = yield* tryAcquireBreaker(breakerPath).pipe(
+            Effect.flatMap((handle) => (handle ? Effect.succeed(handle) : Effect.fail(new NotAcquired()))),
+            Effect.retry({
+              while: (error) => error._tag === "NotAcquired",
+              times: 20,
+              schedule: releaseSchedule,
+            }),
+            Effect.catch(() => Effect.die(cause ?? new ReleaseError({ detail: "breaker remained owned" }))),
+          )
           return yield* withBreaker(
             breaker,
             Effect.gen(function* () {
@@ -376,8 +392,11 @@ export namespace EffectFlock {
 
         const lockfile = path.join(lockDir, Hash.fast(key) + ".lock")
 
-        // acquireRelease: acquire is uninterruptible, release is guaranteed
-        const handle = yield* Effect.acquireRelease(acquireHandle(lockfile, key), (handle) => release(handle))
+        const handle = yield* Effect.uninterruptibleMask((restore) =>
+          restore(acquireHandle(lockfile, key)).pipe(
+            Effect.tap((handle) => Effect.addFinalizer(() => release(handle))),
+          ),
+        )
 
         // Heartbeat fiber — scoped, so it's interrupted before release runs
         yield* fs

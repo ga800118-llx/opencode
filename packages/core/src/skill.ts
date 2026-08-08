@@ -160,8 +160,8 @@ const layer = Layer.effect(
       const skills: Installed[] = []
       for (const source of state.get().sources) {
         const key = Source.key(source)
-        const loaded = cache.get(key) ?? (yield* load(source))
-        cache.set(key, loaded)
+        const loaded = source.type === "directory" ? yield* load(source) : (cache.get(key) ?? (yield* load(source)))
+        if (source.type !== "directory") cache.set(key, loaded)
         skills.push(...loaded.map((info) => ({ source, info })))
       }
       return skills
@@ -199,7 +199,7 @@ const layer = Layer.effect(
         remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
-          yield* remove(fs, flock, global, paths[scope(installation.source)], installation)
+          yield* remove(fs, flock, global, paths[scope(installation.source)], installation, installed)
           cache.delete(Source.key(installation.source))
           return yield* managementList()
         }),
