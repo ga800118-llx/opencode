@@ -9,8 +9,11 @@ export const Mark = (props: { class?: string }) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path data-slot="logo-logo-mark-shadow" d="M12 16H4V8H12V16Z" fill="var(--icon-weak-base)" />
-      <path data-slot="logo-logo-mark-o" d="M12 4H4V16H12V4ZM16 20H0V0H16V20Z" fill="var(--icon-strong-base)" />
+      <path data-slot="logo-mark-g-top" d="M0 0H16V4H0V0Z" fill="var(--icon-strong-base)" />
+      <path data-slot="logo-mark-g-left" d="M0 0H4V20H0V0Z" fill="var(--icon-strong-base)" />
+      <path data-slot="logo-mark-g-bottom" d="M0 16H16V20H0V16Z" fill="var(--icon-strong-base)" />
+      <path data-slot="logo-mark-g-crossbar" d="M8 8H16V12H8V8Z" fill="var(--icon-strong-base)" />
+      <path data-slot="logo-mark-g-leg" d="M12 12H16V20H12V12Z" fill="var(--icon-weak-base)" />
     </svg>
   )
 }
@@ -25,8 +28,11 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M60 80H20V40H60V80Z" fill="var(--icon-base)" />
-      <path d="M60 20H20V80H60V20ZM80 100H0V0H80V100Z" fill="var(--icon-strong-base)" />
+      <path d="M0 0H80V20H0V0Z" fill="var(--icon-strong-base)" />
+      <path d="M0 0H20V100H0V0Z" fill="var(--icon-strong-base)" />
+      <path d="M0 80H80V100H0V80Z" fill="var(--icon-strong-base)" />
+      <path d="M40 40H80V60H40V40Z" fill="var(--icon-strong-base)" />
+      <path d="M60 60H80V100H60V60Z" fill="var(--icon-base)" />
     </svg>
   )
 }
@@ -39,8 +45,11 @@ export const Logo = (props: { class?: string }) => {
       fill="none"
       classList={{ [props.class ?? ""]: !!props.class }}
     >
-      <path d="M18 30H6V18H18V30Z" fill="var(--icon-weak-base)" />
-      <path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="var(--icon-base)" />
+      <path d="M0 6H24V12H0V6Z" fill="var(--icon-base)" />
+      <path d="M0 6H6V36H0V6Z" fill="var(--icon-base)" />
+      <path d="M0 30H24V36H0V30Z" fill="var(--icon-base)" />
+      <path d="M12 18H24V24H12V18Z" fill="var(--icon-base)" />
+      <path d="M18 24H24V36H18V24Z" fill="var(--icon-weak-base)" />
       <text
         x="34"
         y="31"
