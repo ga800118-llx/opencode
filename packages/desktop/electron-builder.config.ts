@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(packageDir, "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
+const bundledGitDir = process.env.GUAI_CODE_BUNDLED_GIT_DIR?.trim()
 
 const metainfoFpm = (appId: string) =>
   `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
@@ -66,6 +67,15 @@ const getBase = (identity: ProductIdentity): Configuration => ({
           },
         ]
       : []),
+    ...(bundledGitDir
+      ? [
+          {
+            from: bundledGitDir,
+            to: "mingit",
+            filter: ["**/*"],
+          },
+        ]
+      : []),
     {
       from: "native/",
       to: "native/",
@@ -101,6 +111,8 @@ const getBase = (identity: ProductIdentity): Configuration => ({
   nsis: {
     oneClick: true,
     perMachine: false,
+    allowElevation: false,
+    runAfterFinish: false,
     installerIcon: `resources/icons/icon.ico`,
     installerHeaderIcon: `resources/icons/icon.ico`,
   },

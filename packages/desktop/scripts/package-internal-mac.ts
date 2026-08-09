@@ -5,6 +5,9 @@ import { copyFile, mkdir, rm, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
+import { formatChecksumManifest, sha256 } from "./internal-package"
+
+export { formatChecksumManifest, sha256 } from "./internal-package"
 
 export function assertInternalMacHost(platform: NodeJS.Platform, arch: string) {
   if (platform !== "darwin") throw new Error("The internal Mac package must be built on macOS.")
@@ -26,20 +29,6 @@ export function createInternalMacArtifactPlan(packageDir: string, version: strin
     guide: path.join(directory, "Guai-Code-Beta-试用说明.md"),
     license: path.join(directory, "OpenCode-MIT-License.txt"),
   }
-}
-
-export function formatChecksumManifest(entries: readonly { file: string; sha256: string }[]) {
-  return [...entries]
-    .sort((a, b) => path.basename(a.file).localeCompare(path.basename(b.file)))
-    .map((entry) => `${entry.sha256}  ${path.basename(entry.file)}`)
-    .join("\n")
-    .concat("\n")
-}
-
-async function sha256(file: string) {
-  const hasher = new Bun.CryptoHasher("sha256")
-  for await (const chunk of Bun.file(file).stream()) hasher.update(chunk)
-  return hasher.digest("hex")
 }
 
 async function packageInternalMac() {

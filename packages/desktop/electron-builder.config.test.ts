@@ -93,6 +93,48 @@ test("bundles runtime icons outside the app archive", async () => {
   })
 })
 
+test("bundles MinGit from a nonempty environment path", async () => {
+  const previous = process.env.GUAI_CODE_BUNDLED_GIT_DIR
+  process.env.GUAI_CODE_BUNDLED_GIT_DIR = "C:\\staging\\mingit"
+  const module = await import("./electron-builder.config.ts?bundled-git-resource")
+  const config = module.default as Configuration
+  if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_GIT_DIR
+  else process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
+
+  expect(config.extraResources).toContainEqual({
+    from: "C:\\staging\\mingit",
+    to: "mingit",
+    filter: ["**/*"],
+  })
+})
+
+test("does not bundle MinGit from an empty environment path", async () => {
+  const previous = process.env.GUAI_CODE_BUNDLED_GIT_DIR
+  process.env.GUAI_CODE_BUNDLED_GIT_DIR = "   "
+  const module = await import("./electron-builder.config.ts?no-bundled-git-resource")
+  const config = module.default as Configuration
+  if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_GIT_DIR
+  else process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
+
+  expect(config.extraResources).not.toContainEqual({
+    from: expect.any(String),
+    to: "mingit",
+    filter: ["**/*"],
+  })
+})
+
+test("uses a one-click unelevated per-user Windows installer", async () => {
+  const module = await import("./electron-builder.config.ts?windows-installer")
+  const config = module.default as Configuration
+
+  expect(config.nsis).toMatchObject({
+    oneClick: true,
+    perMachine: false,
+    allowElevation: false,
+    runAfterFinish: false,
+  })
+})
+
 for (const channel of ["beta", "prod"] as const) {
   test(`does not bundle the CLI in ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL

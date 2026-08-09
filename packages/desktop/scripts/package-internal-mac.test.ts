@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { assertInternalMacHost, createInternalMacArtifactPlan, formatChecksumManifest } from "./package-internal-mac"
+import { formatChecksumManifest } from "./internal-package"
+import { assertInternalMacHost, createInternalMacArtifactPlan } from "./package-internal-mac"
 
 describe("internal Mac package", () => {
   test("plans versioned Apple Silicon artifacts", () => {
@@ -31,5 +32,12 @@ describe("internal Mac package", () => {
         { file: "/tmp/Guai-Code-Beta.dmg", sha256: "a".repeat(64) },
       ]),
     ).toBe(`${"a".repeat(64)}  Guai-Code-Beta.dmg\n${"b".repeat(64)}  Guai-Code-Beta.zip\n`)
+  })
+
+  test("re-exports shared internal package utilities", async () => {
+    const module = await import("./package-internal-mac")
+
+    expect(module.formatChecksumManifest).toBe(formatChecksumManifest)
+    expect(module.sha256).toBeFunction()
   })
 })
