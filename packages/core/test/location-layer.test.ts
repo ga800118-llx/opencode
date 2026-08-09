@@ -17,6 +17,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { SkillV2 } from "@opencode-ai/core/skill"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { toolDefinitions } from "./lib/tool"
@@ -57,6 +58,30 @@ describe("LocationServiceMap", () => {
             expect(yield* locations.contextEffect(constructed)).toBe(yield* locations.contextEffect(decoded))
           }),
         ),
+      ),
+    ),
+  )
+
+  it.live("makes Skill management ready in the first location context", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const managed = yield* SkillV2.Service.use((skill) => skill.management.list()).pipe(
+            Effect.scoped,
+            Effect.provide(LocationServiceMap.Service.get(location)),
+          )
+
+          expect(managed).toContainEqual(
+            expect.objectContaining({
+              name: "customize-opencode",
+              source: { type: "builtin", scope: "global", value: "customize-opencode" },
+            }),
+          )
+        }),
       ),
     ),
   )
