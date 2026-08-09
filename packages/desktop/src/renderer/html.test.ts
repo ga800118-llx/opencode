@@ -43,19 +43,19 @@ describe("electron renderer html", () => {
 
       test("provides an accessible document title", async () => {
         const content = await html(name)
-        expect(content).toContain("<title>Agent Desktop</title>")
+        expect(content).toContain("<title>Guai Code</title>")
       })
     })
   }
 })
 
-test("renderer updater copy identifies Agent Desktop in English and Simplified Chinese", () => {
-  expect(english["desktop.updater.none.message"]).toBe("You are already using the latest version of Agent Desktop")
+test("renderer updater copy identifies Guai Code in English and Simplified Chinese", () => {
+  expect(english["desktop.updater.none.message"]).toBe("You are already using the latest version of Guai Code")
   expect(english["desktop.updater.downloaded.prompt"]).toBe(
-    "Version {{version}} of Agent Desktop has been downloaded, would you like to install it and relaunch?",
+    "Version {{version}} of Guai Code has been downloaded, would you like to install it and relaunch?",
   )
-  expect(chinese["desktop.updater.none.message"]).toBe("你已经在使用最新版本的 Agent Desktop")
-  expect(chinese["desktop.updater.downloaded.prompt"]).toBe("已下载 Agent Desktop {{version}} 版本，是否安装并重启？")
+  expect(chinese["desktop.updater.none.message"]).toBe("你已经在使用最新版本的 Guai Code")
+  expect(chinese["desktop.updater.downloaded.prompt"]).toBe("已下载 Guai Code {{version}} 版本，是否安装并重启？")
 })
 
 /**

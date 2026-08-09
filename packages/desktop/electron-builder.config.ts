@@ -10,11 +10,6 @@ const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(packageDir, "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
-// The Electron 42 packaging update briefly installed Linux launchers/icons under
-// "opencode-desktop". Keep that hidden desktop entry around so existing GNOME/KDE
-// pins still resolve after the canonical app id changes back to ai.opencode.desktop.
-const legacyDesktopEntry = path.join(packageDir, "resources", "linux", "opencode-desktop.desktop")
-const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/opencode-desktop.desktop`
 
 const metainfoFpm = (appId: string) =>
   `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
@@ -39,14 +34,13 @@ const channel = (() => {
 const getBase = (identity: ProductIdentity): Configuration => ({
   appId: identity.appId,
   productName: identity.name,
-  artifactName: identity.artifactPrefix + "-${os}-${arch}.${ext}",
+  artifactName: identity.artifactPrefix + "-${version}-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
   },
   // Linux launchers are .desktop files, so this is the desktop file name,
-  // not just the app id. For prod, app id "ai.opencode.desktop" becomes
-  // "ai.opencode.desktop.desktop".
+  // not just the app id. The suffix is required even when the app id contains dots.
   // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
   // https://www.electron.build/docs/linux/
   extraMetadata: {
@@ -58,6 +52,10 @@ const getBase = (identity: ProductIdentity): Configuration => ({
       from: "resources/icons/",
       to: "icons/",
       filter: ["**/*"],
+    },
+    {
+      from: "../../LICENSE",
+      to: "licenses/OpenCode-MIT.txt",
     },
     ...(channel === "dev"
       ? [
@@ -81,7 +79,8 @@ const getBase = (identity: ProductIdentity): Configuration => ({
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
+    identity: channel === "beta" ? "-" : undefined,
+    notarize: channel === "prod",
     target: ["dmg", "zip"],
   },
   dmg: {
@@ -135,7 +134,6 @@ function getConfig() {
     case "beta": {
       return {
         ...base,
-        publish: identity.publish,
         deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
         rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
@@ -143,9 +141,8 @@ function getConfig() {
     case "prod": {
       return {
         ...base,
-        publish: identity.publish,
-        deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
-        rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId), legacyDesktopEntryFpm] },
+        deb: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
+        rpm: { packageName: identity.linuxPackageName, fpm: [metainfoFpm(identity.appId)] },
       }
     }
   }

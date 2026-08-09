@@ -3,9 +3,9 @@ import { getProductIdentity, type ProductChannel } from "./identity"
 import { createDesktopProductPresentation, preserveDesktopWindowTitle } from "./presentation"
 
 const names = {
-  dev: "Agent Desktop Dev",
-  beta: "Agent Desktop Beta",
-  prod: "Agent Desktop",
+  dev: "Guai Code Dev",
+  beta: "Guai Code Beta",
+  prod: "Guai Code",
 } satisfies Record<ProductChannel, string>
 
 describe("desktop product presentation", () => {

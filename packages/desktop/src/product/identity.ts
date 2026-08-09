@@ -22,41 +22,33 @@ export type ProductIdentity = {
 
 type ProductIdentityInput = Omit<ProductIdentity, "dataNamespace" | "credentialNamespace">
 
-const openCodeDataNamespaces = Object.freeze([
-  "ai.opencode.desktop.dev",
-  "ai.opencode.desktop.beta",
-  "ai.opencode.desktop",
-])
-
 const identities = Object.freeze({
   dev: defineProductIdentity({
     channel: "dev",
-    name: "Agent Desktop Dev",
+    name: "Guai Code Dev",
     appId: "dev.agent.desktop",
-    protocolScheme: "agent-desktop-dev",
-    artifactPrefix: "agent-desktop-dev",
-    linuxPackageName: "agent-desktop-dev",
+    protocolScheme: "guai-code-dev",
+    artifactPrefix: "guai-code-desktop-dev",
+    linuxPackageName: "guai-code-dev",
     compatibleDataNamespaces: ["dev.agent.desktop"],
   }),
   beta: defineProductIdentity({
     channel: "beta",
-    name: "Agent Desktop Beta",
-    appId: "ai.opencode.desktop.beta",
-    protocolScheme: "opencode",
-    artifactPrefix: "opencode-desktop",
-    linuxPackageName: "opencode-beta",
-    compatibleDataNamespaces: openCodeDataNamespaces,
-    publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
+    name: "Guai Code Beta",
+    appId: "com.guaicode.desktop.beta",
+    protocolScheme: "guai-code-beta",
+    artifactPrefix: "guai-code-desktop-beta",
+    linuxPackageName: "guai-code-beta",
+    compatibleDataNamespaces: [],
   }),
   prod: defineProductIdentity({
     channel: "prod",
-    name: "Agent Desktop",
-    appId: "ai.opencode.desktop",
-    protocolScheme: "opencode",
-    artifactPrefix: "opencode-desktop",
-    linuxPackageName: "opencode",
-    compatibleDataNamespaces: openCodeDataNamespaces,
-    publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
+    name: "Guai Code",
+    appId: "com.guaicode.desktop",
+    protocolScheme: "guai-code",
+    artifactPrefix: "guai-code-desktop",
+    linuxPackageName: "guai-code",
+    compatibleDataNamespaces: ["com.guaicode.desktop.beta", "dev.agent.desktop"],
   }),
 }) satisfies Readonly<Record<ProductChannel, ProductIdentity>>
 

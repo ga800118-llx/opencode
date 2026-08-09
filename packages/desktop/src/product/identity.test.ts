@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test"
 import { getProductIdentity, getRuntimeProductIdentity } from "./identity"
 
 describe("desktop product identity", () => {
-  test("uses the neutral development identity", () => {
+  test("uses the Guai Code development identity without moving existing development data", () => {
     expect(getProductIdentity("dev")).toMatchObject({
-      name: "Agent Desktop Dev",
+      name: "Guai Code Dev",
       appId: "dev.agent.desktop",
-      protocolScheme: "agent-desktop-dev",
+      protocolScheme: "guai-code-dev",
       dataNamespace: "dev.agent.desktop",
       credentialNamespace: "dev.agent.desktop.credentials",
-      artifactPrefix: "agent-desktop-dev",
-      linuxPackageName: "agent-desktop-dev",
+      artifactPrefix: "guai-code-desktop-dev",
+      linuxPackageName: "guai-code-dev",
       compatibleDataNamespaces: ["dev.agent.desktop"],
     })
   })
@@ -46,22 +46,24 @@ describe("desktop product identity", () => {
     )
   })
 
-  test("preserves beta and production release identities", () => {
+  test("uses Guai Code-owned beta and production identities without upstream publishing", () => {
     expect(getProductIdentity("beta")).toMatchObject({
-      name: "Agent Desktop Beta",
-      appId: "ai.opencode.desktop.beta",
-      protocolScheme: "opencode",
-      artifactPrefix: "opencode-desktop",
-      linuxPackageName: "opencode-beta",
-      publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
+      name: "Guai Code Beta",
+      appId: "com.guaicode.desktop.beta",
+      protocolScheme: "guai-code-beta",
+      artifactPrefix: "guai-code-desktop-beta",
+      linuxPackageName: "guai-code-beta",
+      compatibleDataNamespaces: [],
+      publish: undefined,
     })
     expect(getProductIdentity("prod")).toMatchObject({
-      name: "Agent Desktop",
-      appId: "ai.opencode.desktop",
-      protocolScheme: "opencode",
-      artifactPrefix: "opencode-desktop",
-      linuxPackageName: "opencode",
-      publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
+      name: "Guai Code",
+      appId: "com.guaicode.desktop",
+      protocolScheme: "guai-code",
+      artifactPrefix: "guai-code-desktop",
+      linuxPackageName: "guai-code",
+      compatibleDataNamespaces: ["com.guaicode.desktop.beta", "dev.agent.desktop"],
+      publish: undefined,
     })
   })
 
@@ -75,10 +77,7 @@ describe("desktop product identity", () => {
     const beta = getProductIdentity("beta")
     const prod = getProductIdentity("prod")
     const mutableDevelopment = development as unknown as { name: string }
-    const mutableBeta = beta as unknown as {
-      publish: { repo: string }
-      compatibleDataNamespaces: string[]
-    }
+    const mutableBeta = beta as unknown as { compatibleDataNamespaces: string[] }
 
     for (const identity of [development, beta, prod]) {
       expect(Object.isFrozen(identity)).toBe(true)
@@ -89,12 +88,9 @@ describe("desktop product identity", () => {
     expect(() => {
       mutableDevelopment.name = "polluted"
     }).toThrow()
-    expect(() => {
-      mutableBeta.publish.repo = "polluted"
-    }).toThrow()
     expect(() => mutableBeta.compatibleDataNamespaces.push("polluted")).toThrow()
-    expect(getProductIdentity("dev").name).toBe("Agent Desktop Dev")
-    expect(getProductIdentity("beta").publish?.repo).toBe("opencode-beta")
+    expect(getProductIdentity("dev").name).toBe("Guai Code Dev")
+    expect(getProductIdentity("beta").publish).toBeUndefined()
     expect(getProductIdentity("prod").compatibleDataNamespaces).not.toContain("polluted")
   })
 })

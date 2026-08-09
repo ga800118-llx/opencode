@@ -1,13 +1,11 @@
 {
   "name": "@opencode-ai/desktop",
   "private": true,
-  "version": "1.18.10",
+  "version": "0.1.0-alpha.1",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
   "author": {
-    "name": "Guai Code",
-    "email": "hello@opencode.ai"
+    "name": "Guai Code"
   },
   "scripts": {
     "typecheck": "tsgo -b",
@@ -18,6 +16,7 @@
     "preview": "electron-vite preview",
     "package": "electron-builder --config electron-builder.config.ts",
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
+    "package:mac:internal": "bun ./scripts/package-internal-mac.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"
