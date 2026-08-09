@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import { copyFile, mkdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, rm, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
@@ -68,7 +68,8 @@ async function packageInternalMac() {
     packageDir,
   )
 
-  for (const file of [plan.app, plan.builderDmg, plan.builderZip]) {
+  if (!(await stat(plan.app)).isDirectory()) throw new Error(`Expected application bundle was not created: ${plan.app}`)
+  for (const file of [plan.builderDmg, plan.builderZip]) {
     if (!(await Bun.file(file).exists())) throw new Error(`Expected package output was not created: ${file}`)
   }
 
