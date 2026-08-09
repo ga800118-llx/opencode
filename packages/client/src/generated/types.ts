@@ -101,7 +101,7 @@ export const isSkillManagementOperationError = (value: unknown): value is SkillM
 export type SkillManagementForbiddenError = {
   readonly _tag: "SkillManagementForbiddenError"
   readonly id: string
-  readonly reason: "builtin" | "remote" | "plugin" | "unsafe"
+  readonly reason: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
   readonly message: string
 }
 export const isSkillManagementForbiddenError = (value: unknown): value is SkillManagementForbiddenError =>
@@ -2639,7 +2639,7 @@ export type SkillsManagementListOutput = {
     readonly description?: string
     readonly location: string
     readonly source: {
-      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly type: "builtin" | "directory" | "external" | "url" | "plugin"
       readonly scope: "global" | "project"
       readonly value: string
     }
@@ -2647,7 +2647,7 @@ export type SkillsManagementListOutput = {
     readonly enabled: boolean
     readonly deletable: boolean
     readonly deleteTarget?: string
-    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
   }>
 }
 
@@ -2671,7 +2671,7 @@ export type SkillsManagementSetEnabledOutput = {
     readonly description?: string
     readonly location: string
     readonly source: {
-      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly type: "builtin" | "directory" | "external" | "url" | "plugin"
       readonly scope: "global" | "project"
       readonly value: string
     }
@@ -2679,7 +2679,7 @@ export type SkillsManagementSetEnabledOutput = {
     readonly enabled: boolean
     readonly deletable: boolean
     readonly deleteTarget?: string
-    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
   }>
 }
 
@@ -2702,7 +2702,7 @@ export type SkillsManagementRemoveOutput = {
     readonly description?: string
     readonly location: string
     readonly source: {
-      readonly type: "builtin" | "directory" | "url" | "plugin"
+      readonly type: "builtin" | "directory" | "external" | "url" | "plugin"
       readonly scope: "global" | "project"
       readonly value: string
     }
@@ -2710,7 +2710,7 @@ export type SkillsManagementRemoveOutput = {
     readonly enabled: boolean
     readonly deletable: boolean
     readonly deleteTarget?: string
-    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+    readonly deleteBlocked?: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
   }>
 }
 

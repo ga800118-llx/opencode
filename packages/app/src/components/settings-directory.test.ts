@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ServerConnection } from "@/context/server"
 import type { SessionTab } from "@/context/tabs"
-import { settingsDirectory } from "./settings-directory"
+import { settingsDirectory, settingsSkillDirectory } from "./settings-directory"
 
 describe("settingsDirectory", () => {
   test("resolves direct project routes", () => {
@@ -50,5 +50,15 @@ describe("settingsDirectory", () => {
     expect(settingsDirectory({ type: "home" }, [], () => undefined)).toBeUndefined()
     expect(settingsDirectory({ type: "draft", draftID: "missing" }, [], () => undefined)).toBeUndefined()
     expect(settingsDirectory({ type: "session", sessionId: "missing" }, [], () => undefined)).toBeUndefined()
+  })
+})
+
+describe("settingsSkillDirectory", () => {
+  test("prefers the active project directory", () => {
+    expect(settingsSkillDirectory("/repo", "/home/test/.config/opencode")).toBe("/repo")
+  })
+
+  test("uses the global config directory from Home", () => {
+    expect(settingsSkillDirectory(undefined, "/home/test/.config/opencode")).toBe("/home/test/.config/opencode")
   })
 })

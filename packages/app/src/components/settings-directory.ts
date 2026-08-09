@@ -23,3 +23,7 @@ export function settingsDirectory(
   }
   return undefined
 }
+
+export function settingsSkillDirectory(directory: string | undefined, globalConfig: string | undefined) {
+  return directory ?? globalConfig
+}

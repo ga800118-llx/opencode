@@ -20,6 +20,7 @@ export function sourceKey(item: Skill.ManagementInfo) {
   if (item.source.type === "builtin") return "settings.skills.source.builtin" as const
   if (item.source.type === "url") return "settings.skills.source.remote" as const
   if (item.source.type === "plugin") return "settings.skills.source.plugin" as const
+  if (item.source.type === "external") return "settings.skills.source.external" as const
   return item.source.scope === "global"
     ? ("settings.skills.source.global" as const)
     : ("settings.skills.source.project" as const)
@@ -41,7 +42,9 @@ export function blockedKey(item: Skill.ManagementInfo) {
   if (item.deleteBlocked === "builtin") return "settings.skills.deleteBlocked.builtin" as const
   if (item.deleteBlocked === "remote") return "settings.skills.deleteBlocked.remote" as const
   if (item.deleteBlocked === "plugin") return "settings.skills.deleteBlocked.plugin" as const
+  if (item.deleteBlocked === "shared") return "settings.skills.deleteBlocked.shared" as const
   if (item.deleteBlocked === "unsafe") return "settings.skills.deleteBlocked.unsafe" as const
+  return undefined
 }
 
 export function skillPendingKey(scope: string, directory: string, id: Skill.ManagementID) {

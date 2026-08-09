@@ -9,7 +9,7 @@ export type Scope = typeof Scope.Type
 
 export const SourceOrigin = Schema.Struct({
   scope: Scope,
-  type: Schema.Literals(["builtin", "config-directory", "config-file", "plugin"]),
+  type: Schema.Literals(["builtin", "config-directory", "config-file", "external", "plugin"]),
   value: Schema.String.pipe(optional),
 }).annotate({ identifier: "SkillV2.SourceOrigin" })
 export interface SourceOrigin extends Schema.Schema.Type<typeof SourceOrigin> {}
@@ -18,10 +18,10 @@ export const ManagementID = Schema.String.pipe(Schema.brand("SkillV2.ManagementI
 export type ManagementID = typeof ManagementID.Type
 
 export const ManagementStatus = Schema.Literals(["active", "shadowed", "disabled"])
-export const DeleteBlocked = Schema.Literals(["builtin", "remote", "plugin", "unsafe"])
+export const DeleteBlocked = Schema.Literals(["builtin", "remote", "plugin", "shared", "unsafe"])
 
 export const ManagementSource = Schema.Struct({
-  type: Schema.Literals(["builtin", "directory", "url", "plugin"]),
+  type: Schema.Literals(["builtin", "directory", "external", "url", "plugin"]),
   scope: Scope,
   value: Schema.String,
 }).annotate({ identifier: "SkillV2.ManagementSource" })

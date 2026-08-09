@@ -1,3 +1,4 @@
+import { PluginV2 } from "@opencode-ai/core/plugin"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import {
   SkillManagementForbiddenError,
@@ -11,20 +12,34 @@ import { response } from "../location"
 
 export const SkillHandler = HttpApiBuilder.group(Api, "server.skill", (handlers) =>
   handlers
-    .handle("skill.list", () => response(SkillV2.Service.use((skill) => skill.list())))
-    .handle("skill.management.list", () => response(SkillV2.Service.use((skill) => skill.management.list())))
+    .handle("skill.list", () => response(ready.pipe(Effect.andThen(SkillV2.Service.use((skill) => skill.list())))))
+    .handle("skill.management.list", () =>
+      response(ready.pipe(Effect.andThen(SkillV2.Service.use((skill) => skill.management.list())))),
+    )
     .handle("skill.management.setEnabled", (ctx) =>
       response(
-        SkillV2.Service.use((skill) => skill.management.setEnabled(ctx.params.id, ctx.payload.enabled)).pipe(
+        ready.pipe(
+          Effect.andThen(
+            SkillV2.Service.use((skill) => skill.management.setEnabled(ctx.params.id, ctx.payload.enabled)),
+          ),
           Effect.mapError(setEnabledError),
         ),
       ),
     )
     .handle("skill.management.remove", (ctx) =>
       response(
-        SkillV2.Service.use((skill) => skill.management.remove(ctx.params.id)).pipe(Effect.mapError(managementError)),
+        ready.pipe(
+          Effect.andThen(SkillV2.Service.use((skill) => skill.management.remove(ctx.params.id))),
+          Effect.mapError(managementError),
+        ),
       ),
     ),
+)
+
+const ready = PluginV2.Service.use((plugin) =>
+  Effect.all([plugin.wait(PluginV2.ID.make("skill")), plugin.wait(PluginV2.ID.make("config-skill"))], {
+    discard: true,
+  }),
 )
 
 function setEnabledError(error: SkillV2.NotFoundError | SkillV2.OperationError) {

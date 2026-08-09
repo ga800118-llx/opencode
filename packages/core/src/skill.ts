@@ -112,6 +112,7 @@ const layer = Layer.effect(
         source: (source) => {
           const index = draft.sources.findIndex((item) => Source.equals(item, source))
           if (index !== -1) {
+            if (draft.sources[index].origin?.type === "external") return
             if (source.origin !== undefined) draft.sources[index] = source as Types.DeepMutable<Source>
             return
           }

@@ -4,6 +4,8 @@ import { define } from "../../plugin/internal"
 import path from "path"
 import { Effect } from "effect"
 import { Config } from "../../config"
+import { Flag } from "../../flag/flag"
+import { FSUtil } from "../../fs-util"
 import { AbsolutePath } from "../../schema"
 import { SkillV2 } from "../../skill"
 import { Global } from "../../global"
@@ -13,10 +15,40 @@ export const Plugin = define({
   id: "config-skill",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
+    const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
     yield* ctx.skill.transform(
       Effect.fn(function* (draft) {
+        const external = Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS
+          ? []
+          : [...(Flag.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ? [] : [".claude"]), ".agents"]
+        for (const directory of external) {
+          const source = path.join(global.home, directory, "skills")
+          draft.source(
+            SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(source),
+              origin: { scope: "global", type: "external", value: source },
+            }),
+          )
+        }
+        if (path.resolve(location.directory) !== path.resolve(global.config)) {
+          const roots = yield* fs
+            .up({ targets: external, start: location.directory, stop: location.project.directory })
+            .pipe(Effect.catch(() => Effect.succeed([] as string[])))
+          for (const root of roots) {
+            const source = path.join(root, "skills")
+            draft.source(
+              SkillV2.DirectorySource.make({
+                type: "directory",
+                path: AbsolutePath.make(source),
+                origin: { scope: "project", type: "external", value: source },
+              }),
+            )
+          }
+        }
+
         const entries = yield* config.entries()
         const directories = entries.filter((entry): entry is Config.Directory => entry.type === "directory")
         const files = entries.filter((entry): entry is Config.Document => entry.type === "document")

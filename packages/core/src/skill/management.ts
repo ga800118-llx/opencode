@@ -150,6 +150,7 @@ function resolveDeleteTarget(
   if (sourceInfo.type === "builtin") return Effect.succeed({ blocked: "builtin" })
   if (sourceInfo.type === "url") return Effect.succeed({ blocked: "remote" })
   if (sourceInfo.type === "plugin") return Effect.succeed({ blocked: "plugin" })
+  if (sourceInfo.type === "external") return Effect.succeed({ blocked: "shared" })
   if (entry.source.type !== "directory") return Effect.succeed({ blocked: "unsafe" })
   if (entry.source.origin?.type !== "config-directory" && entry.source.origin?.type !== "config-file") {
     return Effect.succeed({ blocked: "plugin" })
@@ -175,6 +176,7 @@ function requireMutationTarget(entry: Installed, installationID: Skill.Managemen
   if (sourceInfo.type === "builtin") return Effect.fail(new ProtectedError({ id: installationID, reason: "builtin" }))
   if (sourceInfo.type === "url") return Effect.fail(new ProtectedError({ id: installationID, reason: "remote" }))
   if (sourceInfo.type === "plugin") return Effect.fail(new ProtectedError({ id: installationID, reason: "plugin" }))
+  if (sourceInfo.type === "external") return Effect.fail(new ProtectedError({ id: installationID, reason: "shared" }))
   if (
     entry.source.type !== "directory" ||
     (entry.source.origin?.type !== "config-directory" && entry.source.origin?.type !== "config-file")
@@ -556,7 +558,9 @@ function toInfo(
         ? ({ blocked: "remote" } as const)
         : sourceInfo.type === "plugin"
           ? ({ blocked: "plugin" } as const)
-          : ({ blocked: "unsafe" } as const)
+          : sourceInfo.type === "external"
+            ? ({ blocked: "shared" } as const)
+            : ({ blocked: "unsafe" } as const)
   const target = deletion ?? fallback
   return {
     id: installationID,
@@ -593,6 +597,15 @@ function source(input: Skill.Source): typeof Skill.ManagementSource.Type {
       type: "builtin",
       scope: input.origin.scope,
       value: input.origin.value ?? (input.type === "embedded" ? input.skill.name : Skill.Source.key(input)),
+    }
+  }
+  if (input.origin.type === "external") {
+    return {
+      type: "external",
+      scope: input.origin.scope,
+      value:
+        input.origin.value ??
+        (input.type === "directory" ? input.path : input.type === "url" ? input.url : input.skill.name),
     }
   }
   if (input.type === "directory") return { type: "directory", scope: input.origin.scope, value: input.path }

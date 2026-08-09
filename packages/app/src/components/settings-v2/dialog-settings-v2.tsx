@@ -15,7 +15,7 @@ import { useLayout } from "@/context/layout"
 import { tabKey, useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsSkillsV2 } from "./skills"
-import { settingsDirectory } from "@/components/settings-directory"
+import { settingsDirectory, settingsSkillDirectory } from "@/components/settings-directory"
 
 export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers" | "skills"
 
@@ -40,6 +40,9 @@ export const DialogSettings: Component<{
         (id) => serverSync().session.get(id),
         (tab) => tabs.info[tabKey(tab)],
       ),
+  )
+  const skillDirectory = createMemo(() =>
+    settingsSkillDirectory(directory(), serverSync().data.path.config || undefined),
   )
 
   const showProviders = () => {
@@ -123,7 +126,7 @@ export const DialogSettings: Component<{
           <SettingsModelsV2 onOpenProviders={() => setTab("providers")} />
         </TabsV2.Content>
         <TabsV2.Content value="skills" class="settings-v2-panel">
-          <SettingsSkillsV2 directory={directory()} />
+          <SettingsSkillsV2 directory={skillDirectory()} />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>

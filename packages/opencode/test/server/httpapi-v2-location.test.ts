@@ -39,6 +39,11 @@ const ManagementResponse = Schema.Struct({
   data: Schema.Array(SkillV2.ManagementInfo),
 })
 
+const SkillResponse = Schema.Struct({
+  location: Location.Info,
+  data: Schema.Array(SkillV2.Info),
+})
+
 async function* eventStream(body: ReadableStream<Uint8Array>) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -115,6 +120,70 @@ describe("v2 location HttpApi", () => {
       expect(body.location.directory).toBe(tmp.path)
       expect(body.location.project.id).toBeTruthy()
     }
+  })
+
+  test("includes and protects a compatibility Skill in the first management snapshot", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (directory) => {
+        const skill = path.join(directory, ".agents", "skills", "http-shared-fixture")
+        await fs.mkdir(skill, { recursive: true })
+        await Bun.write(
+          path.join(skill, "SKILL.md"),
+          "---\nname: http-shared-fixture\ndescription: Shared HTTP management fixture.\n---\nFixture.\n",
+        )
+        return skill
+      },
+    })
+
+    const listed = await request("/api/skill/management", tmp.path)
+    expect(listed.status).toBe(200)
+    const initial = Schema.decodeUnknownSync(ManagementResponse)(await listed.json())
+    expect(initial.data.some((entry) => entry.source.type === "builtin")).toBe(true)
+    const installation = initial.data.find((entry) => entry.name === "http-shared-fixture")
+    expect(installation).toMatchObject({
+      source: { type: "external", scope: "project", value: path.join(tmp.path, ".agents", "skills") },
+      deletable: false,
+      deleteBlocked: "shared",
+      enabled: true,
+      status: "active",
+    })
+
+    const disabled = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    })
+    expect(disabled.status).toBe(200)
+    expect(
+      Schema.decodeUnknownSync(ManagementResponse)(await disabled.json()).data.find(
+        (entry) => entry.id === installation!.id,
+      ),
+    ).toMatchObject({ enabled: false, status: "disabled" })
+    const execution = Schema.decodeUnknownSync(SkillResponse)(await (await request("/api/skill", tmp.path)).json())
+    expect(execution.data.some((entry) => entry.name === "http-shared-fixture")).toBe(false)
+
+    const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
+    expect(removed.status).toBe(403)
+    expect(await removed.json()).toEqual({
+      _tag: "SkillManagementForbiddenError",
+      id: installation!.id,
+      reason: "shared",
+      message: "Skill cannot be deleted.",
+    })
+    expect(await fs.stat(path.join(tmp.extra, "SKILL.md"))).toBeDefined()
+
+    const enabled = await request(`/api/skill/management/${installation!.id}`, tmp.path, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    })
+    expect(enabled.status).toBe(200)
+    expect(
+      Schema.decodeUnknownSync(ManagementResponse)(await enabled.json()).data.find(
+        (entry) => entry.id === installation!.id,
+      ),
+    ).toMatchObject({ enabled: true, status: "active" })
   })
 
   test("manages a disposable local Skill through location-scoped HTTP routes", async () => {

@@ -305,14 +305,21 @@ describe("SettingsSkillsV2", () => {
   })
 
   test("shows the protected reason without rendering a delete action", async () => {
-    const item = fixture({
+    const builtin = fixture({
       id: "builtin",
       name: "builtin",
       source: { type: "builtin", scope: "global", value: "builtin" },
       deletable: false,
       deleteBlocked: "builtin",
     })
-    const current = server("scope", [item])
+    const shared = fixture({
+      id: "shared",
+      name: "agent-browser",
+      source: { type: "external", scope: "global", value: "/Users/test/.agents/skills" },
+      deletable: false,
+      deleteBlocked: "shared",
+    })
+    const current = server("scope", [builtin, shared])
     const view = mount(
       () => "/repo",
       () => current.sdk,
@@ -320,7 +327,10 @@ describe("SettingsSkillsV2", () => {
     await waitFor(() => view.host.textContent?.includes("Built-in skill") === true)
 
     expect(view.host.querySelector('button[aria-label="Delete builtin"]')).toBeNull()
+    expect(view.host.querySelector('button[aria-label="Delete agent-browser"]')).toBeNull()
     expect(view.host.textContent).toContain("Built-in skill")
+    expect(view.host.textContent).toContain("Shared directory")
+    expect(view.host.textContent).toContain("Shared with other agent applications")
   })
 })
 
@@ -434,9 +444,13 @@ function fixture(input: {
   name: string
   enabled?: boolean
   status?: "active" | "disabled" | "shadowed"
-  source?: { type: "builtin" | "directory" | "url" | "plugin"; scope: "global" | "project"; value: string }
+  source?: {
+    type: "builtin" | "directory" | "external" | "url" | "plugin"
+    scope: "global" | "project"
+    value: string
+  }
   deletable?: boolean
-  deleteBlocked?: "builtin" | "remote" | "plugin" | "unsafe"
+  deleteBlocked?: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
 }) {
   return Schema.decodeUnknownSync(Skill.ManagementInfo)({
     id: input.id,

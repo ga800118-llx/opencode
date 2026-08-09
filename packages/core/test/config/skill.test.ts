@@ -3,6 +3,8 @@ import { describe, expect } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigSkillPlugin } from "@opencode-ai/core/config/plugin/skill"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -18,6 +20,7 @@ describe("ConfigSkillPlugin.Plugin", () => {
   it.effect("registers configured skill directories and URLs", () =>
     Effect.gen(function* () {
       const directory = AbsolutePath.make("/repo/packages/app")
+      const projectRoot = AbsolutePath.make("/repo")
       const globalConfig = AbsolutePath.make("/home/test/.config/opencode")
       const sources: SkillV2.Source[] = []
       const transform = Effect.fnUntraced(function* (update: (draft: SkillV2.Draft) => void | Effect.Effect<void>) {
@@ -35,13 +38,28 @@ describe("ConfigSkillPlugin.Plugin", () => {
         return { dispose }
       })
 
+      const filesystem = Layer.effect(
+        FSUtil.Service,
+        FSUtil.Service.pipe(
+          Effect.map((fs) =>
+            FSUtil.Service.of({
+              ...fs,
+              up: () => Effect.succeed(["/repo/packages/app/.claude", "/repo/.agents"]),
+            }),
+          ),
+        ),
+      ).pipe(Layer.provide(LayerNode.compile(FSUtil.node)))
+
       yield* ConfigSkillPlugin.Plugin.effect(
         host({
           skill: { transform, reload: () => Effect.void },
         }),
       ).pipe(
         Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), home: "/home/test", config: globalConfig })),
-        Effect.provideService(Location.Service, Location.Service.of(location({ directory }))),
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory }, { projectDirectory: projectRoot })),
+        ),
         Effect.provideService(
           Config.Service,
           Config.Service.of({
@@ -68,9 +86,30 @@ describe("ConfigSkillPlugin.Plugin", () => {
               ]),
           }),
         ),
+        Effect.provide(filesystem),
       )
 
       expect(sources).toEqual([
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make("/home/test/.claude/skills"),
+          origin: { scope: "global", type: "external", value: "/home/test/.claude/skills" },
+        }),
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make("/home/test/.agents/skills"),
+          origin: { scope: "global", type: "external", value: "/home/test/.agents/skills" },
+        }),
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make("/repo/packages/app/.claude/skills"),
+          origin: { scope: "project", type: "external", value: "/repo/packages/app/.claude/skills" },
+        }),
+        SkillV2.DirectorySource.make({
+          type: "directory",
+          path: AbsolutePath.make("/repo/.agents/skills"),
+          origin: { scope: "project", type: "external", value: "/repo/.agents/skills" },
+        }),
         SkillV2.DirectorySource.make({
           type: "directory",
           path: AbsolutePath.make(path.join(globalConfig, "skill")),

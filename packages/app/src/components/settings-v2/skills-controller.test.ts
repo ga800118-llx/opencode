@@ -68,6 +68,16 @@ const items = [
     deletable: false,
     deleteBlocked: "plugin",
   }),
+  decode({
+    id: "external-browser",
+    name: "agent-browser",
+    location: "/Users/test/.agents/skills/agent-browser/SKILL.md",
+    source: { type: "external", scope: "global", value: "/Users/test/.agents/skills" },
+    status: "active",
+    enabled: true,
+    deletable: false,
+    deleteBlocked: "shared",
+  }),
 ]
 
 describe("Skill settings controller", () => {
@@ -86,12 +96,13 @@ describe("Skill settings controller", () => {
     )
   })
 
-  test("maps project, global, built-in, remote, and plugin presentation keys", () => {
+  test("maps project, global, built-in, remote, plugin, and shared presentation keys", () => {
     expect(sourceKey(items[0]!)).toBe("settings.skills.source.project")
     expect(sourceKey(items[1]!)).toBe("settings.skills.source.global")
     expect(sourceKey(items[2]!)).toBe("settings.skills.source.builtin")
     expect(sourceKey(items[3]!)).toBe("settings.skills.source.remote")
     expect(sourceKey(items[4]!)).toBe("settings.skills.source.plugin")
+    expect(sourceKey(items[5]!)).toBe("settings.skills.source.external")
     expect(scopeKey(items[0]!)).toBe("settings.skills.scope.project")
     expect(scopeKey(items[1]!)).toBe("settings.skills.scope.global")
     expect(statusKey(items[0]!)).toBe("settings.skills.status.active")
@@ -102,14 +113,15 @@ describe("Skill settings controller", () => {
     expect(blockedKey(items[2]!)).toBe("settings.skills.deleteBlocked.builtin")
     expect(blockedKey(items[3]!)).toBe("settings.skills.deleteBlocked.remote")
     expect(blockedKey(items[4]!)).toBe("settings.skills.deleteBlocked.plugin")
+    expect(blockedKey(items[5]!)).toBe("settings.skills.deleteBlocked.shared")
   })
 
   test("tracks one or multiple pending installations independently", () => {
     const keys = items.map((item) => skillPendingKey("server-a", "/repo", item.id))
     const one = new Set([keys[1]!])
     const concurrent = new Set([keys[1]!, keys[3]!])
-    expect(keys.map((key) => isPending(one, key))).toEqual([false, true, false, false, false])
-    expect(keys.map((key) => isPending(concurrent, key))).toEqual([false, true, false, true, false])
+    expect(keys.map((key) => isPending(one, key))).toEqual([false, true, false, false, false, false])
+    expect(keys.map((key) => isPending(concurrent, key))).toEqual([false, true, false, true, false, false])
     expect(keys.every((key) => !isPending(new Set(), key))).toBe(true)
     expect(skillPendingKey("server-a", "/repo", items[0]!.id)).not.toBe(
       skillPendingKey("server-b", "/repo", items[0]!.id),

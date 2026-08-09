@@ -237,7 +237,7 @@ describe("SkillV2", () => {
 
           const directory = (
             location: string,
-            origin: "config-directory" | "config-file" | false = "config-directory",
+            origin: "config-directory" | "config-file" | "external" | false = "config-directory",
           ): Installed => ({
             source: SkillV2.DirectorySource.make({
               type: "directory",
@@ -298,6 +298,11 @@ describe("SkillV2", () => {
               entry: directory(path.join(sourceRoot, "normal", "SKILL.md"), false),
               expected: { blocked: "plugin" },
             },
+            {
+              name: "shared compatibility directory",
+              entry: directory(path.join(sourceRoot, "normal", "SKILL.md"), "external"),
+              expected: { blocked: "shared" },
+            },
           ] as const
 
           for (const item of cases) {
@@ -326,6 +331,7 @@ describe("SkillV2", () => {
             { deletable: false, deleteBlocked: "builtin" },
             { deletable: false, deleteBlocked: "remote" },
             { deletable: false, deleteBlocked: "plugin" },
+            { deletable: false, deleteBlocked: "shared" },
           ])
         }),
       ),
@@ -2207,6 +2213,11 @@ describe("SkillV2", () => {
         location: AbsolutePath.make("/plugins/example/skills/plugin/SKILL.md"),
         content: "Plugin",
       })
+      const external = SkillV2.Info.make({
+        name: "external",
+        location: AbsolutePath.make("/home/user/.agents/skills/external/SKILL.md"),
+        content: "External",
+      })
       const entries: Installed[] = [
         {
           source: SkillV2.EmbeddedSource.make({
@@ -2240,6 +2251,14 @@ describe("SkillV2", () => {
           }),
           info: plugin,
         },
+        {
+          source: SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make("/home/user/.agents/skills"),
+            origin: { scope: "global", type: "external", value: "/home/user/.agents/skills" },
+          }),
+          info: external,
+        },
       ]
 
       const managed = project(entries, { global: new Set(), project: new Set() })
@@ -2254,6 +2273,10 @@ describe("SkillV2", () => {
           source: { type: "url", scope: "global", value: "https://example.test/skills/" },
         },
         { deleteBlocked: "plugin", source: { type: "plugin", scope: "project", value: "example-plugin" } },
+        {
+          deleteBlocked: "shared",
+          source: { type: "external", scope: "global", value: "/home/user/.agents/skills" },
+        },
       ])
       expect(managed.every((item) => !("content" in item))).toBe(true)
     }),
@@ -2308,6 +2331,37 @@ describe("SkillV2", () => {
           origin: { scope: "project", type: "config-file", value: "/repo/opencode.json" },
         },
         { type: "directory", path: duplicate },
+      ])
+    }),
+  )
+
+  it.live("retains shared origin when the same directory is configured explicitly", () =>
+    Effect.gen(function* () {
+      const skill = yield* SkillV2.Service
+      const shared = AbsolutePath.make("/home/user/.agents/skills")
+      yield* skill.transform((editor) => {
+        editor.source(
+          SkillV2.DirectorySource.make({
+            type: "directory",
+            path: shared,
+            origin: { scope: "global", type: "external", value: shared },
+          }),
+        )
+        editor.source(
+          SkillV2.DirectorySource.make({
+            type: "directory",
+            path: shared,
+            origin: { scope: "global", type: "config-file", value: "/home/user/.config/opencode/opencode.json" },
+          }),
+        )
+      })
+
+      expect(yield* skill.sources()).toEqual([
+        {
+          type: "directory",
+          path: shared,
+          origin: { scope: "global", type: "external", value: shared },
+        },
       ])
     }),
   )
