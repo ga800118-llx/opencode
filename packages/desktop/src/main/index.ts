@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdirSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
@@ -12,6 +12,7 @@ import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
+import { createBundledGitEnvironment } from "../product/bundled-git"
 import { normalizeProductDeepLinks } from "../product/deep-link"
 import {
   createUnavailableSidecarStatus,
@@ -189,6 +190,17 @@ const main = Effect.gen(function* () {
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
+  const bundledGit = createBundledGitEnvironment({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    inheritedPath: process.env.PATH,
+    exists: existsSync,
+  })
+  if (bundledGit) {
+    process.env.PATH = bundledGit.path
+    logger.log("bundled git enabled", { directory: bundledGit.directory })
+  }
   initCrashReporter()
 
   const wslServers = createWslServersController(
