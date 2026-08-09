@@ -62,6 +62,26 @@ afterEach(() => {
 })
 
 describe("SettingsSkillsV2", () => {
+  test("keeps a transient empty first response in the loading state", async () => {
+    const item = fixture({ id: "cold-start", name: "cold-start" })
+    const request = deferred<Skill.ManagementInfo[]>()
+    const current = server("scope", [])
+    current.behavior.list = async () => (current.listCalls === 1 ? [] : request.promise)
+    const view = mount(
+      () => "/repo",
+      () => current.sdk,
+    )
+
+    await waitFor(() => current.listCalls === 2)
+    expect(view.host.textContent).toContain("Loading Skills...")
+    expect(view.host.textContent).not.toContain("0 installed")
+    expect(view.host.textContent).not.toContain("No Skills installed.")
+
+    request.resolve([item])
+    await waitFor(() => view.host.textContent?.includes("cold-start") === true)
+    expect(view.host.textContent).toContain("1 installed")
+  })
+
   test("closes an invalid covered confirmation only after it becomes active again", async () => {
     const item = fixture({ id: "old", name: "old-skill", deletable: true })
     const oldServer = server("old-scope", [item])

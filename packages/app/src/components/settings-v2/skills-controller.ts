@@ -2,6 +2,20 @@ import { Skill } from "@opencode-ai/schema/skill"
 
 export type SkillStatusFilter = "all" | Skill.ManagementInfo["status"]
 
+export async function loadSkillManagement(
+  list: () => Promise<Skill.ManagementInfo[]>,
+  wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+) {
+  const delays = [100, 200] as const
+  const load = async (attempt: number): Promise<Skill.ManagementInfo[]> => {
+    const result = await list()
+    if (result.length > 0 || attempt === delays.length) return result
+    await wait(delays[attempt]!)
+    return load(attempt + 1)
+  }
+  return load(0)
+}
+
 export function filterSkills(
   items: readonly Skill.ManagementInfo[],
   input: { query: string; status: SkillStatusFilter },

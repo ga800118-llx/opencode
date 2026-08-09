@@ -21,6 +21,7 @@ import {
   createSkillRefreshQueue,
   filterSkills,
   isPending,
+  loadSkillManagement,
   skillPendingKey,
   scopeKey,
   sourceKey,
@@ -71,7 +72,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     queryKey: queryKey(),
     enabled: !!props.directory,
     retry: false,
-    queryFn: () => serverSDK().skillManagement.list(props.directory!),
+    queryFn: () => {
+      const sdk = serverSDK()
+      const directory = props.directory!
+      return loadSkillManagement(() => sdk.skillManagement.list(directory))
+    },
   }))
   const items = createMemo(() => skills.data ?? [])
   const filtered = createMemo(() => filterSkills(items(), { query: state.query, status: state.status }))
@@ -212,7 +217,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       <div class="settings-v2-tab-header settings-v2-tab-header--stacked settings-v2-skills-header">
         <div class="settings-v2-tab-header-row settings-v2-skills-heading">
           <h2 class="settings-v2-tab-title">{language.t("settings.skills.title")}</h2>
-          <span class="settings-v2-skills-count">{language.t("settings.skills.count", { count: items().length })}</span>
+          <Show when={!skills.isPending}>
+            <span class="settings-v2-skills-count">
+              {language.t("settings.skills.count", { count: items().length })}
+            </span>
+          </Show>
         </div>
         <div class="settings-v2-tab-search settings-v2-skills-search">
           <Show

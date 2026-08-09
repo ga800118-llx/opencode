@@ -6,6 +6,7 @@ import {
   createSkillRefreshQueue,
   filterSkills,
   isPending,
+  loadSkillManagement,
   skillPendingKey,
   scopeKey,
   sourceKey,
@@ -81,6 +82,69 @@ const items = [
 ]
 
 describe("Skill settings controller", () => {
+  test("retries transient empty Skill snapshots with bounded delays", async () => {
+    const delays: number[] = []
+    let calls = 0
+    const result = await loadSkillManagement(
+      async () => (++calls === 1 ? [] : [items[0]!]),
+      async (milliseconds) => {
+        delays.push(milliseconds)
+      },
+    )
+
+    expect(result).toEqual([items[0]!])
+    expect(calls).toBe(2)
+    expect(delays).toEqual([100])
+  })
+
+  test("returns a non-empty first Skill snapshot without waiting", async () => {
+    const delays: number[] = []
+    let calls = 0
+    const result = await loadSkillManagement(
+      async () => {
+        calls++
+        return [items[0]!]
+      },
+      async (milliseconds) => {
+        delays.push(milliseconds)
+      },
+    )
+
+    expect(result).toEqual([items[0]!])
+    expect(calls).toBe(1)
+    expect(delays).toEqual([])
+  })
+
+  test("accepts an empty Skill snapshot after three attempts", async () => {
+    const delays: number[] = []
+    let calls = 0
+    const result = await loadSkillManagement(
+      async () => {
+        calls++
+        return []
+      },
+      async (milliseconds) => {
+        delays.push(milliseconds)
+      },
+    )
+
+    expect(result).toEqual([])
+    expect(calls).toBe(3)
+    expect(delays).toEqual([100, 200])
+  })
+
+  test("does not retry a Skill request error", async () => {
+    const failure = new Error("request failed")
+    let calls = 0
+    const request = loadSkillManagement(async () => {
+      calls++
+      throw failure
+    })
+
+    await expect(request).rejects.toBe(failure)
+    expect(calls).toBe(1)
+  })
+
   test("filters by searchable fields and normalized status", () => {
     expect(filterSkills(items, { query: " deploy ", status: "all" }).map((item) => item.name)).toEqual(["deploy"])
     expect(filterSkills(items, { query: "/REPO/.OPENCODE", status: "all" }).map((item) => item.name)).toEqual([
