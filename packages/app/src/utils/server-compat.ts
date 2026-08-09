@@ -15,13 +15,17 @@ import type {
   SessionShellInput,
   SessionShellOutput,
 } from "@opencode-ai/client/promise"
+import type { Permission } from "@opencode-ai/schema/permission"
 
 type LegacyClient = OpencodeClient
 type LegacyFor = (directory?: string) => LegacyClient
+type PermissionModeSessionInfo = SessionInfo & { permissionMode?: Permission.Mode }
+type PermissionModeCreateInput = Parameters<SessionApi["create"]>[0] & { permissionMode?: Permission.Mode }
 type CompatibleSessionApi = Omit<
   SessionApi,
-  "prompt" | "command" | "shell" | "interrupt" | "compact" | "rename" | "archive" | "remove"
+  "create" | "prompt" | "command" | "shell" | "interrupt" | "compact" | "rename" | "archive" | "remove"
 > & {
+  create: (input?: PermissionModeCreateInput) => Promise<PermissionModeSessionInfo>
   prompt: (input: SessionPromptInput & LegacyPrompt & CompatibleLocation) => Promise<SessionPromptOutput>
   command: (input: SessionCommandInput & CompatibleLocation) => Promise<SessionCommandOutput>
   shell: (input: SessionShellInput & LegacyPrompt & CompatibleLocation) => Promise<SessionShellOutput>
@@ -32,6 +36,7 @@ type CompatibleSessionApi = Omit<
   rename: (input: Parameters<SessionApi["rename"]>[0] & LegacyLocation) => ReturnType<SessionApi["rename"]>
   // archive: (input: Parameters<SessionApi["archive"]>[0] & LegacyLocation) => ReturnType<SessionApi["archive"]>
   remove: (input: Parameters<SessionApi["remove"]>[0] & LegacyLocation) => ReturnType<SessionApi["remove"]>
+  switchPermissionMode: (input: { sessionID: string; mode: Permission.Mode }) => Promise<void>
 }
 type CompatiblePermissionApi = Omit<ServerApi["permission"], "reply"> & {
   reply: (
@@ -62,7 +67,7 @@ function mime(uri: string) {
   return match?.[1] ?? "application/octet-stream"
 }
 
-function sessionInfo(session: Session): SessionInfo {
+function sessionInfo(session: Session): PermissionModeSessionInfo {
   return {
     id: session.id,
     parentID: session.parentID,
@@ -84,14 +89,15 @@ function sessionInfo(session: Session): SessionInfo {
       partID: session.revert.partID,
       snapshot: session.revert.snapshot,
     },
+    permissionMode: session.permissionMode,
   }
 }
 
 export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   const v1 = createV1Api(input)
   return lazyApi(
-    input.protocol.then((protocol) => (protocol === "v1" ? v1 : input.current)),
-    input.current,
+    input.protocol.then((protocol) => (protocol === "v1" ? v1 : (input.current as CompatibleApi))),
+    v1,
   )
 }
 
@@ -164,11 +170,12 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         })
         return { data: (result.data ?? []).map(sessionInfo), cursor: {} }
       },
-      async create(value?: Parameters<ServerApi["session"]["create"]>[0]) {
+      async create(value?: PermissionModeCreateInput) {
         const result = await legacy(value?.location ?? undefined).session.create({
           directory: directory(value?.location ?? undefined),
           agent: value?.agent ?? undefined,
           model: value?.model ?? undefined,
+          permissionMode: value?.permissionMode ?? undefined,
         })
         if (!result.data) throw new Error("Failed to create session")
         return sessionInfo(result.data)
@@ -177,6 +184,13 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         const result = await legacy().session.get(value)
         if (!result.data) throw new Error(`Session not found: ${value.sessionID}`)
         return sessionInfo(result.data)
+      },
+      async switchPermissionMode(value: { sessionID: string; mode: Permission.Mode }) {
+        await legacy().session.switchPermissionMode({
+          sessionID: value.sessionID,
+          directory: directory(),
+          mode: value.mode,
+        })
       },
       async active() {
         const result = await legacy().session.status()

@@ -63,6 +63,11 @@ export function createTimelineProjection(input: {
   const lastAssistantGroupKey = createMemo(() => {
     const result = new Map<string, string>()
     rows().forEach((row) => {
+      if (row._tag === "AssistantProcess") {
+        row.items.forEach((item) => {
+          if (item.type === "part") result.set(row.userMessageID, item.group.key)
+        })
+      }
       if (row._tag === "AssistantPart") result.set(row.userMessageID, row.group.key)
     })
     return result

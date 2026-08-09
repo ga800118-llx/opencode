@@ -44,11 +44,11 @@ export const DialogServerV2: Component<{
   }
 
   const title = () =>
-    props.mode === "add" ? language.t("dialog.server.add.title") : language.t("dialog.server.edit.title")
+    props.mode === "add" ? language.t("workflow.runLocation.add.title") : language.t("workflow.runLocation.edit.title")
 
   const submitLabel = () => {
     if (controller.formBusy()) return language.t("dialog.server.add.checking")
-    if (props.mode === "add") return language.t("dialog.server.add.button")
+    if (props.mode === "add") return language.t("workflow.runLocation.add")
     return language.t("common.save")
   }
 
@@ -61,13 +61,13 @@ export const DialogServerV2: Component<{
       <DialogBody class="flex w-full min-w-0 flex-1 flex-col px-4 pt-4 pb-2">
         <div class="flex w-full min-w-0 flex-col gap-6">
           <div class="flex w-full min-w-0 flex-col gap-2">
-            <label class="settings-v2-server-dialog-label">{language.t("dialog.server.add.url")}</label>
+            <label class="settings-v2-server-dialog-label">{language.t("workflow.runLocation.address")}</label>
             <TextInputV2
               type="text"
               appearance="large"
               class="!w-full self-stretch"
               value={controller.formValue()}
-              placeholder={language.t("dialog.server.add.placeholder")}
+              placeholder={language.t("workflow.runLocation.address.placeholder")}
               invalid={!!controller.formError()}
               disabled={controller.formBusy()}
               autofocus
@@ -79,13 +79,13 @@ export const DialogServerV2: Component<{
             </Show>
           </div>
           <div class="flex w-full min-w-0 flex-col gap-2">
-            <label class="settings-v2-server-dialog-label">{language.t("dialog.server.add.name")}</label>
+            <label class="settings-v2-server-dialog-label">{language.t("workflow.runLocation.name")}</label>
             <TextInputV2
               type="text"
               appearance="large"
               class="!w-full self-stretch"
               value={controller.formName()}
-              placeholder={language.t("dialog.server.add.namePlaceholder")}
+              placeholder={language.t("workflow.runLocation.name.placeholder")}
               disabled={controller.formBusy()}
               onInput={(event) => controller.handleFormNameChange()(event.currentTarget.value)}
               onKeyDown={keyDown}

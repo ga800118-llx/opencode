@@ -11,8 +11,9 @@ import {
   Show,
 } from "solid-js"
 import { useLanguage } from "@/context/language"
-import { type ServerConnection, serverName } from "@/context/server"
+import { type ServerConnection } from "@/context/server"
 import type { ServerHealth } from "@/utils/server-health"
+import { runLocationName } from "./run-location"
 
 interface ServerRowProps extends ParentProps {
   conn: ServerConnection.Any
@@ -30,7 +31,8 @@ export function ServerRow(props: ServerRowProps) {
   const [truncated, setTruncated] = createSignal(false)
   let nameRef: HTMLSpanElement | undefined
   let versionRef: HTMLSpanElement | undefined
-  const name = createMemo(() => serverName(props.conn))
+  const localName = () => language.t("workflow.runLocation.local")
+  const name = createMemo(() => runLocationName(props.conn, localName()))
 
   const check = () => {
     const nameTruncated = nameRef ? nameRef.scrollWidth > nameRef.clientWidth : false
@@ -53,7 +55,7 @@ export function ServerRow(props: ServerRowProps) {
 
   const tooltipValue = () => (
     <span class="flex items-center gap-2">
-      <span>{serverName(props.conn, true)}</span>
+      <span>{runLocationName(props.conn, localName(), true)}</span>
       <Show when={props.status?.version}>
         <span class="text-text-invert-weak">v{props.status?.version}</span>
       </Show>

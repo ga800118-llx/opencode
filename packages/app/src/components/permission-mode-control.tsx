@@ -2,6 +2,7 @@ import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { DialogFooter, DialogHeader, DialogTitleGroup, DialogV2 } from "@opencode-ai/ui/v2/dialog-v2"
 import { Icon } from "@opencode-ai/ui/v2/icon"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { Permission } from "@opencode-ai/schema/permission"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -16,6 +17,12 @@ type RequestPermissionModeInput = {
   confirm: () => Promise<boolean>
   markConfirmed: () => void
   setMode: (mode: Permission.Mode) => Promise<unknown>
+}
+
+export function permissionModeControlStatus(capability: boolean | undefined) {
+  if (capability === true) return { disabled: false, status: "supported" as const }
+  if (capability === false) return { disabled: true, status: "unsupported" as const }
+  return { disabled: true, status: "probing" as const }
 }
 
 export async function requestPermissionMode(input: RequestPermissionModeInput) {
@@ -100,6 +107,7 @@ export function PermissionModeControl(props: {
   const [switching, setSwitching] = createSignal(false)
   const directory = () => sdk().directory
   const mode = () => permission.mode(props.sessionID, directory())
+  const control = () => permissionModeControlStatus(permission.modeCapability())
   const options = createMemo(
     () =>
       [
@@ -141,7 +149,36 @@ export function PermissionModeControl(props: {
   }
 
   return (
-    <Show when={permission.supportsModes()}>
+    <Show
+      when={control().status === "supported"}
+      fallback={
+        <TooltipV2
+          placement="top"
+          inactive={control().status !== "unsupported"}
+          value={language.t("permission.mode.unsupported.description")}
+        >
+          <ButtonV2
+            type="button"
+            variant="ghost-muted"
+            size="normal"
+            disabled
+            class="max-w-[148px] min-w-0 justify-start ![font-weight:440]"
+            aria-label={
+              control().status === "unsupported"
+                ? language.t("permission.mode.unsupported.description")
+                : language.t("permission.mode.label")
+            }
+          >
+            <Icon name="shield" class="shrink-0" />
+            <span class="truncate whitespace-nowrap leading-5">
+              {control().status === "unsupported"
+                ? language.t("permission.mode.unsupported.label")
+                : language.t("permission.mode.label")}
+            </span>
+          </ButtonV2>
+        </TooltipV2>
+      }
+    >
       <MenuV2
         gutter={6}
         modal={false}

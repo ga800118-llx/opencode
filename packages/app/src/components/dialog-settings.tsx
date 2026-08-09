@@ -1,4 +1,4 @@
-import { Component, createSignal, startTransition } from "solid-js"
+import { Component, Show, createEffect, createSignal, startTransition } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -10,12 +10,22 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
+import { useSettings } from "@/context/settings"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
   const dialog = useDialog()
-  const [tab, setTab] = createSignal(props.defaultValue ?? "general")
+  const settings = useSettings()
+  const requestedTab = props.defaultValue ?? "general"
+  const [tab, setTab] = createSignal(
+    requestedTab === "servers" && settings.presentation.simple() ? "general" : requestedTab,
+  )
+
+  createEffect(() => {
+    if (settings.presentation.advanced() || tab() !== "servers") return
+    setTab("general")
+  })
 
   const showProviders = () => {
     void dialog.show(() => <DialogSettings defaultValue="providers" />)
@@ -45,15 +55,17 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
                     </Tabs.Trigger>
-                    <Tabs.Trigger value="servers">
-                      <Icon name="server" />
-                      {language.t("status.popover.tab.servers")}
-                    </Tabs.Trigger>
+                    <Show when={settings.presentation.advanced()}>
+                      <Tabs.Trigger value="servers">
+                        <Icon name="server" />
+                        {language.t("workflow.runLocation.title")}
+                      </Tabs.Trigger>
+                    </Show>
                   </div>
                 </div>
 
                 <div class="flex flex-col gap-1.5">
-                  <Tabs.SectionTitle>{language.t("settings.section.server")}</Tabs.SectionTitle>
+                  <Tabs.SectionTitle>{language.t("workflow.runLocation.section")}</Tabs.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
                     <Tabs.Trigger value="providers">
                       <Icon name="providers" />
@@ -79,9 +91,11 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
         <Tabs.Content value="shortcuts" class="no-scrollbar">
           <SettingsKeybinds />
         </Tabs.Content>
-        <Tabs.Content value="servers" class="no-scrollbar">
-          <SettingsServers />
-        </Tabs.Content>
+        <Show when={settings.presentation.advanced()}>
+          <Tabs.Content value="servers" class="no-scrollbar">
+            <SettingsServers />
+          </Tabs.Content>
+        </Show>
         <Tabs.Content value="providers" class="no-scrollbar">
           <SettingsProviders onBack={showProviders} />
         </Tabs.Content>

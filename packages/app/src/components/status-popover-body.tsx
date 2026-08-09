@@ -155,9 +155,9 @@ export function StatusPopoverServerBody() {
         servers: serverItems,
         defaultKey: defaultServer.key,
         ariaLabel: language.t("status.popover.ariaLabel"),
-        serversLabel: language.t("status.popover.tab.servers"),
-        defaultLabel: language.t("common.default"),
-        manageLabel: language.t("status.popover.action.manageServers"),
+        serversLabel: language.t("workflow.runLocation.title"),
+        defaultLabel: language.t("workflow.runLocation.startup"),
+        manageLabel: language.t("workflow.runLocation.manage"),
         onManage: () => {
           const run = ++dialogRun
           void import("./dialog-select-server").then((x) => {
@@ -311,7 +311,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
           {!settings.general.newLayoutDesigns() && (
             <Tabs.Trigger value="servers" data-slot="tab" class="text-12-regular">
               {sortedServers().length > 0 ? `${sortedServers().length} ` : ""}
-              {language.t("status.popover.tab.servers")}
+              {language.t("workflow.runLocation.title")}
             </Tabs.Trigger>
           )}
           <Tabs.Trigger value="mcp" data-slot="tab" class="text-12-regular">
@@ -364,7 +364,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
                           badge={
                             <Show when={key === defaultServer.key()}>
                               <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
-                                {language.t("common.default")}
+                                {language.t("workflow.runLocation.startup")}
                               </span>
                             </Show>
                           }
@@ -390,7 +390,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
                     })
                   }}
                 >
-                  {language.t("status.popover.action.manageServers")}
+                  {language.t("workflow.runLocation.manage")}
                 </Button>
               </div>
             </div>

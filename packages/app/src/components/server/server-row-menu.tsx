@@ -34,11 +34,11 @@ export const ServerRowMenu: Component<{
 export function serverMenuLabels(language: ReturnType<typeof useLanguage>) {
   return {
     more: language.t("common.moreOptions"),
-    server: language.t("settings.section.server"),
+    server: language.t("workflow.runLocation.title"),
     edit: language.t("dialog.server.menu.edit"),
-    default: language.t("dialog.server.menu.default"),
-    defaultRemove: language.t("dialog.server.menu.defaultRemove"),
-    delete: language.t("dialog.server.menu.delete"),
+    default: language.t("workflow.runLocation.startup.set"),
+    defaultRemove: language.t("workflow.runLocation.startup.remove"),
+    delete: language.t("workflow.runLocation.remove"),
   }
 }
 

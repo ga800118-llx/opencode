@@ -736,6 +736,36 @@ describe("session HttpApi", () => {
         })
         expect(created.title).toBe("created")
 
+        const permissionMode = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.permissionMode, { sessionID: created.id }),
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ mode: "restricted" }),
+          },
+        )
+        expect(permissionMode).toMatchObject({ id: created.id, permissionMode: "restricted" })
+
+        const invalidPermissionMode = yield* request(
+          pathFor(SessionPaths.permissionMode, { sessionID: created.id }),
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ mode: "unsafe" }),
+          },
+        )
+        expect(invalidPermissionMode.status).toBe(400)
+
+        const missingPermissionMode = yield* request(
+          pathFor(SessionPaths.permissionMode, { sessionID: SessionID.descending() }),
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ mode: "standard" }),
+          },
+        )
+        expect(missingPermissionMode.status).toBe(404)
+
         const updated = yield* requestJson<Session.Info>(pathFor(SessionPaths.update, { sessionID: created.id }), {
           method: "PATCH",
           headers,

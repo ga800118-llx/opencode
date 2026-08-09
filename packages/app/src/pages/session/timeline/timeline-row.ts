@@ -4,6 +4,8 @@ import { Data, Equal } from "effect"
 
 export type SummaryDiff = SnapshotFileDiff & { file: string }
 
+export type AssistantProcessItem = { type: "part"; group: PartGroup } | { type: "interrupted" }
+
 export namespace TimelineRow {
   export class TurnGap extends Data.TaggedClass("TurnGap")<{
     userMessageID: string
@@ -23,6 +25,10 @@ export namespace TimelineRow {
     userMessageID: string
     group: PartGroup
     previousAssistantPart: boolean
+  }> {}
+  export class AssistantProcess extends Data.TaggedClass("AssistantProcess")<{
+    userMessageID: string
+    items: AssistantProcessItem[]
   }> {}
   export class Thinking extends Data.TaggedClass("Thinking")<{
     userMessageID: string
@@ -46,6 +52,7 @@ export namespace TimelineRow {
     | UserMessage
     | TurnDivider
     | AssistantPart
+    | AssistantProcess
     | Thinking
     | DiffSummary
     | Error
@@ -63,6 +70,8 @@ export namespace TimelineRow {
         return `turn-divider:${row.userMessageID}:${row.label}`
       case "AssistantPart":
         return `assistant-part:${row.userMessageID}:${row.group.key}`
+      case "AssistantProcess":
+        return `assistant-process:${row.userMessageID}`
       case "Thinking":
         return `thinking:${row.userMessageID}`
       case "DiffSummary":

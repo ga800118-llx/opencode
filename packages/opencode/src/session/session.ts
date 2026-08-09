@@ -44,6 +44,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
+import { Permission } from "@opencode-ai/schema/permission"
 
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
@@ -108,6 +109,7 @@ export function fromRow(row: SessionRow): Info {
     metadata: row.metadata ?? undefined,
     revert,
     permission: row.permission ? [...row.permission] : undefined,
+    permissionMode: row.permission_mode ?? undefined,
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -151,6 +153,7 @@ export function toRow(info: Info) {
         }
       : null,
     permission: info.permission,
+    permission_mode: info.permissionMode,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
@@ -240,6 +243,7 @@ export const Info = Schema.Struct({
   metadata: optional(Metadata),
   time: Time,
   permission: optional(PermissionV1.Ruleset),
+  permissionMode: optional(Permission.Mode),
   revert: optional(Revert),
 }).annotate({ identifier: "Session" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
@@ -265,6 +269,7 @@ export const CreateInput = Schema.optional(
     model: Schema.optional(Model),
     metadata: Schema.optional(Metadata),
     permission: Schema.optional(PermissionV1.Ruleset),
+    permissionMode: Schema.optional(Permission.Mode),
     workspaceID: Schema.optional(WorkspaceV2.ID),
   }),
 )
@@ -289,6 +294,10 @@ export const SetMetadataInput = Schema.Struct({
 export const SetPermissionInput = Schema.Struct({
   sessionID: SessionID,
   permission: PermissionV1.Ruleset,
+})
+export const SetPermissionModeInput = Schema.Struct({
+  sessionID: SessionID,
+  mode: Permission.Mode,
 })
 export const SetRevertInput = Schema.Struct({
   sessionID: SessionID,
@@ -422,6 +431,7 @@ export interface Interface {
     model?: Schema.Schema.Type<typeof Model>
     metadata?: typeof Metadata.Type
     permission?: PermissionV1.Ruleset
+    permissionMode?: Permission.Mode
     workspaceID?: WorkspaceV2.ID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
@@ -437,6 +447,7 @@ export interface Interface {
     time: number
   }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: PermissionV1.Ruleset }) => Effect.Effect<void>
+  readonly setPermissionMode: (input: typeof SetPermissionModeInput.Type) => Effect.Effect<void>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -509,6 +520,7 @@ const layer: Layer.Layer<
       path?: string
       metadata?: typeof Metadata.Type
       permission?: PermissionV1.Ruleset
+      permissionMode?: Permission.Mode
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -525,6 +537,7 @@ const layer: Layer.Layer<
         model: input.model,
         metadata: input.metadata,
         permission: input.permission ? [...input.permission] : undefined,
+        permissionMode: input.permissionMode,
         cost: 0,
         tokens: EmptyTokens,
         time: {
@@ -673,6 +686,7 @@ const layer: Layer.Layer<
       model?: Schema.Schema.Type<typeof Model>
       metadata?: typeof Metadata.Type
       permission?: PermissionV1.Ruleset
+      permissionMode?: Permission.Mode
       workspaceID?: WorkspaceV2.ID
     }) {
       const ctx = yield* InstanceState.context
@@ -686,6 +700,7 @@ const layer: Layer.Layer<
         model: input?.model,
         metadata: input?.metadata,
         permission: input?.permission,
+        permissionMode: input?.permissionMode,
         workspaceID: input?.workspaceID ?? workspace,
       })
     })
@@ -700,6 +715,7 @@ const layer: Layer.Layer<
         workspaceID: original.workspaceID,
         title,
         metadata: structuredClone(original.metadata),
+        permissionMode: original.permissionMode,
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
@@ -784,6 +800,12 @@ const layer: Layer.Layer<
       yield* patch(input.sessionID, { permission: [...input.permission], time: { updated: Date.now() } }).pipe(
         Effect.orDie,
       )
+    })
+
+    const setPermissionMode = Effect.fn("Session.setPermissionMode")(function* (
+      input: typeof SetPermissionModeInput.Type,
+    ) {
+      yield* patch(input.sessionID, { permissionMode: input.mode, time: { updated: Date.now() } }).pipe(Effect.orDie)
     })
 
     const setRevert = Effect.fn("Session.setRevert")(function* (input: {
@@ -917,6 +939,7 @@ const layer: Layer.Layer<
       setMetadata,
       setAgentModel,
       setPermission,
+      setPermissionMode,
       setRevert,
       clearRevert,
       setSummary,

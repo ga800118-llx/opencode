@@ -18,6 +18,7 @@ export type Event =
   | EventMessagePartRemoved
   | EventSessionNextAgentSwitched
   | EventSessionNextModelSwitched
+  | EventSessionNextPermissionModeSwitched
   | EventSessionNextMoved
   | EventSessionNextPrompted
   | EventSessionNextPromptAdmitted
@@ -211,6 +212,7 @@ export type Session = {
     compacting?: number
     archived?: number
   }
+  permissionMode?: PermissionMode
   permission?: PermissionRuleset
   revert?: {
     messageID: string
@@ -836,6 +838,15 @@ export type GlobalEvent = {
           sessionID: string
           messageID: string
           model: ModelRef
+        }
+      }
+    | {
+        id: string
+        type: "session.next.permission-mode.switched"
+        properties: {
+          timestamp: number
+          sessionID: string
+          mode: PermissionMode
         }
       }
     | {
@@ -1610,6 +1621,7 @@ export type GlobalEvent = {
     | SyncEventMessagePartRemoved
     | SyncEventSessionNextAgentSwitched
     | SyncEventSessionNextModelSwitched
+    | SyncEventSessionNextPermissionModeSwitched
     | SyncEventSessionNextMoved
     | SyncEventSessionNextPrompted
     | SyncEventSessionNextPromptAdmitted
@@ -2233,6 +2245,7 @@ export type GlobalSession = {
     archived?: number
   }
   permission?: PermissionRuleset
+  permissionMode?: PermissionMode
   revert?: {
     messageID: string
     partID?: string
@@ -2735,6 +2748,7 @@ export type UnknownError1 = {
 export type SessionDurableEvent =
   | SessionNextAgentSwitched
   | SessionNextModelSwitched
+  | SessionNextPermissionModeSwitched
   | SessionNextMoved
   | SessionNextPrompted
   | SessionNextPromptAdmitted
@@ -2780,6 +2794,25 @@ export type SessionMessagesResponse = {
 export type ProviderNotFoundError = {
   _tag: "ProviderNotFoundError"
   providerID: string
+  message: string
+}
+
+export type SkillManagementNotFoundError = {
+  _tag: "SkillManagementNotFoundError"
+  id: string
+  message: string
+}
+
+export type SkillManagementOperationError = {
+  _tag: "SkillManagementOperationError"
+  operation: "read" | "write" | "delete"
+  message: string
+}
+
+export type SkillManagementForbiddenError = {
+  _tag: "SkillManagementForbiddenError"
+  id: string
+  reason: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
   message: string
 }
 
@@ -2862,6 +2895,7 @@ export type V2Event =
   | MessagePartRemoved
   | SessionNextAgentSwitched
   | SessionNextModelSwitched
+  | SessionNextPermissionModeSwitched
   | SessionNextMoved
   | SessionNextPrompted
   | SessionNextPromptAdmitted
@@ -3030,6 +3064,8 @@ export type SkillV2Source = SkillV2DirectorySource | SkillV2UrlSource | SkillV2E
 export type MoveSessionDestination = {
   directory: string
 }
+
+export type PermissionMode = "restricted" | "standard" | "auto"
 
 export type ModelRef = {
   id: string
@@ -3324,6 +3360,22 @@ export type SyncEventSessionNextModelSwitched = {
       sessionID: string
       messageID: string
       model: ModelRef
+    }
+  }
+}
+
+export type SyncEventSessionNextPermissionModeSwitched = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.permission-mode.switched.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      mode: PermissionMode
     }
   }
 }
@@ -3904,6 +3956,7 @@ export type SessionV2Info = {
   projectID: string
   agent?: string
   model?: ModelRef
+  permissionMode?: PermissionMode
   cost: number
   tokens: {
     input: number
@@ -4195,6 +4248,25 @@ export type SessionNextModelSwitched = {
     sessionID: string
     messageID: string
     model: ModelRef
+  }
+}
+
+export type SessionNextPermissionModeSwitched = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.permission-mode.switched"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    mode: PermissionMode
   }
 }
 
@@ -5015,6 +5087,31 @@ export type SkillV2Info = {
   slash?: boolean
   location: string
   content: string
+}
+
+export type SkillV2Scope = "global" | "project"
+
+export type SkillV2ManagementSource = {
+  type: "builtin" | "directory" | "external" | "url" | "plugin"
+  scope: SkillV2Scope
+  value: string
+}
+
+export type SkillV2ManagementInfo = {
+  id: string
+  name: string
+  description?: string
+  location: string
+  source: SkillV2ManagementSource
+  status: "active" | "shadowed" | "disabled"
+  enabled: boolean
+  deletable: boolean
+  deleteTarget?: string
+  deleteBlocked?: "builtin" | "remote" | "plugin" | "shared" | "unsafe"
+}
+
+export type SkillV2SetEnabledInput = {
+  enabled: boolean
 }
 
 export type ModelsDevRefreshed = {
@@ -6266,6 +6363,16 @@ export type EventSessionNextModelSwitched = {
   }
 }
 
+export type EventSessionNextPermissionModeSwitched = {
+  id: string
+  type: "session.next.permission-mode.switched"
+  properties: {
+    timestamp: number
+    sessionID: string
+    mode: PermissionMode
+  }
+}
+
 export type EventSessionNextMoved = {
   id: string
   type: "session.next.moved"
@@ -7067,19 +7174,28 @@ export type CredentialKey = {
   }
 }
 
+export type SkillV2SourceOrigin = {
+  scope: SkillV2Scope
+  type: "builtin" | "config-directory" | "config-file" | "external" | "plugin"
+  value?: string
+}
+
 export type SkillV2DirectorySource = {
   type: "directory"
   path: string
+  origin?: SkillV2SourceOrigin
 }
 
 export type SkillV2UrlSource = {
   type: "url"
   url: string
+  origin?: SkillV2SourceOrigin
 }
 
 export type SkillV2EmbeddedSource = {
   type: "embedded"
   skill: SkillV2Info
+  origin?: SkillV2SourceOrigin
 }
 
 export type BadRequestError = {
@@ -9480,6 +9596,7 @@ export type SessionCreateData = {
       [key: string]: unknown
     }
     permission?: PermissionRuleset
+    permissionMode?: PermissionMode
     workspaceID?: string
   }
   path?: never
@@ -9915,6 +10032,44 @@ export type SessionMessageResponses = {
 }
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
+
+export type SessionSwitchPermissionModeData = {
+  body?: {
+    mode: PermissionMode
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/permission-mode"
+}
+
+export type SessionSwitchPermissionModeErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSwitchPermissionModeError =
+  SessionSwitchPermissionModeErrors[keyof SessionSwitchPermissionModeErrors]
+
+export type SessionSwitchPermissionModeResponses = {
+  /**
+   * Successfully switched permission mode
+   */
+  200: Session
+}
+
+export type SessionSwitchPermissionModeResponse =
+  SessionSwitchPermissionModeResponses[keyof SessionSwitchPermissionModeResponses]
 
 export type SessionForkData = {
   body?: {
@@ -11369,8 +11524,10 @@ export type V2SessionListResponse = V2SessionListResponses[keyof V2SessionListRe
 export type V2SessionCreateData = {
   body: {
     id?: string
+    parentID?: string
     agent?: string
     model?: ModelRef
+    permissionMode?: PermissionMode
     location?: LocationRef
   }
   path?: never
@@ -11545,6 +11702,45 @@ export type V2SessionSwitchModelResponses = {
 }
 
 export type V2SessionSwitchModelResponse = V2SessionSwitchModelResponses[keyof V2SessionSwitchModelResponses]
+
+export type V2SessionSwitchPermissionModeData = {
+  body: {
+    mode: PermissionMode
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/permission-mode"
+}
+
+export type V2SessionSwitchPermissionModeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionSwitchPermissionModeError =
+  V2SessionSwitchPermissionModeErrors[keyof V2SessionSwitchPermissionModeErrors]
+
+export type V2SessionSwitchPermissionModeResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionSwitchPermissionModeResponse =
+  V2SessionSwitchPermissionModeResponses[keyof V2SessionSwitchPermissionModeResponses]
 
 export type V2SessionPromptData = {
   body: {
@@ -12960,6 +13156,143 @@ export type V2SkillListResponses = {
 }
 
 export type V2SkillListResponse = V2SkillListResponses[keyof V2SkillListResponses]
+
+export type V2SkillManagementListData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/skill/management"
+}
+
+export type V2SkillManagementListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2SkillManagementListError = V2SkillManagementListErrors[keyof V2SkillManagementListErrors]
+
+export type V2SkillManagementListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: Array<SkillV2ManagementInfo>
+  }
+}
+
+export type V2SkillManagementListResponse = V2SkillManagementListResponses[keyof V2SkillManagementListResponses]
+
+export type V2SkillManagementRemoveData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/skill/management/{id}"
+}
+
+export type V2SkillManagementRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillManagementForbiddenError
+   */
+  403: SkillManagementForbiddenError
+  /**
+   * SkillManagementNotFoundError
+   */
+  404: SkillManagementNotFoundError
+  /**
+   * SkillManagementOperationError
+   */
+  500: SkillManagementOperationError
+}
+
+export type V2SkillManagementRemoveError = V2SkillManagementRemoveErrors[keyof V2SkillManagementRemoveErrors]
+
+export type V2SkillManagementRemoveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: Array<SkillV2ManagementInfo>
+  }
+}
+
+export type V2SkillManagementRemoveResponse = V2SkillManagementRemoveResponses[keyof V2SkillManagementRemoveResponses]
+
+export type V2SkillManagementSetEnabledData = {
+  body: SkillV2SetEnabledInput
+  path: {
+    id: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/skill/management/{id}"
+}
+
+export type V2SkillManagementSetEnabledErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillManagementNotFoundError
+   */
+  404: SkillManagementNotFoundError
+  /**
+   * SkillManagementOperationError
+   */
+  500: SkillManagementOperationError
+}
+
+export type V2SkillManagementSetEnabledError =
+  V2SkillManagementSetEnabledErrors[keyof V2SkillManagementSetEnabledErrors]
+
+export type V2SkillManagementSetEnabledResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: Array<SkillV2ManagementInfo>
+  }
+}
+
+export type V2SkillManagementSetEnabledResponse =
+  V2SkillManagementSetEnabledResponses[keyof V2SkillManagementSetEnabledResponses]
 
 export type V2EventSubscribeData = {
   body?: never

@@ -1,5 +1,17 @@
 import { describe, expect, mock, test } from "bun:test"
-import { permissionModeDialogMethod, requestPermissionMode } from "./permission-mode-control"
+import {
+  permissionModeControlStatus,
+  permissionModeDialogMethod,
+  requestPermissionMode,
+} from "./permission-mode-control"
+
+describe("permissionModeControlStatus", () => {
+  test("distinguishes supported, probing, and unsupported servers", () => {
+    expect(permissionModeControlStatus(true)).toEqual({ disabled: false, status: "supported" })
+    expect(permissionModeControlStatus(undefined)).toEqual({ disabled: true, status: "probing" })
+    expect(permissionModeControlStatus(false)).toEqual({ disabled: true, status: "unsupported" })
+  })
+})
 
 describe("permissionModeDialogMethod", () => {
   test("replaces standalone dialogs and pushes nested settings dialogs", () => {

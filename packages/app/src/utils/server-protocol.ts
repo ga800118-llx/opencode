@@ -3,7 +3,11 @@ import { authTokenFromCredentials } from "./server"
 
 export type ServerProtocol = "v1" | "v2"
 
-const permissionModePath = "/api/session/{sessionID}/permission-mode"
+const permissionModePaths = {
+  v1: "/session/{sessionID}/permission-mode",
+  v2: "/api/session/{sessionID}/permission-mode",
+} as const
+const healthPath = "/api/health"
 
 function headers(server: ServerConnection.HttpBase) {
   if (!server.password) return
@@ -27,11 +31,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-export function hasPermissionModeCapability(openapi: unknown) {
+export function hasPermissionModeCapability(openapi: unknown, protocol?: ServerProtocol) {
   if (!isRecord(openapi) || !isRecord(openapi.paths)) return false
-  const path = openapi.paths[permissionModePath]
-  if (!isRecord(path)) return false
-  return isRecord(path.post)
+  const available = openapi.paths
+  const paths = protocol ? [permissionModePaths[protocol]] : Object.values(permissionModePaths)
+  return paths.some((name) => {
+    const path = available[name]
+    return isRecord(path) && isRecord(path.post)
+  })
+}
+
+export function hasV2ProtocolCapability(openapi: unknown) {
+  if (!isRecord(openapi) || !isRecord(openapi.paths)) return false
+  const path = openapi.paths[healthPath]
+  if (!isRecord(path) || !isRecord(path.get)) return false
+  return path.get.operationId === "v2.health.get"
 }
 
 export async function detectServerProtocol(
@@ -43,7 +57,10 @@ export async function detectServerProtocol(
 
   const current = await probe(server, fetch, "/api/health").catch(() => undefined)
   if (current && "pid" in current && typeof current.pid === "number") return "v2"
-  if (current && "healthy" in current && current.healthy === true) return "v1"
+  if (current && "healthy" in current && current.healthy === true) {
+    const openapi = await probe(server, fetch, "/openapi.json").catch(() => undefined)
+    return hasV2ProtocolCapability(openapi) ? "v2" : "v1"
+  }
   return "v2"
 }
 
@@ -52,8 +69,7 @@ export async function detectPermissionModeCapability(
   fetch: typeof globalThis.fetch,
   protocol: Promise<ServerProtocol> | ServerProtocol,
 ) {
-  if ((await protocol) !== "v2") return false
-
-  const openapi = await probe(server, fetch, "/openapi.json").catch(() => undefined)
-  return hasPermissionModeCapability(openapi)
+  const kind = await protocol
+  const openapi = await probe(server, fetch, kind === "v1" ? "/doc" : "/openapi.json").catch(() => undefined)
+  return hasPermissionModeCapability(openapi, kind)
 }

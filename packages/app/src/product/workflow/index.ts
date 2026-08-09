@@ -4,6 +4,7 @@ export {
   type ProductPresentationMode,
   type ProductPresentationState,
 } from "./presentation"
+export { createRunLocationPresentation, visibleRunLocations } from "./run-location-presentation"
 export { modelReadiness, type ProductModelReadiness, type ProductModelReadinessInput } from "./model-readiness"
 export {
   SIDECAR_PROGRESS_GRACE_MS,

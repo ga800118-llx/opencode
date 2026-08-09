@@ -25,6 +25,7 @@ import { described } from "./metadata"
 import { QueryBoolean } from "./query"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { Mode } from "@opencode-ai/schema/permission"
 
 const root = "/session"
 export const ListQuery = Schema.Struct({
@@ -74,6 +75,7 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })
+export const PermissionModePayload = Schema.Struct({ mode: Mode })
 
 export const SessionPaths = {
   list: root,
@@ -87,6 +89,7 @@ export const SessionPaths = {
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
+  permissionMode: `${root}/:sessionID/permission-mode`,
   fork: `${root}/:sessionID/fork`,
   abort: `${root}/:sessionID/abort`,
   share: `${root}/:sessionID/share`,
@@ -235,6 +238,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.update",
             summary: "Update session",
             description: "Update properties of an existing session, such as title or other metadata.",
+          }),
+        ),
+        HttpApiEndpoint.post("switchPermissionMode", SessionPaths.permissionMode, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: PermissionModePayload,
+          success: described(Session.Info, "Successfully switched permission mode"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.switchPermissionMode",
+            summary: "Switch permission mode",
+            description: "Switch the permission mode used by an existing session.",
           }),
         ),
         HttpApiEndpoint.post("fork", SessionPaths.fork, {

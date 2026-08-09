@@ -26,7 +26,8 @@ import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
 import { fileManagerApp } from "@/utils/file-manager"
 import { Persist, persisted } from "@/utils/persist"
-import { StatusPopover, StatusPopoverV2 } from "../status-popover"
+import { createRunLocationPresentation } from "@/product/workflow"
+import { RemoteRunIndicator, StatusPopover, StatusPopoverV2 } from "../status-popover"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
@@ -163,7 +164,10 @@ export function SessionHeader() {
   const os = createMemo(() => detectOS(platform))
   const isV2 = settings.general.newLayoutDesigns
   const search = settings.visibility.search
-  const status = settings.visibility.status
+  const runLocation = createMemo(() =>
+    createRunLocationPresentation({ mode: settings.general.presentationMode(), local: server.isLocal() }),
+  )
+  const status = () => settings.visibility.status() && runLocation().statusVisible
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const [exists, setExists] = createStore<Partial<Record<OpenApp, boolean>>>({
@@ -236,6 +240,7 @@ export function SessionHeader() {
   )
   const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
     statusVisible: status(),
+    remoteIndicatorVisible: runLocation().remoteIndicatorVisible,
     statusLabel: language.t("status.popover.trigger"),
     reviewLabel: language.t("command.review.toggle"),
     reviewKeybind: reviewTooltipKeybind(command),
@@ -440,6 +445,9 @@ export function SessionHeader() {
                     </div>
                   </Show>
                   <div class="flex items-center gap-1">
+                    <Show when={runLocation().remoteIndicatorVisible}>
+                      <RemoteRunIndicator />
+                    </Show>
                     <Show when={status()}>
                       <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
                         <StatusPopover />
@@ -518,6 +526,7 @@ export function SessionHeader() {
 
 type SessionHeaderV2ActionsState = {
   statusVisible: boolean
+  remoteIndicatorVisible: boolean
   statusLabel: string
   reviewLabel: string
   reviewKeybind: string[]
@@ -531,6 +540,9 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
 
   return (
     <div class="flex items-center gap-2">
+      <Show when={props.state.remoteIndicatorVisible}>
+        <RemoteRunIndicator />
+      </Show>
       <Show when={props.state.statusVisible}>
         <Tooltip placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />

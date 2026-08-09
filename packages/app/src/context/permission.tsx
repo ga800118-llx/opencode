@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
+import { createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
@@ -221,6 +221,9 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       supportsModes() {
         return selected().supportsModes()
       },
+      modeCapability() {
+        return selected().modeCapability()
+      },
       supportsModesAsync() {
         return selected().supportsModesAsync()
       },
@@ -286,21 +289,11 @@ export function createServerPermissionState(
       autoConfirmed: {} as Record<string, boolean>,
     }),
   )
-  const capability = {
-    value:
-      input.sdk.protocolKind() === "v1"
-        ? false
-        : input.sdk.supportsPermissionModes()
-          ? true
-          : (undefined as boolean | undefined),
-  }
-  const permissionModeCapability = input.sdk.protocol.then(async (protocol) => {
-    if (protocol !== "v2") {
-      capability.value = false
-      return false
-    }
-    const supported = await input.sdk.permissionModeCapability
-    capability.value = supported
+  const [modeCapability, setModeCapability] = createSignal<boolean | undefined>(
+    input.sdk.supportsPermissionModes() ? true : undefined,
+  )
+  const permissionModeCapability = input.sdk.permissionModeCapability.then((supported) => {
+    setModeCapability(supported)
     return supported
   })
 
@@ -393,8 +386,7 @@ export function createServerPermissionState(
   }
 
   function supportsModes() {
-    if (capability.value !== undefined) return capability.value
-    return input.sdk.protocolKind() === "v2" && input.sdk.supportsPermissionModes()
+    return modeCapability() ?? input.sdk.supportsPermissionModes()
   }
 
   async function supportsModesAsync() {
@@ -434,8 +426,8 @@ export function createServerPermissionState(
   }
 
   function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
-    if (capability.value === undefined) return false
-    if (capability.value) return modeAutoRespondsPermission(autoResponseTaskMode(), sessions(directory), permission)
+    if (modeCapability() === undefined) return false
+    if (modeCapability()) return modeAutoRespondsPermission(autoResponseTaskMode(), sessions(directory), permission)
     return autoRespondsPermission(store.autoAccept, sessions(directory), permission, directory)
   }
 
@@ -709,6 +701,7 @@ export function createServerPermissionState(
       setStore("autoConfirmed", directoryAcceptKey(directory), true)
     },
     supportsModes,
+    modeCapability,
     supportsModesAsync,
     autoResponds(permission: PermissionRequest, directory?: string) {
       if (meta.disposed) return false

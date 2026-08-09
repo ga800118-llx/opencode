@@ -4,6 +4,10 @@ import { useGlobal } from "@/context/global"
 import { useLanguage } from "@/context/language"
 import { type ServerConnection, useServer } from "@/context/server"
 import { useServerSync } from "@/context/server-sync"
+import { useSettings } from "@/context/settings"
+import { createRunLocationPresentation } from "@/product/workflow"
+import { RemoteRunIndicator } from "@/components/status-popover"
+import { runLocationName } from "@/components/server/run-location"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -11,7 +15,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Logo } from "@opencode-ai/ui/logo"
 import { useNavigate } from "@solidjs/router"
 import { DateTime } from "luxon"
-import { createMemo, For, Match, Switch } from "solid-js"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
 
 export function LegacyHome() {
   const sync = useServerSync()
@@ -21,6 +25,10 @@ export function LegacyHome() {
   const global = useGlobal()
   const server = useServer()
   const language = useLanguage()
+  const settings = useSettings()
+  const runLocation = createMemo(() =>
+    createRunLocationPresentation({ mode: settings.general.presentationMode(), local: server.isLocal() }),
+  )
   const homedir = createMemo(() => sync().data.path.home)
   const serverUnreachable = createMemo(() => global.servers.health[server.key]?.healthy === false)
   const recent = createMemo(() => {
@@ -68,20 +76,27 @@ export function LegacyHome() {
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <Logo class="md:w-xl opacity-12" />
-      <Button
-        size="large"
-        variant="ghost"
-        class="mt-4 mx-auto text-14-regular text-text-weak"
-        onClick={() => dialog.show(() => <DialogSelectServer />)}
-      >
-        <div
-          classList={{
-            "size-2 rounded-full": true,
-            [serverDotClass()]: true,
-          }}
-        />
-        {server.name}
-      </Button>
+      <Show when={runLocation().managementVisible}>
+        <Button
+          size="large"
+          variant="ghost"
+          class="mt-4 mx-auto text-14-regular text-text-weak"
+          onClick={() => dialog.show(() => <DialogSelectServer />)}
+        >
+          <div
+            classList={{
+              "size-2 rounded-full": true,
+              [serverDotClass()]: true,
+            }}
+          />
+          {server.current ? runLocationName(server.current, language.t("workflow.runLocation.local")) : server.name}
+        </Button>
+      </Show>
+      <Show when={runLocation().remoteIndicatorVisible}>
+        <div class="mt-4 flex justify-center">
+          <RemoteRunIndicator />
+        </div>
+      </Show>
       <Switch>
         <Match when={sync().data.project.length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">

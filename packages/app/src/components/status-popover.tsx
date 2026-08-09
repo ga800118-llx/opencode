@@ -2,6 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { Popover } from "@opencode-ai/ui/popover"
 import { Suspense, createMemo, createSignal, lazy, Show, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
@@ -17,6 +18,29 @@ import {
 
 const Body = lazy(() => import("./status-popover-body").then((x) => ({ default: x.StatusPopoverBody })))
 const ServerBody = lazy(() => import("./status-popover-body").then((x) => ({ default: x.StatusPopoverServerBody })))
+
+export function RemoteRunIndicator() {
+  const language = useLanguage()
+  const server = useServer()
+  const description = createMemo(() =>
+    language.t("workflow.runLocation.remoteIndicator.description", { name: server.name }),
+  )
+
+  return (
+    <Show when={!server.isLocal()}>
+      <TooltipV2 placement="bottom" value={description()}>
+        <div
+          role="status"
+          aria-label={description()}
+          class="flex h-7 max-w-36 shrink-0 items-center gap-1.5 rounded-[6px] border border-v2-border-border-base px-2 text-v2-text-text-muted"
+        >
+          <IconV2 name="server" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+          <span class="truncate text-12-regular">{language.t("workflow.runLocation.remoteIndicator")}</span>
+        </div>
+      </TooltipV2>
+    </Show>
+  )
+}
 
 export function StatusPopover() {
   const language = useLanguage()

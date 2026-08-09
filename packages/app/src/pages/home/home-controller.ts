@@ -3,7 +3,9 @@ import { type HomeProjectSelection, useLayout } from "@/context/layout"
 import { ServerConnection, useServer } from "@/context/server"
 import { useServerSync } from "@/context/server-sync"
 import { useTabs } from "@/context/tabs"
+import { useSettings } from "@/context/settings"
 import { toggleHomeProjectSelection } from "@/pages/layout/helpers"
+import { visibleRunLocations } from "@/product/workflow"
 import { createEffect, createMemo } from "solid-js"
 
 export function createHomeController() {
@@ -12,9 +14,17 @@ export function createHomeController() {
   const server = useServer()
   const global = useGlobal()
   const tabs = useTabs()
+  const settings = useSettings()
   const selection = layout.home.selection
+  const servers = createMemo(() =>
+    visibleRunLocations({
+      mode: settings.general.presentationMode(),
+      current: server.current,
+      list: global.servers.list(),
+    }),
+  )
   const focusedServer = createMemo(
-    () => global.servers.list().find((conn) => ServerConnection.key(conn) === selection().server) ?? server.current,
+    () => servers().find((conn) => ServerConnection.key(conn) === selection().server) ?? servers()[0],
   )
   const focusedServerCtx = createMemo(() => {
     const conn = focusedServer()
@@ -36,7 +46,7 @@ export function createHomeController() {
   )
 
   createEffect(() => {
-    const list = global.servers.list()
+    const list = servers()
     if (list.some((conn) => ServerConnection.key(conn) === selection().server)) return
     const conn = list.find((conn) => ServerConnection.key(conn) === server.key) ?? list[0]
     if (conn) setSelection({ server: ServerConnection.key(conn) })
@@ -60,7 +70,7 @@ export function createHomeController() {
       focusServer: (conn: ServerConnection.Any) => setSelection({ server: ServerConnection.key(conn) }),
     },
     server: {
-      list: global.servers.list,
+      list: servers,
       health: (conn: ServerConnection.Any) => global.servers.health[ServerConnection.key(conn)],
       context: (conn: ServerConnection.Any) => global.ensureServerCtx(conn),
       focused: focusedServer,

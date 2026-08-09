@@ -123,6 +123,7 @@ import type {
   PathGetResponses,
   PermissionListErrors,
   PermissionListResponses,
+  PermissionMode,
   PermissionReplyErrors,
   PermissionReplyResponses,
   PermissionRespondErrors,
@@ -215,6 +216,8 @@ import type {
   SessionStatusResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
+  SessionSwitchPermissionModeErrors,
+  SessionSwitchPermissionModeResponses,
   SessionTodoErrors,
   SessionTodoResponses,
   SessionUnrevertErrors,
@@ -223,6 +226,7 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  SkillV2SetEnabledInput,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -381,10 +385,18 @@ import type {
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
   V2SessionSwitchModelResponses,
+  V2SessionSwitchPermissionModeErrors,
+  V2SessionSwitchPermissionModeResponses,
   V2SessionWaitErrors,
   V2SessionWaitResponses,
   V2SkillListErrors,
   V2SkillListResponses,
+  V2SkillManagementListErrors,
+  V2SkillManagementListResponses,
+  V2SkillManagementRemoveErrors,
+  V2SkillManagementRemoveResponses,
+  V2SkillManagementSetEnabledErrors,
+  V2SkillManagementSetEnabledResponses,
   VcsApplyErrors,
   VcsApplyResponses,
   VcsDiffErrors,
@@ -3423,6 +3435,7 @@ export class Session2 extends HeyApiClient {
         [key: string]: unknown
       }
       permission?: PermissionRuleset
+      permissionMode?: PermissionMode
       workspaceID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3440,6 +3453,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "model" },
             { in: "body", key: "metadata" },
             { in: "body", key: "permission" },
+            { in: "body", key: "permissionMode" },
             { in: "body", key: "workspaceID" },
           ],
         },
@@ -3863,6 +3877,49 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/message/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Switch permission mode
+   *
+   * Switch the permission mode used by an existing session.
+   */
+  public switchPermissionMode<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      mode?: PermissionMode
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "mode" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionSwitchPermissionModeResponses,
+      SessionSwitchPermissionModeErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/permission-mode",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -5474,8 +5531,10 @@ export class Session3 extends HeyApiClient {
   public create<ThrowOnError extends boolean = false>(
     parameters?: {
       id?: string
+      parentID?: string
       agent?: string
       model?: ModelRef
+      permissionMode?: PermissionMode
       location?: LocationRef
     },
     options?: Options<never, ThrowOnError>,
@@ -5486,8 +5545,10 @@ export class Session3 extends HeyApiClient {
         {
           args: [
             { in: "body", key: "id" },
+            { in: "body", key: "parentID" },
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
+            { in: "body", key: "permissionMode" },
             { in: "body", key: "location" },
           ],
         },
@@ -5604,6 +5665,45 @@ export class Session3 extends HeyApiClient {
       ThrowOnError
     >({
       url: "/api/session/{sessionID}/model",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Switch session permission mode
+   *
+   * Switch the permission mode used by subsequent permission evaluations.
+   */
+  public switchPermissionMode<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      mode?: PermissionMode
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "mode" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2SessionSwitchPermissionModeResponses,
+      V2SessionSwitchPermissionModeErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/permission-mode",
       ...options,
       ...params,
       headers: {
@@ -6522,6 +6622,115 @@ export class Command2 extends HeyApiClient {
   }
 }
 
+export class Management extends HeyApiClient {
+  /**
+   * List Skill installations
+   *
+   * Retrieve all discovered Skill installations and their management state.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    return (options?.client ?? this.client).get<
+      V2SkillManagementListResponses,
+      V2SkillManagementListErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/management",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Remove a Skill installation
+   *
+   * Move a user-owned local Skill installation into the recovery area.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "location" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      V2SkillManagementRemoveResponses,
+      V2SkillManagementRemoveErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/management/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set Skill installation state
+   *
+   * Enable or disable a discovered Skill installation.
+   */
+  public setEnabled<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      skillV2SetEnabledInput: SkillV2SetEnabledInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "location" },
+            { key: "skillV2SetEnabledInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      V2SkillManagementSetEnabledResponses,
+      V2SkillManagementSetEnabledErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/management/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Skill extends HeyApiClient {
   /**
    * List skills
@@ -6543,6 +6752,11 @@ export class Skill extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _management?: Management
+  get management(): Management {
+    return (this._management ??= new Management({ client: this.client }))
   }
 }
 

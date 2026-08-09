@@ -90,6 +90,9 @@ export const dict = {
   "ui.sessionTurn.status.thinkingWithTopic": "思考中 - {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "考えをまとめています",
   "ui.sessionTurn.status.consideringNextSteps": "次のステップを検討中",
+  "ui.sessionTurn.process.details": "処理内容",
+  "ui.sessionTurn.process.processing": "処理中 {{duration}}",
+  "ui.sessionTurn.process.elapsed": "所要時間 {{duration}}",
 
   "ui.messagePart.questions.dismissed": "質問をスキップしました",
   "ui.messagePart.compaction": "セッションを圧縮しました",

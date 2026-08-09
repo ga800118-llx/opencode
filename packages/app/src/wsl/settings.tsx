@@ -35,17 +35,17 @@ export function AddServerMenu(props: { onAddServer: () => void }) {
       when={platform.wslServers}
       fallback={
         <ButtonV2 variant="ghost-muted" icon="plus" onClick={props.onAddServer}>
-          {language.t("dialog.server.add.button")}
+          {language.t("workflow.runLocation.add")}
         </ButtonV2>
       }
     >
       <MenuV2 gutter={4} modal={false} placement="bottom-end">
         <MenuV2.Trigger as={ButtonV2} variant="ghost-muted" icon="plus">
-          {language.t("dialog.server.add.button")}
+          {language.t("workflow.runLocation.add")}
         </MenuV2.Trigger>
         <MenuV2.Portal>
           <MenuV2.Content>
-            <MenuV2.Item onSelect={props.onAddServer}>{language.t("dialog.server.add.button")}</MenuV2.Item>
+            <MenuV2.Item onSelect={props.onAddServer}>{language.t("workflow.runLocation.add")}</MenuV2.Item>
             <MenuV2.Item onSelect={openAddWsl}>{language.t("wsl.server.add")}</MenuV2.Item>
           </MenuV2.Content>
         </MenuV2.Portal>
@@ -115,7 +115,7 @@ export function WslServerSettings(props: {
               </div>
               <div class="settings-v2-servers-actions">
                 <Show when={props.controller.canDefault() && props.controller.defaultKey() === key}>
-                  <Tag>{language.t("dialog.server.status.default")}</Tag>
+                  <Tag>{language.t("workflow.runLocation.startup")}</Tag>
                 </Show>
                 <Show when={opencodeAction()}>
                   {(label) => (
@@ -147,17 +147,17 @@ export function WslServerSettings(props: {
                         </Show>
                         <Show when={props.controller.canDefault() && props.controller.defaultKey() !== key}>
                           <MenuV2.Item onSelect={() => props.controller.setDefault(key)}>
-                            {language.t("dialog.server.menu.default")}
+                            {language.t("workflow.runLocation.startup.set")}
                           </MenuV2.Item>
                         </Show>
                         <Show when={props.controller.canDefault() && props.controller.defaultKey() === key}>
                           <MenuV2.Item onSelect={() => props.controller.setDefault(null)}>
-                            {language.t("dialog.server.menu.defaultRemove")}
+                            {language.t("workflow.runLocation.startup.remove")}
                           </MenuV2.Item>
                         </Show>
                         <MenuV2.Separator />
                         <MenuV2.Item onSelect={() => remove(key)}>
-                          {language.t("dialog.server.menu.delete")}
+                          {language.t("workflow.runLocation.remove")}
                         </MenuV2.Item>
                       </MenuV2.Group>
                     </MenuV2.Content>

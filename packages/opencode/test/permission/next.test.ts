@@ -447,6 +447,30 @@ test("evaluate - merges multiple rulesets", () => {
   expect(result.action).toBe("deny")
 })
 
+test("evaluateMode - restricted asks for mutating and outside access after configured allows", () => {
+  const configured: PermissionV1.Ruleset = [{ permission: "*", pattern: "*", action: "allow" }]
+  const approved: PermissionV1.Ruleset = [
+    { permission: "edit", pattern: "*", action: "allow" },
+    { permission: "bash", pattern: "*", action: "allow" },
+    { permission: "external_directory", pattern: "*", action: "allow" },
+  ]
+
+  expect(Permission.evaluateMode("edit", "src/app.ts", "restricted", configured, approved).action).toBe("ask")
+  expect(Permission.evaluateMode("bash", "git status", "restricted", configured, approved).action).toBe("ask")
+  expect(
+    Permission.evaluateMode("external_directory", "/tmp", "restricted", configured, approved).action,
+  ).toBe("ask")
+  expect(Permission.evaluateMode("read", "src/app.ts", "restricted", configured, approved).action).toBe("allow")
+})
+
+test("evaluateMode - configured denial remains final in restricted mode", () => {
+  const configured: PermissionV1.Ruleset = [{ permission: "edit", pattern: "secret", action: "deny" }]
+  const approved: PermissionV1.Ruleset = [{ permission: "edit", pattern: "*", action: "allow" }]
+
+  expect(Permission.evaluateMode("edit", "secret", "restricted", configured, approved).action).toBe("deny")
+  expect(Permission.evaluateMode("edit", "secret", "standard", configured, approved).action).toBe("allow")
+})
+
 // disabled tests
 
 test("disabled - returns empty set when all tools allowed", () => {
@@ -870,6 +894,44 @@ it.instance(
       yield* Fiber.join(a)
       yield* Fiber.join(b)
       expect(yield* list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "reply - always keeps another restricted request pending",
+  () =>
+    Effect.gen(function* () {
+      const a = yield* ask({
+        id: PermissionV1.ID.make("per_restricted_a"),
+        sessionID: SessionID.make("session_restricted"),
+        permission: "edit",
+        patterns: ["src/a.ts"],
+        metadata: {},
+        always: ["*"],
+        ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+        mode: "restricted",
+      }).pipe(Effect.forkScoped)
+
+      const b = yield* ask({
+        id: PermissionV1.ID.make("per_restricted_b"),
+        sessionID: SessionID.make("session_restricted"),
+        permission: "edit",
+        patterns: ["src/b.ts"],
+        metadata: {},
+        always: [],
+        ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+        mode: "restricted",
+      }).pipe(Effect.forkScoped)
+
+      yield* waitForPending(2)
+      yield* reply({ requestID: PermissionV1.ID.make("per_restricted_a"), reply: "always" })
+
+      yield* Fiber.join(a)
+      expect((yield* list()).map((item) => item.id)).toEqual([PermissionV1.ID.make("per_restricted_b")])
+
+      yield* rejectAll()
+      yield* Fiber.await(b)
     }),
   { git: true },
 )

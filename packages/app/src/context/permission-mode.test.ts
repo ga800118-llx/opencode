@@ -551,13 +551,28 @@ describe("V2 permission mode state", () => {
     ])
   })
 
-  test("does not expose mode switching or restricted state on V1", async () => {
+  test("supports mode switching on capable V1 servers", async () => {
     const harness = setup({ protocol: "v1", permissionMode: "restricted" })
 
-    expect(harness.state.supportsModes()).toBe(false)
-    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
+    expect(harness.state.supportsModes()).toBe(true)
+    expect(harness.state.mode("session", "/project")).toBe("restricted")
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "auto" })
 
+    expect(harness.state.mode("session", "/project")).toBe("auto")
+    expect(harness.switches).toEqual([{ sessionID: "session", mode: "auto" }])
+  })
+
+  test("keeps legacy behavior on V1 servers without the capability", async () => {
+    const harness = setup({
+      protocol: "v1",
+      permissionMode: "restricted",
+      supportsPermissionModes: false,
+      permissionModeCapability: Promise.resolve(false),
+    })
+
+    expect(await harness.state.supportsModesAsync()).toBe(false)
     expect(harness.state.mode("session", "/project")).toBe("standard")
+    await harness.state.setMode({ sessionID: "session", directory: "/project", mode: "restricted" })
     expect(harness.switches).toEqual([])
   })
 

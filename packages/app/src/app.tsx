@@ -53,7 +53,7 @@ import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
 import { PromptProvider } from "@/context/prompt"
-import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
+import { ServerConnection, ServerProvider, useServer } from "@/context/server"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -71,6 +71,7 @@ import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } fro
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { ProductRuntimeProvider, type ProductRuntime } from "@/product/context"
+import { runLocationName } from "@/components/server/run-location"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -508,8 +509,14 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; start
 function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key: ServerConnection.Key) => void }) {
   const language = useLanguage()
   const server = useServer()
-  const others = () => server.list.filter((s) => ServerConnection.key(s) !== server.key)
-  const name = createMemo(() => server.name || server.key)
+  const settings = useSettings()
+  const others = () =>
+    settings.presentation.advanced() ? server.list.filter((s) => ServerConnection.key(s) !== server.key) : []
+  const name = createMemo(() =>
+    server.current
+      ? runLocationName(server.current, language.t("workflow.runLocation.local"))
+      : server.name || server.key,
+  )
   const serverToken = "\u0000server\u0000"
   const unreachable = createMemo(() => language.t("app.server.unreachable", { server: serverToken }).split(serverToken))
 
@@ -540,7 +547,9 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
                     class="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
                     onClick={() => props.onServerSelected?.(key)}
                   >
-                    <span class="text-14-regular text-text-strong truncate">{serverName(conn)}</span>
+                    <span class="text-14-regular text-text-strong truncate">
+                      {runLocationName(conn, language.t("workflow.runLocation.local"))}
+                    </span>
                   </button>
                 )
               }}

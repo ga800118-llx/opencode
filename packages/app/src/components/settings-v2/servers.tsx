@@ -7,9 +7,10 @@ import fuzzysort from "fuzzysort"
 import { type Component, For, Show, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { ServerRowMenu } from "@/components/server/server-row-menu"
+import { runLocationName } from "@/components/server/run-location"
 import { ServerHealthIndicator } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
-import { ServerConnection, serverName } from "@/context/server"
+import { ServerConnection } from "@/context/server"
 import { useServerManagementController } from "../dialog-select-server"
 import { DialogServerV2 } from "./dialog-server-v2"
 import { SettingsListV2 } from "./parts/list"
@@ -33,7 +34,7 @@ export const SettingsServersV2: Component = () => {
     if (!query) return items
     return fuzzysort
       .go(query, items, {
-        keys: [(item) => serverName(item), (item) => item.http.url],
+        keys: [(item) => runLocationName(item, language.t("workflow.runLocation.local")), (item) => item.http.url],
       })
       .map((result) => result.obj)
   })
@@ -53,7 +54,7 @@ export const SettingsServersV2: Component = () => {
         classList={{ "settings-v2-tab-header--stacked": showSearch() }}
       >
         <div class="settings-v2-tab-header-row">
-          <h2 class="settings-v2-tab-title">{language.t("status.popover.tab.servers")}</h2>
+          <h2 class="settings-v2-tab-title">{language.t("workflow.runLocation.title")}</h2>
           <AddServerMenu onAddServer={openAdd} />
         </div>
         <Show when={showSearch()}>
@@ -63,12 +64,12 @@ export const SettingsServersV2: Component = () => {
               appearance="base"
               value={store.filter}
               onInput={(event) => setStore("filter", event.currentTarget.value)}
-              placeholder={language.t("dialog.server.search.placeholder")}
+              placeholder={language.t("workflow.runLocation.search")}
               spellcheck={false}
               autocorrect="off"
               autocomplete="off"
               autocapitalize="off"
-              aria-label={language.t("dialog.server.search.placeholder")}
+              aria-label={language.t("workflow.runLocation.search")}
             />
             <Show when={store.filter}>
               <IconButtonV2
@@ -89,7 +90,7 @@ export const SettingsServersV2: Component = () => {
           when={filtered().length > 0 || wslServers().length > 0}
           fallback={
             <div class="settings-v2-servers-status">
-              <span>{store.filter ? language.t("palette.empty") : language.t("dialog.server.empty")}</span>
+              <span>{store.filter ? language.t("palette.empty") : language.t("workflow.runLocation.empty")}</span>
               <Show when={store.filter}>
                 <span class="settings-v2-servers-status-filter">&quot;{store.filter}&quot;</span>
               </Show>
@@ -108,7 +109,9 @@ export const SettingsServersV2: Component = () => {
                     <div class="settings-v2-servers-lead">
                       <ServerHealthIndicator health={health()} />
                       <div class="settings-v2-servers-copy">
-                        <span class="settings-v2-servers-name">{serverName(item)}</span>
+                        <span class="settings-v2-servers-name">
+                          {runLocationName(item, language.t("workflow.runLocation.local"))}
+                        </span>
                         <span class="settings-v2-servers-meta">
                           <Show when={health()?.version}>v{health()?.version}</Show>
                           <Show when={health()?.version && item.type === "http"}> • </Show>
@@ -123,7 +126,7 @@ export const SettingsServersV2: Component = () => {
                     </div>
                     <div class="settings-v2-servers-actions">
                       <Show when={controller.canDefault() && isDefault()}>
-                        <Tag>{language.t("dialog.server.status.default")}</Tag>
+                        <Tag>{language.t("workflow.runLocation.startup")}</Tag>
                       </Show>
                       <ServerRowMenu server={item} controller={controller} onEdit={openEdit} />
                     </div>

@@ -5,7 +5,10 @@ import { createMutation } from "@tanstack/solid-query"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { useGlobal } from "@/context/global"
-import { ServerConnection, serverName } from "@/context/server"
+import { ServerConnection } from "@/context/server"
+import { useSettings } from "@/context/settings"
+import { runLocationName } from "@/components/server/run-location"
+import { useLanguage } from "@/context/language"
 import { displayName, projectForSession } from "@/pages/layout/helpers"
 import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
 import type { Session } from "@opencode-ai/sdk/v2"
@@ -45,6 +48,8 @@ export function TabNavItem(props: {
     props.onClose()
   }
   const global = useGlobal()
+  const settings = useSettings()
+  const language = useLanguage()
   const serverCtx = createMemo(() => {
     const conn = global.servers.list().find((item) => ServerConnection.key(item) === props.server)
     if (conn) return global.ensureServerCtx(conn)
@@ -69,9 +74,10 @@ export function TabNavItem(props: {
   })
   // Only label the server when multiple servers are connected.
   const serverLabel = createMemo(() => {
+    if (settings.presentation.simple()) return
     if (global.servers.list().length <= 1) return
     const conn = global.servers.list().find((item) => ServerConnection.key(item) === props.server)
-    return conn ? serverName(conn) : undefined
+    return conn ? runLocationName(conn, language.t("workflow.runLocation.local")) : undefined
   })
 
   const [popoverOpen, setPopoverOpen] = createSignal(false)

@@ -3,7 +3,7 @@ import type { SessionMessageInfo } from "@opencode-ai/client/promise"
 import { normalizeSessionMessages } from "@/utils/session-message"
 
 mock.module("@opencode-ai/session-ui/message-part", () => ({
-  renderable: () => true,
+  renderable: (part: { type: string }, showReasoning = true) => part.type !== "reasoning" || showReasoning,
   groupParts: (refs: Array<{ messageID: string; part: { id: string } }>) =>
     refs.map((ref) => ({
       type: "part" as const,
@@ -15,6 +15,133 @@ mock.module("@opencode-ai/session-ui/message-part", () => ({
 const { Timeline, TimelineRow } = await import("./rows")
 
 describe("current session timeline rows", () => {
+  test("collects assistant process items before the trailing final answer", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          { type: "reasoning", text: "thinking" },
+          {
+            type: "tool",
+            id: "call_1",
+            name: "read",
+            state: {
+              status: "completed",
+              input: { filePath: "note.txt" },
+              metadata: { title: "note.txt" },
+              content: [{ type: "text", text: "hello" }],
+            },
+            time: { created: 2, ran: 3, completed: 4 },
+          },
+          { type: "text", text: "final answer" },
+        ],
+        time: { created: 2, completed: 5 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+    ])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [
+        { type: "part", group: { key: "msg_assistant:reasoning:0" } },
+        { type: "part", group: { key: "call_1" } },
+      ],
+    })
+  })
+
+  test("does not create a process disclosure for a text-only answer", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "final answer" }],
+        time: { created: 2, completed: 3 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+    ])
+  })
+
+  test("does not add a second thinking row when a busy hidden-reasoning turn has process content", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          { type: "reasoning", text: "thinking" },
+          {
+            type: "tool",
+            id: "call_1",
+            name: "read",
+            state: {
+              status: "completed",
+              input: { filePath: "note.txt" },
+              metadata: { title: "note.txt" },
+              content: [{ type: "text", text: "hello" }],
+            },
+            time: { created: 2, ran: 3, completed: 4 },
+          },
+        ],
+        time: { created: 2 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      false,
+      "busy",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_user", "assistant-process:msg_user"])
+  })
+
   test("derives turns and tagged rows from chronological current messages", () => {
     const source = [
       { id: "msg_1", type: "user", text: "first", time: { created: 1 } },
@@ -55,7 +182,7 @@ describe("current session timeline rows", () => {
       "assistant-part:msg_1:msg_2:text:0",
       "turn-gap:msg_3",
       "user-message:msg_3",
-      "assistant-part:msg_3:msg_4:reasoning:0",
+      "assistant-process:msg_3",
     ])
   })
 
@@ -88,7 +215,7 @@ describe("current session timeline rows", () => {
     expect(result.activeMessageID).toBe("msg_shell")
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_shell",
-      "assistant-part:msg_shell:msg_shell:tool",
+      "assistant-process:msg_shell",
     ])
   })
 

@@ -93,6 +93,9 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.status.thinkingWithTopic": "Міркування — {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "Збирання думок",
   "ui.sessionTurn.status.consideringNextSteps": "Розгляд наступних кроків",
+  "ui.sessionTurn.process.details": "Процес",
+  "ui.sessionTurn.process.processing": "Обробка · {{duration}}",
+  "ui.sessionTurn.process.elapsed": "Тривало {{duration}}",
 
   "ui.messagePart.diagnostic.error": "Помилка",
   "ui.messagePart.title.edit": "Редагувати",

@@ -24,6 +24,7 @@ function setup(
         })
       }
       if (request.method === "POST" && url.pathname === "/session") {
+        const body = (await request.clone().json()) as { permissionMode?: "restricted" | "standard" | "auto" }
         return Response.json({
           id: "ses_1",
           slug: "ses_1",
@@ -31,7 +32,20 @@ function setup(
           directory: url.searchParams.get("directory") ?? "/repo",
           title: "Session",
           version: "1",
+          permissionMode: body.permissionMode,
           time: { created: 1, updated: 1 },
+        })
+      }
+      if (request.method === "POST" && url.pathname === "/session/ses_1/permission-mode") {
+        return Response.json({
+          id: "ses_1",
+          slug: "ses_1",
+          projectID: "project",
+          directory: url.searchParams.get("directory") ?? "/repo",
+          title: "Session",
+          version: "1",
+          permissionMode: "restricted",
+          time: { created: 1, updated: 2 },
         })
       }
       if (request.method === "POST" && url.pathname.endsWith("/shell")) return Response.json({})
@@ -50,6 +64,18 @@ function setup(
       }
       if (request.method === "GET" && new URL(request.url).pathname === "/vcs")
         return Response.json(responses?.vcs ?? {})
+      if (request.method === "GET" && url.pathname === "/session/ses_1") {
+        return Response.json({
+          id: "ses_1",
+          slug: "ses_1",
+          projectID: "project",
+          directory: "/repo",
+          title: "Session",
+          version: "1",
+          permissionMode: "auto",
+          time: { created: 1, updated: 1 },
+        })
+      }
       if (request.method === "GET") return Response.json([])
       return new Response(undefined, { status: 204 })
     },
@@ -84,6 +110,7 @@ describe("createCompatibleApi", () => {
     await api.session.create({
       agent: "build",
       model: { id: "model", providerID: "provider", variant: "high" },
+      permissionMode: "auto",
       location: { directory: "/other" },
     })
 
@@ -93,7 +120,27 @@ describe("createCompatibleApi", () => {
     expect(await requests[0]!.json()).toEqual({
       agent: "build",
       model: { id: "model", providerID: "provider", variant: "high" },
+      permissionMode: "auto",
     })
+  })
+
+  test("maps permission mode from a V1 session", async () => {
+    const { api } = setup("v1")
+
+    expect(await api.session.get({ sessionID: "ses_1" })).toMatchObject({
+      id: "ses_1",
+      permissionMode: "auto",
+    })
+  })
+
+  test("routes V1 permission mode switches through the stable endpoint", async () => {
+    const { api, requests } = setup("v1")
+    await api.session.switchPermissionMode({ sessionID: "ses_1", mode: "restricted" })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe("/session/ses_1/permission-mode")
+    expect(url.searchParams.get("directory")).toBe("/repo")
+    expect(await requests[0]!.json()).toEqual({ mode: "restricted" })
   })
 
   test("preserves the operation ID when running a V1 shell command", async () => {

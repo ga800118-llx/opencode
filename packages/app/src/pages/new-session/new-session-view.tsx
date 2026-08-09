@@ -14,7 +14,7 @@ import {
   PromptProjectSelector,
   type PromptProjectController,
 } from "@/components/prompt-project-selector"
-import { StatusPopoverV2 } from "@/components/status-popover"
+import { RemoteRunIndicator, StatusPopoverV2 } from "@/components/status-popover"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { useServerSync } from "@/context/server-sync"
@@ -103,14 +103,21 @@ export function NewSessionView(props: {
   )
 }
 
-export function NewSessionStatus(props: { mount: Accessor<HTMLElement | null>; visible: Accessor<boolean> }) {
+export function NewSessionStatus(props: {
+  mount: Accessor<HTMLElement | null>
+  statusVisible: Accessor<boolean>
+  remoteIndicatorVisible: Accessor<boolean>
+}) {
   const language = useLanguage()
 
   return (
     <Show when={props.mount()}>
       {(mount) => (
         <Portal mount={mount()}>
-          <Show when={props.visible()}>
+          <Show when={props.remoteIndicatorVisible()}>
+            <RemoteRunIndicator />
+          </Show>
+          <Show when={props.statusVisible()}>
             <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
               <StatusPopoverV2 />
             </Tooltip>

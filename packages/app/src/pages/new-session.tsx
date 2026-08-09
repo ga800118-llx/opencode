@@ -3,6 +3,8 @@ import { useTitlebarRightMount } from "@/components/titlebar"
 import { useSettings } from "@/context/settings"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
+import { createRunLocationPresentation } from "@/product/workflow"
 import { useModelReadiness } from "@/product/workflow/use-model-readiness"
 import { createEffect, createMemo, createResource } from "solid-js"
 import { createNewSessionDraftController } from "./new-session/new-session-draft-controller"
@@ -16,6 +18,7 @@ export default function NewSessionPage() {
   const settings = useSettings()
   const local = useLocal()
   const sdk = useSDK()
+  const server = useServer()
   const rightMount = useTitlebarRightMount()
   const workspace = createNewSessionWorkspaceController()
   const draft = createNewSessionDraftController({
@@ -27,6 +30,9 @@ export default function NewSessionPage() {
     onDone: draft.input.restoreFocus,
   })
   const presentation = createMemo(() => createNewSessionPresentation(settings.general.presentationMode()))
+  const runLocation = createMemo(() =>
+    createRunLocationPresentation({ mode: presentation().mode, local: server.isLocal() }),
+  )
   const modelReadiness = useModelReadiness({ directory: () => sdk().directory, model: local.model })
   useNewSessionCommands({
     restoreFocus: draft.input.restoreFocus,
@@ -48,7 +54,11 @@ export default function NewSessionPage() {
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
       {suspendUntilPromptReady()}
-      <NewSessionStatus mount={rightMount} visible={settings.visibility.status} />
+      <NewSessionStatus
+        mount={rightMount}
+        statusVisible={() => settings.visibility.status() && runLocation().statusVisible}
+        remoteIndicatorVisible={() => runLocation().remoteIndicatorVisible}
+      />
       <div class="flex-1 min-h-0 flex flex-col gap-2 p-2">
         <NewSessionView
           input={draft.input}

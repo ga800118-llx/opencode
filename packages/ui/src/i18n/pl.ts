@@ -90,6 +90,9 @@ export const dict = {
   "ui.sessionTurn.status.thinkingWithTopic": "Myślenie - {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "Zbieranie myśli",
   "ui.sessionTurn.status.consideringNextSteps": "Rozważanie kolejnych kroków",
+  "ui.sessionTurn.process.details": "Aktywność",
+  "ui.sessionTurn.process.processing": "Przetwarzanie {{duration}}",
+  "ui.sessionTurn.process.elapsed": "Czas: {{duration}}",
 
   "ui.messagePart.questions.dismissed": "Pytania odrzucone",
   "ui.messagePart.compaction": "Sesja skompaktowana",

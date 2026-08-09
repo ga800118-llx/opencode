@@ -250,4 +250,36 @@ describe("Session", () => {
       expect(saved.metadata).toBeUndefined()
     }),
   )
+
+  it.instance("persists permission mode and copies it on fork", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const created = yield* Effect.acquireRelease(
+        session.create({ title: "mode-parent", permissionMode: "auto" }),
+        (info) => session.remove(info.id).pipe(Effect.ignore),
+      )
+      const saved = yield* session.get(created.id)
+      const fork = yield* Effect.acquireRelease(session.fork({ sessionID: created.id }), (info) =>
+        session.remove(info.id).pipe(Effect.ignore),
+      )
+
+      expect(saved.permissionMode).toBe("auto")
+      expect(fork.permissionMode).toBe("auto")
+
+      yield* session.setPermissionMode({ sessionID: created.id, mode: "restricted" })
+      expect((yield* session.get(created.id)).permissionMode).toBe("restricted")
+    }),
+  )
+
+  it.instance("keeps permission mode unset when no mode is provided", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const created = yield* Effect.acquireRelease(session.create({ title: "mode-default" }), (info) =>
+        session.remove(info.id).pipe(Effect.ignore),
+      )
+
+      expect(created.permissionMode).toBeUndefined()
+      expect((yield* session.get(created.id)).permissionMode).toBeUndefined()
+    }),
+  )
 })

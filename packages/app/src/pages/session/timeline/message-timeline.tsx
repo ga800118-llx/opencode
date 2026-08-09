@@ -4,10 +4,12 @@ import {
   createSignal,
   For,
   Index,
+  Match,
   on,
   onCleanup,
   onMount,
   Show,
+  Switch,
   type Accessor,
   type JSX,
 } from "solid-js"
@@ -128,12 +130,10 @@ const markBoundaryGesture = (input: {
   }
 }
 
-function TimelineThinkingRow(props: { reasoningHeading?: string; showReasoningSummaries: boolean }) {
-  const language = useLanguage()
-
+function TimelineThinkingRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
   return (
     <div data-slot="session-turn-thinking">
-      <TextShimmer text={language.t("ui.sessionTurn.status.thinking")} />
+      <TextShimmer text={props.label} />
       <Show when={!props.showReasoningSummaries}>
         <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
       </Show>
@@ -410,6 +410,13 @@ export function MessageTimeline(props: {
   }
 
   const [toolOpen, setToolOpen] = createStore<Record<string, boolean | undefined>>(cached?.toolOpen ?? {})
+  const [clock, setClock] = createSignal(Date.now())
+  createEffect(() => {
+    if (sessionStatus().type === "idle") return
+    setClock(Date.now())
+    const interval = setInterval(() => setClock(Date.now()), 1000)
+    onCleanup(() => clearInterval(interval))
+  })
   const [renderOverscan, setRenderOverscan] = createSignal(initialMeasurements?.length || coldBottomMount ? 6 : 20)
   let resizePinnedIndexes: number[] = []
   let resizePinFrame: number | undefined
@@ -976,9 +983,29 @@ export function MessageTimeline(props: {
       },
       undefined,
     )
-    if (typeof end !== "number") return
-    if (end < message.time.created) return
-    return end - message.time.created
+    if (typeof end === "number" && end >= message.time.created) return end - message.time.created
+    if (!workingTurn(userMessageID)) return
+    return Math.max(0, clock() - message.time.created)
+  }
+
+  const durationNumberFormat = createMemo(() => new Intl.NumberFormat(language.intl()))
+  const formatDuration = (ms: number | undefined) => {
+    if (typeof ms !== "number") return ""
+    const total = Math.round(ms / 1000)
+    if (total < 60) return language.t("ui.message.duration.seconds", { count: durationNumberFormat().format(total) })
+    return language.t("ui.message.duration.minutesSeconds", {
+      minutes: durationNumberFormat().format(Math.floor(total / 60)),
+      seconds: durationNumberFormat().format(total % 60),
+    })
+  }
+
+  const processLabel = (userMessageID: string) => {
+    const duration = formatDuration(turnDurationMs(userMessageID))
+    if (!duration) return language.t("ui.sessionTurn.process.details")
+    return language.t(
+      workingTurn(userMessageID) ? "ui.sessionTurn.process.processing" : "ui.sessionTurn.process.elapsed",
+      { duration },
+    )
   }
 
   const assistantCopyPartID = (userMessageID: string) => {
@@ -1063,6 +1090,37 @@ export function MessageTimeline(props: {
           </Show>
         )}
       </Show>
+    )
+  }
+
+  const renderAssistantProcessItem = (
+    userMessageID: string,
+    item: Accessor<TimelineRowMap["AssistantProcess"]["items"][number]>,
+    onSizeChange?: () => void,
+  ) => {
+    const groupRow = createMemo<TimelineRowMap["AssistantPart"] | undefined>(() => {
+      const value = item()
+      if (value.type !== "part") return
+      return {
+        userMessageID,
+        group: value.group,
+        previousAssistantPart: false,
+      }
+    })
+
+    return (
+      <Switch>
+        <Match when={item().type === "interrupted"}>
+          <div data-slot="session-turn-process-item">
+            <MessageDivider label={language.t("ui.message.interrupted")} />
+          </div>
+        </Match>
+        <Match when={groupRow()}>
+          {(row) => (
+            <div data-slot="session-turn-process-item">{renderAssistantPartGroup(row, onSizeChange)}</div>
+          )}
+        </Match>
+      </Switch>
     )
   }
 
@@ -1204,12 +1262,53 @@ export function MessageTimeline(props: {
           </TimelineRowFrame>
         )
       }
+      case "AssistantProcess": {
+        const assistantProcessRow = row as Accessor<TimelineRowByTag<"AssistantProcess">>
+        const openKey = () => `process:${assistantProcessRow().userMessageID}`
+        const open = createMemo(() => toolOpen[openKey()] === true)
+        const contentID = () => `assistant-process-${assistantProcessRow().userMessageID}`
+        const toggle = () => {
+          setToolOpen(openKey(), !open())
+          queueMicrotask(() => onSizeChange?.())
+        }
+
+        return (
+          <TimelineRowFrame row={assistantProcessRow}>
+            <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+              <div data-component="session-turn-process" data-expanded={open() || undefined}>
+                <button
+                  type="button"
+                  data-slot="session-turn-process-trigger"
+                  aria-expanded={open()}
+                  aria-controls={contentID()}
+                  onClick={toggle}
+                >
+                  <span data-slot="session-turn-process-label">
+                    {processLabel(assistantProcessRow().userMessageID)}
+                  </span>
+                  <span data-slot="session-turn-process-chevron" aria-hidden="true">
+                    <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" />
+                  </span>
+                </button>
+                <Show when={open()}>
+                  <div id={contentID()} data-slot="session-turn-process-content">
+                    <Index each={assistantProcessRow().items}>
+                      {(item) => renderAssistantProcessItem(assistantProcessRow().userMessageID, item, onSizeChange)}
+                    </Index>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </TimelineRowFrame>
+        )
+      }
       case "Thinking": {
         const thinkingRow = row as Accessor<TimelineRowByTag<"Thinking">>
         return (
           <TimelineRowFrame row={thinkingRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <TimelineThinkingRow
+                label={processLabel(thinkingRow().userMessageID)}
                 reasoningHeading={thinkingRow().reasoningHeading}
                 showReasoningSummaries={settings.general.showReasoningSummaries()}
               />

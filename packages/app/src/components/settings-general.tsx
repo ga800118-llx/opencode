@@ -445,17 +445,19 @@ export const SettingsGeneral: Component = () => {
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          title={language.t("settings.general.row.showStatus.title")}
-          description={language.t("settings.general.row.showStatus.description")}
-        >
-          <div data-action="settings-show-status">
-            <Switch
-              checked={settings.general.showStatus()}
-              onChange={(checked) => settings.general.setShowStatus(checked)}
-            />
-          </div>
-        </SettingsRow>
+        <Show when={settings.presentation.advanced()}>
+          <SettingsRow
+            title={language.t("workflow.runLocation.status.title")}
+            description={language.t("workflow.runLocation.status.description")}
+          >
+            <div data-action="settings-show-status">
+              <Switch
+                checked={settings.general.showStatus()}
+                onChange={(checked) => settings.general.setShowStatus(checked)}
+              />
+            </div>
+          </SettingsRow>
+        </Show>
 
         <SettingsRow
           title={language.t("settings.general.row.showCustomAgents.title")}

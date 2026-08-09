@@ -2,7 +2,7 @@ import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
 import type { SessionMessageInfo } from "@opencode-ai/client/promise"
 import { AssistantMessage, Part, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2"
 import { groupParts, renderable, type PartGroup } from "@opencode-ai/session-ui/message-part"
-import { TimelineRow, type SummaryDiff } from "./timeline-row"
+import { TimelineRow, type AssistantProcessItem, type SummaryDiff } from "./timeline-row"
 import { uniqueSummaryDiffs } from "./summary-diffs"
 
 export { TimelineRow, type SummaryDiff } from "./timeline-row"
@@ -24,6 +24,10 @@ export type TimelineRowMap = {
     userMessageID: string
     group: PartGroup
     previousAssistantPart: boolean
+  }
+  AssistantProcess: {
+    userMessageID: string
+    items: AssistantProcessItem[]
   }
   Thinking: { userMessageID: string; reasoningHeading?: string }
   Retry: { userMessageID: string }
@@ -123,7 +127,7 @@ export namespace Timeline {
         .filter((part) => renderable(part, showReasoning))
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
-    const assistantItems =
+    const assistantItems: AssistantProcessItem[] =
       interrupted && !compaction
         ? [
             ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex <= interruptedMessageIndex)).map(
@@ -141,6 +145,16 @@ export namespace Timeline {
             ),
           ]
         : groupParts(assistantPartRefs).map((group) => ({ type: "part" as const, group }))
+    const partByRef = new Map(
+      assistantPartRefs.map((ref) => [`${ref.messageID}:${ref.part.id}`, ref.part] as const),
+    )
+    const finalAnswerStart =
+      assistantItems.findLastIndex((item) => {
+        if (item.type !== "part" || item.group.type !== "part") return true
+        return partByRef.get(`${item.group.ref.messageID}:${item.group.ref.partID}`)?.type !== "text"
+      }) + 1
+    const processItems = assistantItems.slice(0, finalAnswerStart)
+    const finalAnswerItems = assistantItems.slice(finalAnswerStart)
     if (previousUserMessage) rows.push(new TimelineRow.TurnGap({ userMessageID: userMessage.id }))
 
     if (comments.length > 0 && !inlineComments)
@@ -166,29 +180,27 @@ export namespace Timeline {
       )
     }
 
-    let assistantGroupIndex = 0
-    assistantItems.forEach((item) => {
-      if (item.type === "interrupted") {
-        rows.push(
-          new TimelineRow.TurnDivider({
-            userMessageID: userMessage.id,
-            label: "interrupted",
-          }),
-        )
-        return
-      }
+    if (processItems.length > 0) {
+      rows.push(
+        new TimelineRow.AssistantProcess({
+          userMessageID: userMessage.id,
+          items: processItems,
+        }),
+      )
+    }
 
+    finalAnswerItems.forEach((item, index) => {
+      if (item.type === "interrupted") return
       rows.push(
         new TimelineRow.AssistantPart({
           userMessageID: userMessage.id,
           group: item.group,
-          previousAssistantPart: assistantGroupIndex > 0,
+          previousAssistantPart: processItems.length > 0 || index > 0,
         }),
       )
-      assistantGroupIndex += 1
     })
 
-    if (isActive && status === "busy" && !error && (showReasoning ? assistantPartRefs.length === 0 : true)) {
+    if (isActive && status === "busy" && !error && assistantItems.length === 0) {
       const heading = assistantMessages
         .flatMap((message) => getMessageParts(message.id))
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))

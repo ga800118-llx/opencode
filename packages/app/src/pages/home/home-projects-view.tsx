@@ -18,6 +18,7 @@ import { usePlatform } from "@/context/platform"
 import { displayName, getProjectAvatarSource } from "@/pages/layout/helpers"
 import { ServerRowMenuView, serverMenuLabels } from "@/components/server/server-row-menu"
 import { ServerHealthIndicator } from "@/components/server/server-row"
+import { runLocationName } from "@/components/server/run-location"
 import { type ServerHealth } from "@/utils/server-health"
 import { fileManagerApp } from "@/utils/file-manager"
 
@@ -257,7 +258,9 @@ function HomeServerRow(props: {
           <ServerHealthIndicator health={props.health} />
         </div>
         <span class="flex min-w-0 items-center gap-1">
-          <span class={HOME_PROJECT_NAV_LABEL}>{props.server.displayName ?? new URL(props.server.http.url).host}</span>
+          <span class={HOME_PROJECT_NAV_LABEL}>
+            {runLocationName(props.server, props.language.t("workflow.runLocation.local"))}
+          </span>
           <Show when={props.server.label}>
             {(label) => (
               <span

@@ -1788,7 +1788,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Show>
               </div>
             </div>
-            <Show when={permission.supportsModes() && store.mode !== "shell"}>
+            <Show when={store.mode !== "shell"}>
               <div
                 data-component="prompt-permission-mode-control"
                 class="min-w-0 shrink-0 max-[480px]:basis-full"

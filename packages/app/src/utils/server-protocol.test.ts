@@ -3,6 +3,7 @@ import {
   detectPermissionModeCapability,
   detectServerProtocol,
   hasPermissionModeCapability,
+  hasV2ProtocolCapability,
 } from "./server-protocol"
 
 const server = { url: "http://localhost:4096" }
@@ -27,6 +28,25 @@ describe("detectServerProtocol", () => {
       const path = new URL(input instanceof Request ? input.url : input).pathname
       if (path === "/global/health") return Promise.resolve(json({}, 404))
       return Promise.resolve(json({ healthy: true, version: "2.0.0", pid: 123 }))
+    })
+
+    expect(await detectServerProtocol(server, fetcher)).toBe("v2")
+  })
+
+  test("recognizes current V2 health through its OpenAPI operation", async () => {
+    const fetcher = mockFetch((input) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/global/health") return Promise.resolve(json({}, 404))
+      if (path === "/api/health") return Promise.resolve(json({ healthy: true }))
+      return Promise.resolve(
+        json({
+          paths: {
+            "/api/health": {
+              get: { operationId: "v2.health.get" },
+            },
+          },
+        }),
+      )
     })
 
     expect(await detectServerProtocol(server, fetcher)).toBe("v2")
@@ -63,18 +83,67 @@ describe("hasPermissionModeCapability", () => {
     ).toBe(false)
     expect(hasPermissionModeCapability({ paths: [] })).toBe(false)
   })
+
+  test("recognizes the stable permission-mode POST operation", () => {
+    expect(
+      hasPermissionModeCapability(
+        {
+          paths: {
+            "/session/{sessionID}/permission-mode": {
+              post: { operationId: "session.switchPermissionMode" },
+            },
+          },
+        },
+        "v1",
+      ),
+    ).toBe(true)
+  })
+})
+
+describe("hasV2ProtocolCapability", () => {
+  test("recognizes only the V2 health operation", () => {
+    expect(
+      hasV2ProtocolCapability({
+        paths: {
+          "/api/health": { get: { operationId: "v2.health.get" } },
+        },
+      }),
+    ).toBe(true)
+    expect(
+      hasV2ProtocolCapability({
+        paths: {
+          "/api/health": { get: { operationId: "health.get" } },
+        },
+      }),
+    ).toBe(false)
+    expect(hasV2ProtocolCapability({ paths: [] })).toBe(false)
+  })
 })
 
 describe("detectPermissionModeCapability", () => {
-  test("does not probe OpenAPI for V1 servers", async () => {
+  test("probes the stable OpenAPI document for V1 servers", async () => {
     const paths: string[] = []
     const fetcher = mockFetch((input) => {
       paths.push(new URL(input instanceof Request ? input.url : input).pathname)
-      return Promise.resolve(json({}))
+      return Promise.resolve(
+        json({
+          paths: {
+            "/session/{sessionID}/permission-mode": {
+              post: { operationId: "session.switchPermissionMode" },
+            },
+          },
+        }),
+      )
     })
 
+    expect(await detectPermissionModeCapability(server, fetcher, "v1")).toBe(true)
+    expect(paths).toEqual(["/doc"])
+  })
+
+  test("rejects an older V1 OpenAPI document without the stable operation", async () => {
+    const fetcher = mockFetch(() => Promise.resolve(json({ paths: {} })))
+
     expect(await detectPermissionModeCapability(server, fetcher, "v1")).toBe(false)
-    expect(paths).toEqual([])
   })
 
   test("recognizes the current V2 permission-mode operation", async () => {

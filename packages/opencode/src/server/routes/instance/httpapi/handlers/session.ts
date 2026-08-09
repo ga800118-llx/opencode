@@ -29,6 +29,7 @@ import {
   InitPayload,
   ListQuery,
   MessagesQuery,
+  PermissionModePayload,
   PermissionResponsePayload,
   PromptPayload,
   RevertPayload,
@@ -200,6 +201,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (ctx.payload.time?.archived !== undefined) {
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
       }
+      return yield* requireSession(ctx.params.sessionID)
+    })
+
+    const switchPermissionMode = Effect.fn("SessionHttpApi.switchPermissionMode")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof PermissionModePayload.Type
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      yield* session.setPermissionMode({ sessionID: ctx.params.sessionID, mode: ctx.payload.mode })
       return yield* requireSession(ctx.params.sessionID)
     })
 
@@ -422,6 +432,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)
+      .handle("switchPermissionMode", switchPermissionMode)
       .handleRaw("fork", forkRaw)
       .handle("abort", abort)
       .handle("init", init)

@@ -130,7 +130,7 @@ function ServerForm(props: ServerFormProps) {
         <div class="flex-1 min-w-0 [&_[data-slot=input-wrapper]]:relative">
           <TextField
             type="text"
-            label={language.t("dialog.server.add.url")}
+            label={language.t("workflow.runLocation.address")}
             placeholder={props.placeholder}
             value={props.value}
             autofocus
@@ -143,8 +143,8 @@ function ServerForm(props: ServerFormProps) {
         </div>
         <TextField
           type="text"
-          label={language.t("dialog.server.add.name")}
-          placeholder={language.t("dialog.server.add.namePlaceholder")}
+          label={language.t("workflow.runLocation.name")}
+          placeholder={language.t("workflow.runLocation.name.placeholder")}
           value={props.name}
           disabled={props.busy}
           onChange={props.onNameChange}
@@ -261,14 +261,14 @@ export function useServerManagementController(options: { onSelect?: () => void; 
       if (store.addServer.password && store.addServer.username) conn.http.username = store.addServer.username
       const result = await checkServerHealth(conn.http)
       if (!result.healthy) {
-        setStore("addServer", { error: language.t("dialog.server.add.error") })
+        setStore("addServer", { error: language.t("workflow.runLocation.error") })
         return
       }
       if (
         !settings.general.newLayoutDesigns() &&
         (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "v2"
       ) {
-        setStore("addServer", { error: language.t("dialog.server.add.error") })
+        setStore("addServer", { error: language.t("workflow.runLocation.error") })
         return
       }
 
@@ -312,14 +312,14 @@ export function useServerManagementController(options: { onSelect?: () => void; 
       }
       const result = await checkServerHealth(conn.http)
       if (!result.healthy) {
-        setStore("editServer", { error: language.t("dialog.server.add.error") })
+        setStore("editServer", { error: language.t("workflow.runLocation.error") })
         return
       }
       if (
         !settings.general.newLayoutDesigns() &&
         (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "v2"
       ) {
-        setStore("editServer", { error: language.t("dialog.server.add.error") })
+        setStore("editServer", { error: language.t("workflow.runLocation.error") })
         return
       }
       if (normalized === input.original.http.url) {
@@ -512,11 +512,13 @@ export function useServerManagementController(options: { onSelect?: () => void; 
   const formBusy = createMemo(() => (isAddMode() ? addMutation.isPending : editMutation.isPending))
 
   const formTitle = createMemo(() => {
-    if (!isFormMode()) return language.t("dialog.server.title")
+    if (!isFormMode()) return language.t("workflow.runLocation.title")
     return (
       <div class="flex items-center gap-2 -ml-2">
         <IconButton icon="arrow-left" variant="ghost" onClick={resetForm} aria-label={language.t("common.goBack")} />
-        <span>{isAddMode() ? language.t("dialog.server.add.title") : language.t("dialog.server.edit.title")}</span>
+        <span>
+          {isAddMode() ? language.t("workflow.runLocation.add.title") : language.t("workflow.runLocation.edit.title")}
+        </span>
       </div>
     )
   })
@@ -579,11 +581,11 @@ export function ServerConnectionList(props: { controller: ReturnType<typeof useS
       <List
         class="flex-1 min-h-0 [&_[data-slot=list-search-wrapper]]:w-full [&_[data-slot=list-scroll]]:flex-1 [&_[data-slot=list-scroll]]:overflow-y-auto [&_[data-slot=list-items]]:bg-surface-base [&_[data-slot=list-items]]:rounded-md [&_[data-slot=list-item]]:min-h-14 [&_[data-slot=list-item]]:p-3 [&_[data-slot=list-item]]:!bg-transparent"
         search={{
-          placeholder: language.t("dialog.server.search.placeholder"),
+          placeholder: language.t("workflow.runLocation.search"),
           autofocus: false,
         }}
         noInitialSelection
-        emptyMessage={language.t("dialog.server.empty")}
+        emptyMessage={language.t("workflow.runLocation.empty")}
         items={props.controller.sortedItems}
         key={(x) => x.http.url}
         onSelect={(x) => {
@@ -606,7 +608,7 @@ export function ServerConnectionList(props: { controller: ReturnType<typeof useS
                 badge={
                   <Show when={props.controller.defaultKey() === ServerConnection.key(i)}>
                     <span class="text-text-base bg-surface-base text-14-regular px-1.5 rounded-xs">
-                      {language.t("dialog.server.status.default")}
+                      {language.t("workflow.runLocation.startup")}
                     </span>
                   </Show>
                 }
@@ -639,13 +641,15 @@ export function ServerConnectionList(props: { controller: ReturnType<typeof useS
                         </DropdownMenu.Item>
                         <Show when={props.controller.canDefault() && props.controller.defaultKey() !== key}>
                           <DropdownMenu.Item onSelect={() => props.controller.setDefault(key)}>
-                            <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.default")}</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemLabel>
+                              {language.t("workflow.runLocation.startup.set")}
+                            </DropdownMenu.ItemLabel>
                           </DropdownMenu.Item>
                         </Show>
                         <Show when={props.controller.canDefault() && props.controller.defaultKey() === key}>
                           <DropdownMenu.Item onSelect={() => props.controller.setDefault(null)}>
                             <DropdownMenu.ItemLabel>
-                              {language.t("dialog.server.menu.defaultRemove")}
+                              {language.t("workflow.runLocation.startup.remove")}
                             </DropdownMenu.ItemLabel>
                           </DropdownMenu.Item>
                         </Show>
@@ -654,7 +658,7 @@ export function ServerConnectionList(props: { controller: ReturnType<typeof useS
                           onSelect={() => props.controller.handleRemove(ServerConnection.key(i))}
                           class="text-text-on-critical-base hover:bg-surface-critical-weak"
                         >
-                          <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.delete")}</DropdownMenu.ItemLabel>
+                          <DropdownMenu.ItemLabel>{language.t("workflow.runLocation.remove")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>
                     </DropdownMenu.Portal>
@@ -674,7 +678,7 @@ export function ServerConnectionList(props: { controller: ReturnType<typeof useS
           onClick={props.controller.startAdd}
           class="py-1.5 pl-1.5 pr-3 flex items-center gap-1.5"
         >
-          {language.t("dialog.server.add.button")}
+          {language.t("workflow.runLocation.add")}
         </Button>
       </div>
     </div>
@@ -691,7 +695,7 @@ export function ServerConnectionForm(props: { controller: ReturnType<typeof useS
         name={props.controller.formName()}
         username={props.controller.formUsername()}
         password={props.controller.formPassword()}
-        placeholder={language.t("dialog.server.add.placeholder")}
+        placeholder={language.t("workflow.runLocation.address.placeholder")}
         busy={props.controller.formBusy()}
         error={props.controller.formError()}
         status={props.controller.formStatus()}
@@ -713,7 +717,7 @@ export function ServerConnectionForm(props: { controller: ReturnType<typeof useS
           {props.controller.formBusy()
             ? language.t("dialog.server.add.checking")
             : props.controller.isAddMode()
-              ? language.t("dialog.server.add.button")
+              ? language.t("workflow.runLocation.add")
               : language.t("common.save")}
         </Button>
       </div>

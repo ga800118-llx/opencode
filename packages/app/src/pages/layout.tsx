@@ -934,12 +934,16 @@ export default function LegacyLayout(props: ParentProps) {
         category: language.t("command.category.provider"),
         onSelect: () => connectProvider(),
       },
-      {
-        id: "server.switch",
-        title: language.t("command.server.switch"),
-        category: language.t("command.category.server"),
-        onSelect: () => openServer(),
-      },
+      ...(settings.presentation.advanced()
+        ? [
+            {
+              id: "server.switch",
+              title: language.t("workflow.runLocation.switch"),
+              category: language.t("workflow.runLocation.title"),
+              onSelect: () => openServer(),
+            },
+          ]
+        : []),
       {
         id: "settings.open",
         title: language.t("command.settings.open"),

@@ -159,6 +159,7 @@ export const TaskTool = Tool.define(
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
           agent: next.name,
+          permissionMode: parent.permissionMode,
           permission: [
             ...childPermission,
             ...childToolDenies.filter(

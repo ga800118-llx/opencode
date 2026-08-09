@@ -1,6 +1,6 @@
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
-import { serverName } from "@/context/server"
+import { runLocationName } from "@/components/server/run-location"
 import { displayName } from "@/pages/layout/helpers"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMemo, onCleanup } from "solid-js"
@@ -36,7 +36,10 @@ export function createHomeSessionSearchController(home: HomeController, sessions
     if (project) return language.t("home.sessions.search.placeholder.scoped", { scope: displayName(project) })
     if (home.server.list().length > 1) {
       const conn = home.server.focused()
-      if (conn) return language.t("home.sessions.search.placeholder.scoped", { scope: serverName(conn) })
+      if (conn)
+        return language.t("home.sessions.search.placeholder.scoped", {
+          scope: runLocationName(conn, language.t("workflow.runLocation.local")),
+        })
     }
     return language.t("home.sessions.search.placeholder")
   })
