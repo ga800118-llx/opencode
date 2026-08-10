@@ -22,11 +22,13 @@ jobs:
 
     steps:
       - name: Checkout repository
+        id: checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
 
       - name: Initialize smoke evidence
+        id: initialize_evidence
         if: always()
         shell: pwsh
         run: |
@@ -42,12 +44,30 @@ jobs:
             runnerImage = $env:ImageOS
           } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidenceDirectory "workflow-context.json") -Encoding utf8
 
+      - name: Resolve internal beta version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packagePath = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\package.json"
+          $version = [string]((Get-Content -LiteralPath $packagePath -Raw -Encoding utf8 | ConvertFrom-Json).version)
+          if ($version -cne "0.1.0-alpha.2") {
+            throw "Unexpected Desktop internal beta version: $version"
+          }
+          $deliveryDirectory = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\$version\windows-x64"
+          "GUAI_CODE_BETA_VERSION=$version" >> $env:GITHUB_ENV
+          "GUAI_CODE_BETA_DELIVERY=$deliveryDirectory" >> $env:GITHUB_ENV
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "delivery=$deliveryDirectory" >> $env:GITHUB_OUTPUT
+
       - name: Setup Bun
+        id: setup_bun
         uses: ./.github/actions/setup-bun
         with:
           install-flags: --frozen-lockfile
 
       - name: Parse verifier with Windows PowerShell 5.1
+        id: parse_ps51
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -62,6 +82,7 @@ jobs:
           }
 
       - name: Parse verifier with PowerShell 7
+        id: parse_pwsh7
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -76,6 +97,7 @@ jobs:
           }
 
       - name: Validate safeStorage byte-scan counterexample
+        id: byte_scan_test
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -95,22 +117,143 @@ jobs:
             throw "safeStorage byte-scan counterexample failed with exit code $LASTEXITCODE."
           }
 
+      - name: Prepare and test credential scanner
+        id: prepare_scanner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scannerPath = Join-Path $env:RUNNER_TEMP "guai-code-credential-scan.cjs"
+          @'
+          const { lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } = require("node:fs/promises")
+          const { tmpdir } = require("node:os")
+          const { basename, join, resolve } = require("node:path")
+
+          const patterns = [
+            { label: "api-key-canary", bytes: Buffer.from("phase2-api-key-canary", "utf8") },
+            { label: "header-canary", bytes: Buffer.from("phase2-header-canary", "utf8") },
+            { label: "test-secret", bytes: Buffer.from("sk-test-secret", "utf8") },
+            { label: "bearer-header", bytes: Buffer.from("Bearer secret-header", "utf8") },
+          ]
+
+          const compareNames = (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+
+          async function regularFiles(directory) {
+            const root = resolve(directory)
+            const rootStat = await lstat(root)
+            if (!rootStat.isDirectory()) {
+              const error = new Error("scan-target-not-directory")
+              error.code = "ENOTDIR"
+              error.path = root
+              throw error
+            }
+
+            const files = []
+            async function walk(current) {
+              const entries = (await readdir(current, { withFileTypes: true })).sort(compareNames)
+              for (const entry of entries) {
+                const child = join(current, entry.name)
+                if (entry.isDirectory()) {
+                  await walk(child)
+                  continue
+                }
+                if (entry.isFile()) files.push(child)
+              }
+            }
+            await walk(root)
+            return files
+          }
+
+          async function scanTargets(targets) {
+            const matches = []
+            for (const target of targets) {
+              for (const file of await regularFiles(target.directory)) {
+                const contents = await readFile(file)
+                for (const pattern of patterns) {
+                  if (contents.includes(pattern.bytes)) {
+                    matches.push({ file, target: target.label, pattern: pattern.label })
+                  }
+                }
+              }
+            }
+            return matches
+          }
+
+          async function selfTest() {
+            const directory = await mkdtemp(join(tmpdir(), "guai-code-credential-scan-test-"))
+            try {
+              const nested = join(directory, "nested")
+              await mkdir(nested)
+              await writeFile(join(nested, "clean.bin"), Buffer.from([0x00, 0xff, 0x41, 0x00]))
+              if ((await scanTargets([{ label: "self-test", directory }])).length !== 0) {
+                throw new Error("clean-fixture-matched")
+              }
+              const hit = join(nested, "hit.bin")
+              await writeFile(hit, Buffer.concat([Buffer.from([0x00, 0xff]), patterns[2].bytes, Buffer.from([0x00])]))
+              const matches = await scanTargets([{ label: "self-test", directory }])
+              if (matches.length !== 1 || basename(matches[0].file) !== "hit.bin" || matches[0].pattern !== "test-secret") {
+                throw new Error("binary-fixture-not-detected")
+              }
+            } finally {
+              await rm(directory, { recursive: true, force: true })
+            }
+            process.stdout.write("credential scanner self-test passed\n")
+          }
+
+          async function main() {
+            const args = process.argv.slice(2)
+            if (args.length === 1 && args[0] === "--self-test") {
+              await selfTest()
+              return
+            }
+            if (args.length === 0 || args.length % 2 !== 0) throw new Error("invalid-scan-targets")
+            const targets = Array.from({ length: args.length / 2 }, (_, index) => ({
+              label: args[index * 2],
+              directory: args[index * 2 + 1],
+            }))
+            const matches = await scanTargets(targets)
+            for (const match of matches) {
+              process.stdout.write(`${match.file}\t${match.target}\t${match.pattern}\n`)
+            }
+            if (matches.length > 0) process.exitCode = 1
+          }
+
+          main().catch((error) => {
+            const code = typeof error.code === "string" ? error.code : "SCAN_ERROR"
+            const file = typeof error.path === "string" ? error.path : "unknown"
+            process.stderr.write(`${file}\tscan-error\t${code}\n`)
+            process.exitCode = 2
+          })
+          '@ | Set-Content -LiteralPath $scannerPath -Encoding utf8
+
+          & node --check $scannerPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Credential scanner syntax check failed with exit code $LASTEXITCODE."
+          }
+          & node $scannerPath --self-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Credential scanner self-test failed with exit code $LASTEXITCODE."
+          }
+
       - name: Test Desktop
+        id: desktop_test
         working-directory: packages/desktop
         shell: pwsh
         run: bun test
 
       - name: Typecheck Desktop
+        id: desktop_typecheck
         working-directory: packages/desktop
         shell: pwsh
         run: bun typecheck
 
       - name: Test App units
+        id: app_unit_test
         working-directory: packages/app
         shell: pwsh
         run: bun run test:unit
 
       - name: Typecheck App
+        id: app_typecheck
         working-directory: packages/app
         shell: pwsh
         run: bun typecheck
@@ -122,7 +265,7 @@ jobs:
         run: bun run package:win:internal
 
       - name: Verify native safeStorage across processes
-        id: safe-storage
+        id: safe_storage
         working-directory: packages/desktop
         shell: pwsh
         run: |
@@ -134,6 +277,46 @@ jobs:
           $ciphertextPath = Join-Path $smokeRoot "ciphertext.base64"
           $encryptResultPath = Join-Path $smokeRoot "encrypt-result.json"
           $decryptResultPath = Join-Path $smokeRoot "decrypt-result.json"
+          $electronTimeoutSeconds = 90
+
+          function Invoke-ElectronSmokeProcess {
+            param(
+              [string]$ElectronPath,
+              [string]$ApplicationPath,
+              [string]$UserDataPath,
+              [string]$Mode,
+              [int]$TimeoutSeconds
+            )
+
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $ElectronPath
+            $startInfo.WorkingDirectory = $ApplicationPath
+            $startInfo.UseShellExecute = $false
+            [void]$startInfo.ArgumentList.Add($ApplicationPath)
+            [void]$startInfo.ArgumentList.Add("--user-data-dir=$UserDataPath")
+            [void]$startInfo.ArgumentList.Add("--disable-gpu")
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            try {
+              if (-not $process.Start()) {
+                throw "safeStorage $Mode Electron process did not start."
+              }
+              if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                $process.Kill($true)
+                if (-not $process.WaitForExit(10000)) {
+                  throw "safeStorage $Mode Electron process tree did not exit after termination."
+                }
+                throw "safeStorage $Mode Electron process timed out after $TimeoutSeconds seconds."
+              }
+              if ($process.ExitCode -ne 0) {
+                throw "safeStorage $Mode Electron process failed with exit code $($process.ExitCode)."
+              }
+              return $process.Id
+            }
+            finally {
+              $process.Dispose()
+            }
+          }
 
           Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
           [void](New-Item -ItemType Directory -Path $smokeRoot -Force)
@@ -180,9 +363,10 @@ jobs:
               let canary = `safe-storage-canary:${randomBytes(32).toString("hex")}`
               const plaintextBuffer = Buffer.from(canary, "utf8")
               const plaintextSha256 = sha256(plaintextBuffer)
-              const encrypted = safeStorage.encryptString(canary)
-              canary = ""
+              let encrypted
               try {
+                encrypted = safeStorage.encryptString(canary)
+                canary = ""
                 if (encrypted.includes(plaintextBuffer)) throw new Error("plaintext-in-encrypted-bytes")
                 writeFileSync(ciphertextPath, encrypted.toString("base64"), { encoding: "ascii", flag: "wx" })
                 const decodedPersisted = decodeBase64Strict(readFileSync(ciphertextPath, "ascii"))
@@ -190,23 +374,25 @@ jobs:
                 if (decodedPersisted.includes(plaintextBuffer)) {
                   throw new Error("plaintext-in-persisted-ciphertext")
                 }
-              } finally {
+                writeResult({
+                  schemaVersion: 1,
+                  success: true,
+                  mode,
+                  pid: process.pid,
+                  platform: process.platform,
+                  electronVersion: process.versions.electron,
+                  encryptionAvailable: true,
+                  userIdentitySha256: sha256(userIdentity),
+                  plaintextSha256,
+                  ciphertextSha256: sha256(encrypted),
+                  ciphertextBytes: encrypted.length,
+                  plaintextPersisted: false,
+                })
+              }
+              finally {
+                canary = ""
                 plaintextBuffer.fill(0)
               }
-              writeResult({
-                schemaVersion: 1,
-                success: true,
-                mode,
-                pid: process.pid,
-                platform: process.platform,
-                electronVersion: process.versions.electron,
-                encryptionAvailable: true,
-                userIdentitySha256: sha256(userIdentity),
-                plaintextSha256,
-                ciphertextSha256: sha256(encrypted),
-                ciphertextBytes: encrypted.length,
-                plaintextPersisted: false,
-              })
               app.exit(0)
               return
             }
@@ -253,17 +439,11 @@ jobs:
             $env:GUAI_CODE_SAFE_STORAGE_USER_DATA = $userDataDirectory
             $env:GUAI_CODE_SAFE_STORAGE_MODE = "encrypt"
             $env:GUAI_CODE_SAFE_STORAGE_RESULT = $encryptResultPath
-            & $electronPath $smokeRoot "--user-data-dir=$userDataDirectory" --disable-gpu
-            if ($LASTEXITCODE -ne 0) {
-              throw "safeStorage encryption process failed with exit code $LASTEXITCODE."
-            }
+            $encryptProcessId = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $userDataDirectory -Mode "encryption" -TimeoutSeconds $electronTimeoutSeconds
 
             $env:GUAI_CODE_SAFE_STORAGE_MODE = "decrypt"
             $env:GUAI_CODE_SAFE_STORAGE_RESULT = $decryptResultPath
-            & $electronPath $smokeRoot "--user-data-dir=$userDataDirectory" --disable-gpu
-            if ($LASTEXITCODE -ne 0) {
-              throw "safeStorage decryption process failed with exit code $LASTEXITCODE."
-            }
+            $decryptProcessId = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $userDataDirectory -Mode "decryption" -TimeoutSeconds $electronTimeoutSeconds
 
             $encryptResult = Get-Content -LiteralPath $encryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
             $decryptResult = Get-Content -LiteralPath $decryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
@@ -272,6 +452,9 @@ jobs:
             }
             if ($encryptResult.pid -eq $decryptResult.pid) {
               throw "safeStorage smoke did not use two independent Electron processes."
+            }
+            if ($encryptResult.pid -ne $encryptProcessId -or $decryptResult.pid -ne $decryptProcessId) {
+              throw "safeStorage result process IDs do not match the launched Electron processes."
             }
             if ($encryptResult.userIdentitySha256 -cne $decryptResult.userIdentitySha256) {
               throw "safeStorage smoke processes did not run as the same Windows user."
@@ -319,34 +502,40 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           & (Join-Path $env:GITHUB_WORKSPACE "packages\desktop\scripts\verify-internal-windows.ps1") `
-            -DeliveryDirectory (Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\0.1.0-alpha.2\windows-x64") `
-            -Version "0.1.0-alpha.2" `
+            -DeliveryDirectory $env:GUAI_CODE_BETA_DELIVERY `
+            -Version $env:GUAI_CODE_BETA_VERSION `
             -EvidenceDirectory (Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence")
 
       - name: Scan package and smoke evidence for credential canaries
+        id: credential_scan
         if: always() && steps.package.outcome == 'success'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
           $evidenceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
-          $targets = [ordered]@{
-            "win-unpacked" = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\win-unpacked"
-            "delivery" = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\0.1.0-alpha.2\windows-x64"
-            "smoke-evidence" = $evidenceDirectory
-          }
-          $patterns = @(
-            "phase2-api-key-canary",
-            "phase2-header-canary",
-            "sk-test-secret",
-            "Bearer secret-header"
+          $scannerPath = Join-Path $env:RUNNER_TEMP "guai-code-credential-scan.cjs"
+          $targets = @(
+            [ordered]@{
+              label = "win-unpacked"
+              directory = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\win-unpacked"
+            },
+            [ordered]@{
+              label = "delivery"
+              directory = $env:GUAI_CODE_BETA_DELIVERY
+            },
+            [ordered]@{
+              label = "smoke-evidence"
+              directory = $evidenceDirectory
+            }
           )
 
-          if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
-            throw "ripgrep is required for credential canary scanning."
+          if (-not (Test-Path -LiteralPath $scannerPath -PathType Leaf)) {
+            throw "Credential scanner is missing: $scannerPath"
           }
-          foreach ($target in $targets.GetEnumerator()) {
-            if (-not (Test-Path -LiteralPath $target.Value -PathType Container)) {
-              throw "Credential scan target is missing: $($target.Value)"
+          foreach ($target in $targets) {
+            if (-not (Test-Path -LiteralPath $target.directory -PathType Container)) {
+              throw "Credential scan target is missing: $($target.directory)"
             }
           }
           $copiedMainLogs = @(
@@ -357,37 +546,89 @@ jobs:
             throw "Smoke evidence does not contain a copied main.log."
           }
 
-          foreach ($target in $targets.GetEnumerator()) {
-            $arguments = @("--text", "--hidden", "--no-ignore", "--files-with-matches", "--fixed-strings")
-            foreach ($pattern in $patterns) {
-              $arguments += @("-e", $pattern)
+          try {
+            $arguments = @()
+            foreach ($target in $targets) {
+              $arguments += @($target.label, $target.directory)
             }
-            $matches = @(& rg @arguments -- $target.Value)
+            & node $scannerPath @arguments
             $exitCode = $LASTEXITCODE
-            if ($exitCode -eq 0) {
-              throw "Credential canary detected in $($target.Key): $($matches -join ', ')"
-            }
-            if ($exitCode -eq 1) {
-              Write-Host "Credential canary scan passed: $($target.Key)"
-              continue
-            }
-            throw "ripgrep failed while scanning $($target.Key) with exit code $exitCode."
           }
+          finally {
+            Remove-Item -LiteralPath $scannerPath -Force -ErrorAction SilentlyContinue
+          }
+          if ($exitCode -eq 0) {
+            Write-Host "Credential canary scan passed."
+          }
+          elseif ($exitCode -eq 1) {
+            throw "Credential canary scan detected one or more forbidden patterns."
+          }
+          else {
+            throw "Credential canary scanner failed with exit code $exitCode."
+          }
+
+      - name: Prepare sanitized smoke evidence
+        id: sanitized_evidence
+        if: always() && steps.credential_scan.outcome != 'success'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sanitizedDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-sanitized-evidence"
+          Remove-Item -LiteralPath $sanitizedDirectory -Recurse -Force -ErrorAction SilentlyContinue
+          [void](New-Item -ItemType Directory -Path $sanitizedDirectory -Force)
+          [ordered]@{
+            schemaVersion = 1
+            workflowContext = [ordered]@{
+              sourceCommit = $env:GITHUB_SHA
+              runId = $env:GITHUB_RUN_ID
+              runAttempt = $env:GITHUB_RUN_ATTEMPT
+              runnerImage = $env:ImageOS
+              version = $env:GUAI_CODE_BETA_VERSION
+            }
+            stepOutcomes = [ordered]@{
+              checkout = "${{ steps.checkout.outcome }}"
+              initializeEvidence = "${{ steps.initialize_evidence.outcome }}"
+              resolveVersion = "${{ steps.version.outcome }}"
+              setupBun = "${{ steps.setup_bun.outcome }}"
+              parsePowerShell51 = "${{ steps.parse_ps51.outcome }}"
+              parsePowerShell7 = "${{ steps.parse_pwsh7.outcome }}"
+              byteScanTest = "${{ steps.byte_scan_test.outcome }}"
+              prepareScanner = "${{ steps.prepare_scanner.outcome }}"
+              desktopTest = "${{ steps.desktop_test.outcome }}"
+              desktopTypecheck = "${{ steps.desktop_typecheck.outcome }}"
+              appUnitTest = "${{ steps.app_unit_test.outcome }}"
+              appTypecheck = "${{ steps.app_typecheck.outcome }}"
+              package = "${{ steps.package.outcome }}"
+              safeStorage = "${{ steps.safe_storage.outcome }}"
+              verifier = "${{ steps.verifier.outcome }}"
+              credentialScan = "${{ steps.credential_scan.outcome }}"
+            }
+            failure = "Raw smoke evidence was withheld because credential scanning did not complete successfully."
+          } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $sanitizedDirectory "sanitized-smoke-evidence.json") -Encoding utf8
 
       - name: Upload Windows delivery
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guai-code-windows-internal-beta-delivery
-          path: packages/desktop/dist/internal-beta/0.1.0-alpha.2/windows-x64
+          path: ${{ steps.version.outputs.delivery }}
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload smoke evidence
-        if: always()
+      - name: Upload raw smoke evidence
+        if: always() && steps.credential_scan.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guai-code-windows-internal-beta-smoke-evidence
           path: ${{ runner.temp }}/guai-code-windows-internal-beta-smoke-evidence
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload sanitized smoke evidence
+        if: always() && steps.credential_scan.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: guai-code-windows-internal-beta-smoke-evidence
+          path: ${{ runner.temp }}/guai-code-windows-internal-beta-sanitized-evidence
           if-no-files-found: error
           retention-days: 14
