@@ -8,7 +8,7 @@
 - 可执行文件源码提交：`c6b8abbe81cb4d0b9cbb53a16a4fc1ba90bbe300`
 - 成功运行：[GitHub Actions 31366877286](https://github.com/ga800118-llx/opencode/actions/runs/31366877286)
 - 计划的附注标签：`v0.1.0-alpha.2`。控制器将在本次文档提交后创建该标签，并令其直接指向上述源码提交；本次文档提交更晚，不参与可执行文件构建。
-- Runner：Microsoft Windows NT 10.0.26100.0，AMD64/x64；镜像 `win25-vs2026`，版本 `20260803.193.1`。
+- Runner：Microsoft Windows Server 2025 Datacenter（Microsoft Windows NT 10.0.26100.0），AMD64/x64；镜像 `win25-vs2026`，版本 `20260803.193.1`。
 - PowerShell：7.6.4 Core；Windows PowerShell 5.1 与 PowerShell 7 语法解析门禁均通过。
 
 交付目录：`packages/desktop/dist/internal-beta/0.1.0-alpha.2/windows-x64/`
@@ -16,6 +16,8 @@
 证据目录：`packages/desktop/dist/internal-beta/0.1.0-alpha.2/windows-smoke-evidence/`
 
 证据仅包含经过严格字段白名单投影的 JSON，不包含原始日志或绝对路径。两份启动日志仅复制到凭据扫描输入中，不作为原始证据交付。
+
+本记录中的自动化打包、安装、DPAPI、内置 Git、重启和卸载证据均来自上述 Windows Server 2025 x64 Runner，不等同于 Windows 11 x64 实机验证。
 
 ## 交付文件
 
@@ -67,6 +69,6 @@ Electron 42.3.3 的 `safeStorage` 在 Windows 上确认使用 DPAPI 且加密可
 
 ## 结论与限制
 
-该版本已达到少量可信朋友在 Windows 11 x64 上内部试用的条件；安装器和便携包在 Git、Bun、Node.js 方面均为自包含交付。本结论基于上述自动化安装、启动、加密、扫描和回归证据，不表示已经完成朋友级手工 UI 试用。
+该版本已准备交给少量可信 Windows 11 x64 测试者开展首次真实机器测试；安装器和便携包在 Git、Bun、Node.js 方面均为自包含交付。实际 Windows 11 x64 机器上的安装、SmartScreen 表现和 UI 工作流仍待验证，当前不能表述为已完成 Windows 11 x64 验证。
 
-安装器未签名，会触发 SmartScreen；仅可信内部测试者在核对 SHA-256 后使用。验证范围不包括 Windows 10 或 ARM64，也不包含自动更新或公开发布。项目目前没有开发者代码签名账号。
+安装器未签名；是否出现 SmartScreen 取决于文件信誉、下载来源和系统策略，预计可能触发拦截，且受管策略下“仍要运行”（`Run anyway`）可能不可用。仅可信内部测试者在核对 SHA-256 后使用。验证范围不包括 Windows 10 或 ARM64，也不包含自动更新或公开发布。项目目前没有开发者代码签名账号。
