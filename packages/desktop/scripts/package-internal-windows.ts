@@ -46,12 +46,13 @@ export function createInternalWindowsArtifactPlan(packageDir: string, version: s
   }
 }
 
-export function createDesktopBuildCommands(packageDir: string) {
+export function createDesktopBuildCommands() {
   return [
-    ["bun", path.join(packageDir, "node_modules", "electron-vite", "bin", "electron-vite.js"), "build"],
+    ["bun", "run", "electron-vite", "build"],
     [
       "bun",
-      path.join(packageDir, "node_modules", "electron-builder", "cli.js"),
+      "run",
+      "electron-builder",
       "--win",
       "--x64",
       "--publish",
@@ -226,15 +227,11 @@ export async function packageInternalWindows() {
   const packageDir = path.resolve(import.meta.dirname, "..")
   const root = path.resolve(packageDir, "../..")
   const plan = createInternalWindowsArtifactPlan(packageDir, pkg.version)
-  const buildCommands = createDesktopBuildCommands(packageDir)
+  const buildCommands = createDesktopBuildCommands()
   const cachedModels = path.join(homedir(), ".cache", "opencode", "models.json")
   const guide = path.join(root, "docs", "product", "internal-beta-testing-windows.md")
 
-  await Promise.all([
-    requireFile(guide, "Windows tester guide is required"),
-    requireFile(buildCommands[0][1], "electron-vite CLI dependency is required"),
-    requireFile(buildCommands[1][1], "electron-builder CLI dependency is required"),
-  ])
+  await requireFile(guide, "Windows tester guide is required")
 
   process.env.OPENCODE_CHANNEL = "beta"
   process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false"

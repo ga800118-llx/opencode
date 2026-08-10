@@ -60,14 +60,13 @@ describe("internal Windows package", () => {
     expect(path.basename(plan.gitLicense)).toBe("Git-for-Windows-License.txt")
   })
 
-  test("runs desktop build tools through Bun using portable local CLI entrypoints", () => {
-    const packageDir = path.join(path.parse(process.cwd()).root, "repo with spaces", "packages", "desktop")
-
-    expect(createDesktopBuildCommands(packageDir)).toEqual([
-      ["bun", path.join(packageDir, "node_modules", "electron-vite", "bin", "electron-vite.js"), "build"],
+  test("runs installed desktop build tools through Bun without assuming a node_modules layout", () => {
+    expect(createDesktopBuildCommands()).toEqual([
+      ["bun", "run", "electron-vite", "build"],
       [
         "bun",
-        path.join(packageDir, "node_modules", "electron-builder", "cli.js"),
+        "run",
+        "electron-builder",
         "--win",
         "--x64",
         "--publish",
@@ -76,11 +75,8 @@ describe("internal Windows package", () => {
         "electron-builder.config.ts",
       ],
     ])
-    expect(
-      createDesktopBuildCommands(packageDir)
-        .flat()
-        .some((part) => part.replaceAll("\\", "/").includes("node_modules/.bin")),
-    ).toBeFalse()
+    expect(createDesktopBuildCommands().flat()).not.toContain("bunx")
+    expect(createDesktopBuildCommands().flat().some((part) => part.includes("node_modules"))).toBeFalse()
   })
 
   test("pins the official MinGit release", () => {
