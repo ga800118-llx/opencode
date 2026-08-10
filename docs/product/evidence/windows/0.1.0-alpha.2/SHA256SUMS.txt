@@ -1,0 +1,5 @@
+454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c  Git-for-Windows-License.txt
+02362d3f87e42e4b5062ddf5b6be52d0ad3692eff2d03557c62a021905cadcfe  Guai-Code-Beta-0.1.0-alpha.2-win-x64-portable.zip
+6bbfbfab28fc695f3fad8b1d8719d38bdad472bd9ecfc2b054f54fa18ca41d39  Guai-Code-Beta-0.1.0-alpha.2-win-x64.exe
+1ce2049908985f80080977fb9bf06fc51c738135592266e3e8df5c6bcdbf1103  Guai-Code-Beta-Windows-试用说明.md
+b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd  OpenCode-MIT-License.txt

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "success": true,
+  "platform": "win32",
+  "electronVersion": "42.3.3",
+  "encryptionAvailable": true,
+  "nativeProtection": "Windows DPAPI via Electron safeStorage",
+  "independentProcesses": true,
+  "sameUser": true,
+  "encryptProcessId": 1920,
+  "decryptProcessId": 5832,
+  "plaintextSha256": "4be9c4a14868af95301e05ee190261168818edabb4618ea492577536e2c6c2f8",
+  "ciphertextSha256": "1aed9b8485782d67b16574e88fdb271c6b617dd3cf2c3faadb4b464098559a14",
+  "ciphertextBytes": 115,
+  "plaintextPersisted": false,
+  "ciphertextDeleted": true,
+  "localStateExists": true,
+  "localStateValid": true,
+  "encryptedKeyPresent": true,
+  "actualPathsMatched": true
+}

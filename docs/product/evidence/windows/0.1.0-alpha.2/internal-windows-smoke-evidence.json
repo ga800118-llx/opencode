@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "success": true,
+  "version": "0.1.0-alpha.2",
+  "startedAtUtc": "2026-08-10T10:24:21.3509631Z",
+  "completedAtUtc": "2026-08-10T10:25:04.1436197Z",
+  "runner": {
+    "osVersion": "Microsoft Windows NT 10.0.26100.0",
+    "is64BitOperatingSystem": true,
+    "processArchitecture": "AMD64",
+    "powershellVersion": "7.6.4",
+    "powershellEdition": "Core",
+    "runnerOS": "Windows",
+    "imageOS": "win25-vs2026",
+    "imageVersion": "20260803.193.1",
+    "githubRunId": "31377997106",
+    "githubSha": "d2880064ce62162f4bc22ee22f6919887350a901"
+  },
+  "delivery": {
+    "files": [
+      {
+        "name": "Git-for-Windows-License.txt",
+        "sha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c",
+        "sizeBytes": 19125
+      },
+      {
+        "name": "Guai-Code-Beta-0.1.0-alpha.2-win-x64-portable.zip",
+        "sha256": "02362d3f87e42e4b5062ddf5b6be52d0ad3692eff2d03557c62a021905cadcfe",
+        "sizeBytes": 228373702
+      },
+      {
+        "name": "Guai-Code-Beta-0.1.0-alpha.2-win-x64.exe",
+        "sha256": "6bbfbfab28fc695f3fad8b1d8719d38bdad472bd9ecfc2b054f54fa18ca41d39",
+        "sizeBytes": 160414487
+      },
+      {
+        "name": "Guai-Code-Beta-Windows-试用说明.md",
+        "sha256": "1ce2049908985f80080977fb9bf06fc51c738135592266e3e8df5c6bcdbf1103",
+        "sizeBytes": 6707
+      },
+      {
+        "name": "OpenCode-MIT-License.txt",
+        "sha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd",
+        "sizeBytes": 1086
+      }
+    ],
+    "licenses": {
+      "openCode": {
+        "name": "OpenCode-MIT-License.txt",
+        "sha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd"
+      },
+      "minGit": {
+        "name": "Git-for-Windows-License.txt",
+        "sha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c"
+      }
+    }
+  },
+  "installer": {
+    "name": "Guai-Code-Beta-0.1.0-alpha.2-win-x64.exe",
+    "sha256": "6bbfbfab28fc695f3fad8b1d8719d38bdad472bd9ecfc2b054f54fa18ca41d39",
+    "sizeBytes": 160414487,
+    "authenticodeStatus": "NotSigned",
+    "fileVersion": "0.1.0-alpha.2",
+    "productVersion": "0.1.0.0",
+    "productName": "Guai Code Beta",
+    "expectedFileVersion": "0.1.0-alpha.2",
+    "expectedProductVersionForms": [
+      "0.1.0",
+      "0.1.0.0"
+    ],
+    "pe": {
+      "signature": "0x00004550",
+      "peHeaderOffset": 120,
+      "machine": "0x8664",
+      "architecture": "x64"
+    },
+    "licenses": {
+      "openCode": {
+        "relativePath": "resources/licenses/OpenCode-MIT.txt",
+        "sha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd",
+        "deliveryName": "OpenCode-MIT-License.txt",
+        "deliverySha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd"
+      },
+      "minGit": {
+        "relativePath": "resources/mingit/LICENSE.txt",
+        "sha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c",
+        "deliveryName": "Git-for-Windows-License.txt",
+        "deliverySha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c"
+      }
+    },
+    "silentInstallRequested": true,
+    "customInstallDirectoryRequested": true,
+    "installExitCode": 0
+  },
+  "portableZip": {
+    "name": "Guai-Code-Beta-0.1.0-alpha.2-win-x64-portable.zip",
+    "sha256": "02362d3f87e42e4b5062ddf5b6be52d0ad3692eff2d03557c62a021905cadcfe",
+    "sizeBytes": 228373702,
+    "requiredEntries": [
+      "Guai Code Beta.exe",
+      "resources/mingit/cmd/git.exe",
+      "resources/mingit/LICENSE.txt",
+      "resources/licenses/OpenCode-MIT.txt"
+    ],
+    "executable": {
+      "fileVersion": "0.1.0-alpha.2",
+      "productVersion": "0.1.0.0",
+      "productName": "Guai Code Beta",
+      "expectedFileVersion": "0.1.0-alpha.2",
+      "expectedProductVersionForms": [
+        "0.1.0",
+        "0.1.0.0"
+      ]
+    },
+    "pe": {
+      "signature": "0x00004550",
+      "peHeaderOffset": 120,
+      "machine": "0x8664",
+      "architecture": "x64"
+    },
+    "licenses": {
+      "openCode": {
+        "relativePath": "resources/licenses/OpenCode-MIT.txt",
+        "sha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd",
+        "deliveryName": "OpenCode-MIT-License.txt",
+        "deliverySha256": "b5c625d157735f04e1b2b7ceccee849130b554bdb23cd58db55a38a257efbbdd"
+      },
+      "minGit": {
+        "relativePath": "resources/mingit/LICENSE.txt",
+        "sha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c",
+        "deliveryName": "Git-for-Windows-License.txt",
+        "deliverySha256": "454649ddc02b5cc098513cea28db6592b45ac0a906386287c4d48cf8dbde651c"
+      }
+    },
+    "gitVersion": "git version 2.55.0.windows.3"
+  },
+  "gitVersion": "git version 2.55.0.windows.3",
+  "launches": [
+    {
+      "name": "first-launch",
+      "pid": 4560,
+      "startedAtUtc": "2026-08-10T10:24:48.1586362Z",
+      "readyAtUtc": "2026-08-10T10:24:51.8907626Z",
+      "readyMilliseconds": 3716,
+      "processAliveAtReady": true,
+      "bundledGitEnabled": true,
+      "serverReady": true,
+      "readinessLogCopiedForScan": true,
+      "stop": {
+        "method": "Stop-Process",
+        "exitCode": -1,
+        "elapsedMilliseconds": 2622
+      }
+    },
+    {
+      "name": "restart",
+      "pid": 7884,
+      "startedAtUtc": "2026-08-10T10:24:55.6535824Z",
+      "readyAtUtc": "2026-08-10T10:24:58.7991778Z",
+      "readyMilliseconds": 3144,
+      "processAliveAtReady": true,
+      "bundledGitEnabled": true,
+      "serverReady": true,
+      "readinessLogCopiedForScan": true,
+      "stop": {
+        "method": "Stop-Process",
+        "exitCode": -1,
+        "elapsedMilliseconds": 2799
+      }
+    }
+  ],
+  "modelState": {
+    "exists": true,
+    "statePresent": false,
+    "profilesPresent": false,
+    "profileCount": 0
+  },
+  "uninstall": {
+    "attempted": true,
+    "reasonCode": null,
+    "executable": "Uninstall Guai Code Beta.exe",
+    "silent": true,
+    "exitCode": 0,
+    "elapsedMilliseconds": 1604,
+    "installDirectoryRemoved": true,
+    "failureCode": null,
+    "errorName": null
+  },
+  "diagnostics": {
+    "failureCode": null,
+    "errorName": null,
+    "cleanupFailureCodes": [],
+    "copiedLogCount": 2
+  }
+}
