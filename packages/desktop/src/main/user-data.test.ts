@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { resolveDesktopUserDataPath } from "./user-data"
 
 describe("resolveDesktopUserDataPath", () => {
   test("uses the product namespace by default", () => {
     expect(
       resolveDesktopUserDataPath({ appDataPath: "/Users/test/Library/Application Support", dataNamespace: "dev.agent" }),
-    ).toBe("/Users/test/Library/Application Support/dev.agent")
+    ).toBe(join("/Users/test/Library/Application Support", "dev.agent"))
   })
 
   test("respects Electron's user-data-dir override", () => {
@@ -27,6 +27,6 @@ describe("resolveDesktopUserDataPath", () => {
         commandLineOverride: "/also-ignored",
         onboardingRoot: "/tmp/onboarding",
       }),
-    ).toBe("/tmp/onboarding/desktop")
+    ).toBe(join("/tmp/onboarding", "desktop"))
   })
 })

@@ -7,14 +7,14 @@ describe("internal Mac package", () => {
   test("plans versioned Apple Silicon artifacts", () => {
     const plan = createInternalMacArtifactPlan("/repo/packages/desktop", "0.1.0-alpha.1", "arm64")
 
-    expect(plan.app).toBe("/repo/packages/desktop/dist/mac-arm64/Guai Code Beta.app")
+    expect(plan.app).toBe(path.join("/repo/packages/desktop", "dist", "mac-arm64", "Guai Code Beta.app"))
     expect(plan.builderDmg).toBe(
-      "/repo/packages/desktop/dist/guai-code-desktop-beta-0.1.0-alpha.1-mac-arm64.dmg",
+      path.join("/repo/packages/desktop", "dist", "guai-code-desktop-beta-0.1.0-alpha.1-mac-arm64.dmg"),
     )
     expect(plan.builderZip).toBe(
-      "/repo/packages/desktop/dist/guai-code-desktop-beta-0.1.0-alpha.1-mac-arm64.zip",
+      path.join("/repo/packages/desktop", "dist", "guai-code-desktop-beta-0.1.0-alpha.1-mac-arm64.zip"),
     )
-    expect(plan.directory).toBe("/repo/packages/desktop/dist/internal-beta/0.1.0-alpha.1")
+    expect(plan.directory).toBe(path.join("/repo/packages/desktop", "dist", "internal-beta", "0.1.0-alpha.1"))
     expect(path.basename(plan.dmg)).toBe("Guai-Code-Beta-0.1.0-alpha.1-mac-arm64.dmg")
     expect(path.basename(plan.zip)).toBe("Guai-Code-Beta-0.1.0-alpha.1-mac-arm64.zip")
   })
