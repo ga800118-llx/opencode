@@ -8,10 +8,10 @@ import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Global } from "@opencode-ai/core/global"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
-import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 
 const base = "https://skills.example.test/catalog/"
+const sourceDigest = "f145b299db43ea48dd1f04fc25254d1df422a858"
 
 async function pull(skills: unknown[], files: Record<string, string> = {}, cache?: Awaited<ReturnType<typeof tmpdir>>) {
   const tmp = cache ?? (await tmpdir())
@@ -49,10 +49,45 @@ describe("SkillDiscovery.pull", () => {
     })
     try {
       expect(result.directories.map(String)).toEqual([
-        path.join(result.tmp.path, "skills", Hash.fast(base), "deploy"),
+        path.join(result.tmp.path, "skills", sourceDigest, "deploy"),
       ])
     } finally {
       await result.tmp[Symbol.asyncDispose]()
+    }
+  })
+
+  test("runs the production cache key in a Node-target bundle", async () => {
+    const tmp = await tmpdir()
+    try {
+      const entrypoint = path.join(tmp.path, "entry.ts")
+      await Bun.write(
+        entrypoint,
+        [
+          `import { sourceCacheKey } from ${JSON.stringify(path.join(import.meta.dir, "../src/skill/discovery.ts"))}`,
+          `process.stdout.write(sourceCacheKey(${JSON.stringify(base)}))`,
+        ].join("\n"),
+      )
+      const build = await Bun.build({
+        entrypoints: [entrypoint],
+        outdir: path.join(tmp.path, "dist"),
+        target: "node",
+        format: "esm",
+      })
+      expect(build.success, build.logs.map(String).join("\n")).toBeTrue()
+      const output = build.outputs.find((item) => item.kind === "entry-point")
+      if (!output) throw new Error("Node cache-key bundle did not produce an entry point")
+      const node = Bun.which("node")
+      if (!node) throw new Error("System Node executable was not found")
+      const child = Bun.spawn([node, output.path], { stdout: "pipe", stderr: "pipe" })
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ])
+
+      expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: sourceDigest, stderr: "" })
+    } finally {
+      await tmp[Symbol.asyncDispose]()
     }
   })
 

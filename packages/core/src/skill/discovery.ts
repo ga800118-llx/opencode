@@ -13,6 +13,10 @@ import { Hash } from "../util/hash"
 const skillConcurrency = 4
 const fileConcurrency = 8
 
+export function sourceCacheKey(source: string) {
+  return Hash.fast(source)
+}
+
 function isSafeSegment(value: string) {
   return (
     value.length > 0 &&
@@ -111,7 +115,7 @@ const layer = Layer.effect(
         )
         if (!data) return []
 
-        const sourceRoot = path.resolve(global.cache, "skills", Hash.fast(base))
+        const sourceRoot = path.resolve(global.cache, "skills", sourceCacheKey(base))
         return yield* Effect.forEach(
           data.skills.flatMap((skill) => {
             if (!isSafeSegment(skill.name)) {
