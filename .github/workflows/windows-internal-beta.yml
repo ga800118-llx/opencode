@@ -1,0 +1,358 @@
+name: Windows internal beta
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MODELS_DEV_API_JSON: ${{ github.workspace }}\packages\core\test\plugin\fixtures\models-dev.json
+
+jobs:
+  build-and-verify:
+    name: Build and verify Windows x64 beta
+    runs-on: windows-2025
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Initialize smoke evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
+          Remove-Item -LiteralPath $evidenceDirectory -Recurse -Force -ErrorAction SilentlyContinue
+          [void](New-Item -ItemType Directory -Path $evidenceDirectory -Force)
+          [ordered]@{
+            schemaVersion = 1
+            sourceCommit = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            runnerImage = $env:ImageOS
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidenceDirectory "workflow-context.json") -Encoding utf8
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+
+      - name: Parse verifier with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tokens = $null
+          $parseErrors = $null
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\scripts\verify-internal-windows.ps1"
+          [void][System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
+          $parseErrorCount = @($parseErrors).Count
+          Write-Host "Windows PowerShell 5.1 parse error count: $parseErrorCount"
+          if ($parseErrorCount -ne 0) {
+            throw ($parseErrors | Format-List | Out-String)
+          }
+
+      - name: Parse verifier with PowerShell 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tokens = $null
+          $parseErrors = $null
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\scripts\verify-internal-windows.ps1"
+          [void][System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
+          $parseErrorCount = @($parseErrors).Count
+          Write-Host "PowerShell 7 parse error count: $parseErrorCount"
+          if ($parseErrorCount -ne 0) {
+            throw ($parseErrors | Format-List | Out-String)
+          }
+
+      - name: Test Desktop
+        working-directory: packages/desktop
+        shell: pwsh
+        run: bun test
+
+      - name: Typecheck Desktop
+        working-directory: packages/desktop
+        shell: pwsh
+        run: bun typecheck
+
+      - name: Test App units
+        working-directory: packages/app
+        shell: pwsh
+        run: bun run test:unit
+
+      - name: Typecheck App
+        working-directory: packages/app
+        shell: pwsh
+        run: bun typecheck
+
+      - name: Package Windows internal beta
+        id: package
+        working-directory: packages/desktop
+        shell: pwsh
+        run: bun run package:win:internal
+
+      - name: Verify native safeStorage across processes
+        id: safe-storage
+        working-directory: packages/desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "guai-code-safe-storage-smoke"
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
+          $safeStorageEvidence = Join-Path $evidenceDirectory "safe-storage-dpapi.json"
+          $userDataDirectory = Join-Path $smokeRoot "user-data"
+          $ciphertextPath = Join-Path $smokeRoot "ciphertext.base64"
+          $encryptResultPath = Join-Path $smokeRoot "encrypt-result.json"
+          $decryptResultPath = Join-Path $smokeRoot "decrypt-result.json"
+
+          Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+          [void](New-Item -ItemType Directory -Path $smokeRoot -Force)
+          [void](New-Item -ItemType Directory -Path $userDataDirectory -Force)
+
+          @'
+          {"name":"guai-code-safe-storage-smoke","version":"1.0.0","private":true,"main":"main.cjs"}
+          '@ | Set-Content -LiteralPath (Join-Path $smokeRoot "package.json") -Encoding ascii
+
+          @'
+          const { app, safeStorage } = require("electron")
+          const { createHash, randomBytes } = require("node:crypto")
+          const { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } = require("node:fs")
+
+          const mode = process.env.GUAI_CODE_SAFE_STORAGE_MODE
+          const ciphertextPath = process.env.GUAI_CODE_SAFE_STORAGE_CIPHERTEXT
+          const resultPath = process.env.GUAI_CODE_SAFE_STORAGE_RESULT
+          const userDataPath = process.env.GUAI_CODE_SAFE_STORAGE_USER_DATA
+
+          const sha256 = (value) => createHash("sha256").update(value).digest("hex")
+          const userIdentity = `${process.env.USERDOMAIN || ""}\\${process.env.USERNAME || ""}`
+          const writeResult = (result) =>
+            writeFileSync(resultPath, `${JSON.stringify(result)}\n`, { encoding: "utf8", flag: "wx" })
+
+          mkdirSync(userDataPath, { recursive: true })
+          app.setPath("userData", userDataPath)
+
+          app.whenReady().then(() => {
+            if (process.platform !== "win32") throw new Error("native-windows-required")
+            if (!safeStorage.isEncryptionAvailable()) throw new Error("encryption-unavailable")
+
+            if (mode === "encrypt") {
+              let canary = `safe-storage-canary:${randomBytes(32).toString("hex")}`
+              const encrypted = safeStorage.encryptString(canary)
+              const encoded = encrypted.toString("base64")
+              if (encoded.includes(canary)) throw new Error("plaintext-in-encoded-ciphertext")
+              writeFileSync(ciphertextPath, encoded, { encoding: "ascii", flag: "wx" })
+              if (readFileSync(ciphertextPath, "ascii").includes(canary)) {
+                throw new Error("plaintext-persisted")
+              }
+              const plaintextSha256 = sha256(canary)
+              canary = ""
+              writeResult({
+                schemaVersion: 1,
+                success: true,
+                mode,
+                pid: process.pid,
+                platform: process.platform,
+                electronVersion: process.versions.electron,
+                encryptionAvailable: true,
+                userIdentitySha256: sha256(userIdentity),
+                plaintextSha256,
+                ciphertextSha256: sha256(encrypted),
+                ciphertextBytes: encrypted.length,
+                plaintextPersisted: false,
+              })
+              app.exit(0)
+              return
+            }
+
+            if (mode !== "decrypt") throw new Error("invalid-mode")
+            const encoded = readFileSync(ciphertextPath, "ascii")
+            if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error("invalid-base64")
+            const encrypted = Buffer.from(encoded, "base64")
+            if (encrypted.toString("base64") !== encoded) throw new Error("non-canonical-base64")
+            let canary = safeStorage.decryptString(encrypted)
+            const plaintextSha256 = sha256(canary)
+            canary = ""
+            unlinkSync(ciphertextPath)
+            writeResult({
+              schemaVersion: 1,
+              success: true,
+              mode,
+              pid: process.pid,
+              platform: process.platform,
+              electronVersion: process.versions.electron,
+              encryptionAvailable: true,
+              userIdentitySha256: sha256(userIdentity),
+              plaintextSha256,
+              ciphertextSha256: sha256(encrypted),
+              ciphertextBytes: encrypted.length,
+              ciphertextDeleted: !existsSync(ciphertextPath),
+            })
+            app.exit(0)
+          }).catch(() => {
+            try {
+              writeResult({ schemaVersion: 1, success: false, mode, error: "safe-storage-smoke-failed" })
+            } catch {}
+            console.error("safeStorage smoke failed")
+            app.exit(1)
+          })
+          '@ | Set-Content -LiteralPath (Join-Path $smokeRoot "main.cjs") -Encoding utf8
+
+          try {
+            Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+            $electronPath = (& bun -e 'process.stdout.write(require("electron"))').Trim()
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $electronPath -PathType Leaf)) {
+              throw "Repository Electron executable was not found."
+            }
+
+            $env:GUAI_CODE_SAFE_STORAGE_CIPHERTEXT = $ciphertextPath
+            $env:GUAI_CODE_SAFE_STORAGE_USER_DATA = $userDataDirectory
+            $env:GUAI_CODE_SAFE_STORAGE_MODE = "encrypt"
+            $env:GUAI_CODE_SAFE_STORAGE_RESULT = $encryptResultPath
+            & $electronPath $smokeRoot "--user-data-dir=$userDataDirectory" --disable-gpu
+            if ($LASTEXITCODE -ne 0) {
+              throw "safeStorage encryption process failed with exit code $LASTEXITCODE."
+            }
+
+            $env:GUAI_CODE_SAFE_STORAGE_MODE = "decrypt"
+            $env:GUAI_CODE_SAFE_STORAGE_RESULT = $decryptResultPath
+            & $electronPath $smokeRoot "--user-data-dir=$userDataDirectory" --disable-gpu
+            if ($LASTEXITCODE -ne 0) {
+              throw "safeStorage decryption process failed with exit code $LASTEXITCODE."
+            }
+
+            $encryptResult = Get-Content -LiteralPath $encryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
+            $decryptResult = Get-Content -LiteralPath $decryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
+            if (-not $encryptResult.success -or -not $decryptResult.success) {
+              throw "safeStorage process did not report success."
+            }
+            if ($encryptResult.pid -eq $decryptResult.pid) {
+              throw "safeStorage smoke did not use two independent Electron processes."
+            }
+            if ($encryptResult.userIdentitySha256 -cne $decryptResult.userIdentitySha256) {
+              throw "safeStorage smoke processes did not run as the same Windows user."
+            }
+            if ($encryptResult.plaintextSha256 -cne $decryptResult.plaintextSha256) {
+              throw "safeStorage decrypted plaintext hash does not match the generated canary hash."
+            }
+            if ($encryptResult.ciphertextSha256 -cne $decryptResult.ciphertextSha256) {
+              throw "safeStorage ciphertext hash changed between processes."
+            }
+            if (-not $decryptResult.ciphertextDeleted -or (Test-Path -LiteralPath $ciphertextPath)) {
+              throw "safeStorage ciphertext was not deleted by the decryption process."
+            }
+
+            [ordered]@{
+              schemaVersion = 1
+              success = $true
+              platform = $encryptResult.platform
+              electronVersion = $encryptResult.electronVersion
+              encryptionAvailable = $true
+              nativeProtection = "Windows DPAPI via Electron safeStorage"
+              independentProcesses = $true
+              sameUser = $true
+              encryptProcessId = $encryptResult.pid
+              decryptProcessId = $decryptResult.pid
+              plaintextSha256 = $encryptResult.plaintextSha256
+              ciphertextSha256 = $encryptResult.ciphertextSha256
+              ciphertextBytes = $encryptResult.ciphertextBytes
+              plaintextPersisted = $false
+              ciphertextDeleted = $true
+            } | ConvertTo-Json | Set-Content -LiteralPath $safeStorageEvidence -Encoding utf8
+          }
+          finally {
+            Remove-Item Env:GUAI_CODE_SAFE_STORAGE_MODE -ErrorAction SilentlyContinue
+            Remove-Item Env:GUAI_CODE_SAFE_STORAGE_CIPHERTEXT -ErrorAction SilentlyContinue
+            Remove-Item Env:GUAI_CODE_SAFE_STORAGE_RESULT -ErrorAction SilentlyContinue
+            Remove-Item Env:GUAI_CODE_SAFE_STORAGE_USER_DATA -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify installed Windows package
+        id: verifier
+        if: always() && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & (Join-Path $env:GITHUB_WORKSPACE "packages\desktop\scripts\verify-internal-windows.ps1") `
+            -DeliveryDirectory (Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\0.1.0-alpha.2\windows-x64") `
+            -Version "0.1.0-alpha.2" `
+            -EvidenceDirectory (Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence")
+
+      - name: Scan package and smoke evidence for credential canaries
+        if: always() && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
+          $targets = [ordered]@{
+            "win-unpacked" = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\win-unpacked"
+            "delivery" = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\0.1.0-alpha.2\windows-x64"
+            "smoke-evidence" = $evidenceDirectory
+          }
+          $patterns = @(
+            "phase2-api-key-canary",
+            "phase2-header-canary",
+            "sk-test-secret",
+            "Bearer secret-header"
+          )
+
+          if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
+            throw "ripgrep is required for credential canary scanning."
+          }
+          foreach ($target in $targets.GetEnumerator()) {
+            if (-not (Test-Path -LiteralPath $target.Value -PathType Container)) {
+              throw "Credential scan target is missing: $($target.Value)"
+            }
+          }
+          $copiedMainLogs = @(
+            Get-ChildItem -LiteralPath $evidenceDirectory -File -Recurse |
+              Where-Object { $_.Name -like "*main.log" }
+          )
+          if ($copiedMainLogs.Count -eq 0) {
+            throw "Smoke evidence does not contain a copied main.log."
+          }
+
+          foreach ($target in $targets.GetEnumerator()) {
+            $arguments = @("--text", "--hidden", "--no-ignore", "--files-with-matches", "--fixed-strings")
+            foreach ($pattern in $patterns) {
+              $arguments += @("-e", $pattern)
+            }
+            $matches = @(& rg @arguments -- $target.Value)
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              throw "Credential canary detected in $($target.Key): $($matches -join ', ')"
+            }
+            if ($exitCode -eq 1) {
+              Write-Host "Credential canary scan passed: $($target.Key)"
+              continue
+            }
+            throw "ripgrep failed while scanning $($target.Key) with exit code $exitCode."
+          }
+
+      - name: Upload Windows delivery
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: guai-code-windows-internal-beta-delivery
+          path: packages/desktop/dist/internal-beta/0.1.0-alpha.2/windows-x64
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: guai-code-windows-internal-beta-smoke-evidence
+          path: ${{ runner.temp }}/guai-code-windows-internal-beta-smoke-evidence
+          if-no-files-found: error
+          retention-days: 14
