@@ -799,7 +799,15 @@ jobs:
             Remove-Item Env:GUAI_CODE_SAFE_STORAGE_CIPHERTEXT -ErrorAction SilentlyContinue
             Remove-Item Env:GUAI_CODE_SAFE_STORAGE_RESULT -ErrorAction SilentlyContinue
             Remove-Item Env:GUAI_CODE_SAFE_STORAGE_USER_DATA -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            $smokeRootRemaining = $true
+            try {
+              Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction Stop
+              $smokeRootRemaining = Test-Path -LiteralPath $smokeRoot -ErrorAction Stop
+            }
+            catch {}
+            if ($smokeRootRemaining) {
+              throw "safeStorage smoke cleanup failed."
+            }
           }
 
       - name: Verify installed Windows package

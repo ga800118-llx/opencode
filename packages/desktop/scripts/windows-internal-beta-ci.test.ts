@@ -22,8 +22,11 @@ describe("Windows internal beta CI safety contracts", () => {
     )
 
     expect(exactDelivery).toContain("Get-ChildItem -LiteralPath $Directory -Force")
-    expect(exactDelivery).toContain("if ($directories.Count -ne 0)")
-    expect(exactDelivery).toContain("$directoryNames = @($directories | ForEach-Object { $_.Name })")
+    const unexpectedDirectories = section(exactDelivery, "if ($directories.Count -ne 0) {", "\n  }\n\n  $actualNames")
+    expect(unexpectedDirectories).toContain("$directoryNames = @($directories | ForEach-Object { $_.Name })")
+    expect(unexpectedDirectories).toContain(
+      "throw \"Delivery directory contains unexpected directories: $($directoryNames -join ', ')\"",
+    )
     expect(exactDelivery).not.toContain("$directories.Name")
     expect(exactDelivery).toContain("[System.StringComparer]::Ordinal")
     expect(exactDelivery).toContain("$actual.Count -eq $ExpectedNames.Count")
@@ -50,8 +53,10 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(smoke).toContain("encryptedKeyPresent")
     expect(smoke).toContain("os_crypt")
     expect(smoke).toContain("encrypted_key")
-    expect(smoke).toContain("Wait-DurableLocalState")
-    expect(smoke.indexOf("Wait-DurableLocalState")).toBeLessThan(
+    const durableLocalStateInvocation =
+      "$localStateStatus = Wait-DurableLocalState -Path $localStatePath -TimeoutSeconds 15"
+    expect(smoke).toContain(durableLocalStateInvocation)
+    expect(smoke.indexOf(durableLocalStateInvocation)).toBeLessThan(
       smoke.indexOf('$env:GUAI_CODE_SAFE_STORAGE_MODE = "decrypt"'),
     )
     expect(smoke).toContain("app.quit()")
@@ -76,6 +81,32 @@ describe("Windows internal beta CI safety contracts", () => {
     for (const result of smoke.matchAll(/writeResult\(\{([\s\S]*?)\}\)/g)) {
       expect(result[1]).not.toMatch(/expectedProfilePath|userDataPath|localStateContents|encryptedKey\s*[:,]/)
     }
+
+    const proof = section(smoke, '$failureStage = "verify-proof"', '$failureStage = "write-evidence"')
+    expect(proof).toContain("$encryptResult.pid -eq $decryptResult.pid")
+    expect(smoke).toContain("$encryptResult.pid -ne $encryptProcess.processId")
+    expect(smoke).toContain("$decryptResult.pid -ne $decryptProcess.processId")
+    expect(proof).toContain("$encryptResult.userIdentitySha256 -cne $decryptResult.userIdentitySha256")
+    expect(proof).toContain("$encryptResult.plaintextSha256 -cne $decryptResult.plaintextSha256")
+    expect(proof).toContain("$encryptResult.ciphertextSha256 -cne $decryptResult.ciphertextSha256")
+    expect(smoke).toContain('if (encrypted.includes(plaintextBuffer)) fail("PLAINTEXT_IN_ENCRYPTED_BYTES")')
+    expect(smoke).toContain('if (decodedPersisted.includes(plaintextBuffer)) fail("PLAINTEXT_IN_PERSISTED_CIPHERTEXT")')
+    expect(proof).toContain("$encryptResult.plaintextPersisted")
+    expect(smoke).toContain("unlinkSync(ciphertextPath)")
+    expect(smoke).toContain('if (existsSync(ciphertextPath)) fail("CIPHERTEXT_NOT_DELETED")')
+    expect(proof).toContain("-not $decryptResult.ciphertextDeleted")
+    expect(proof).toContain("(Test-Path -LiteralPath $ciphertextPath)")
+
+    const cleanupIndex = smoke.lastIndexOf("          finally {")
+    expect(cleanupIndex).toBeGreaterThan(smoke.lastIndexOf("success = $false"))
+    const cleanup = smoke.slice(cleanupIndex)
+    expect(cleanup).toContain("$smokeRootRemaining = $true")
+    expect(cleanup).toContain("Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction Stop")
+    expect(cleanup).toContain("$smokeRootRemaining = Test-Path -LiteralPath $smokeRoot -ErrorAction Stop")
+    expect(cleanup).toContain("if ($smokeRootRemaining)")
+    expect(cleanup).toContain('throw "safeStorage smoke cleanup failed."')
+    expect(cleanup).not.toContain("$safeStorageEvidence")
+    expect(cleanup).not.toContain("Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue")
   })
 
   test("scans credentials only after package and verifier success", async () => {
