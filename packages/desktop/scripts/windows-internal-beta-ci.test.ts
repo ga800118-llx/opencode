@@ -41,9 +41,13 @@ describe("Windows internal beta CI safety contracts", () => {
       "      - name: Verify installed Windows package",
     )
     const readyIndex = smoke.indexOf("app.whenReady()")
+    const userDataSetPath = 'app.setPath("userData", expectedProfilePath)'
+    const sessionDataSetPath = 'app.setPath("sessionData", expectedProfilePath)'
 
-    expect(smoke.indexOf('app.setPath("userData", expectedProfilePath)')).toBeLessThan(readyIndex)
-    expect(smoke.indexOf('app.setPath("sessionData", expectedProfilePath)')).toBeLessThan(readyIndex)
+    expect(smoke).toContain(userDataSetPath)
+    expect(smoke).toContain(sessionDataSetPath)
+    expect(smoke.indexOf(userDataSetPath)).toBeLessThan(readyIndex)
+    expect(smoke.indexOf(sessionDataSetPath)).toBeLessThan(readyIndex)
     expect(smoke).toContain('app.getPath("userData")')
     expect(smoke).toContain('app.getPath("sessionData")')
     expect(smoke).toContain("actualPathsMatched")
@@ -109,18 +113,77 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(cleanup).not.toContain("Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue")
   })
 
-  test("scans credentials only after package and verifier success", async () => {
+  test("uploads only allowlisted evidence after safeStorage, verifier, and credential scan success", async () => {
     const workflow = await Bun.file(workflowPath).text()
     const scan = section(
       workflow,
       "      - name: Scan package and smoke evidence for credential canaries",
+      "      - name: Prepare uploadable smoke evidence",
+    )
+    const prepare = section(
+      workflow,
+      "      - name: Prepare uploadable smoke evidence",
       "      - name: Prepare sanitized smoke evidence",
     )
+    const upload = section(
+      workflow,
+      "      - name: Upload validated smoke evidence",
+      "      - name: Upload sanitized smoke evidence",
+    )
 
-    expect(scan).toContain("if: always() && steps.package.outcome == 'success' && steps.verifier.outcome == 'success'")
+    expect(scan).toContain(
+      "if: always() && steps.package.outcome == 'success' && steps.safe_storage.outcome == 'success' && steps.verifier.outcome == 'success'",
+    )
     expect(scan).toContain('Where-Object { $_.Name -like "*main.log" }')
     expect(scan).toContain('throw "Smoke evidence does not contain a copied main.log."')
-    expect(workflow).toContain("if: always() && steps.credential_scan.outcome == 'success'")
-    expect(workflow).toContain("if: always() && steps.credential_scan.outcome != 'success'")
+    expect(prepare).toContain("id: uploadable_evidence")
+    expect(prepare).toContain('"workflow-context.json"')
+    expect(prepare).toContain('"safe-storage-dpapi.json"')
+    expect(prepare).toContain('"internal-windows-smoke-evidence.json"')
+    expect(prepare).toContain("$uploadedNames.Count -ne $allowedEvidenceFiles.Count")
+    expect(prepare).toContain("Assert-UploadableEvidence")
+    expect(prepare).toContain("$document | ConvertTo-Json -Depth 20 | Set-Content")
+    expect(prepare).not.toContain("main.log")
+    expect(prepare).not.toContain("Copy-Item")
+    expect(upload).toContain("steps.safe_storage.outcome == 'success'")
+    expect(upload).toContain("steps.credential_scan.outcome == 'success'")
+    expect(upload).toContain("steps.uploadable_evidence.outcome == 'success'")
+    expect(upload).toContain("${{ runner.temp }}/guai-code-windows-internal-beta-uploadable-evidence")
+    expect(upload).not.toContain("${{ runner.temp }}/guai-code-windows-internal-beta-smoke-evidence")
+    expect(workflow).toContain("if: always() && steps.uploadable_evidence.outcome != 'success'")
+  })
+
+  test("serializes allowlisted verifier evidence without paths or exception details", async () => {
+    const verifier = await Bun.file(verifierPath).text()
+    const uploadable = section(verifier, "function Get-UploadableEvidence", "function New-EvidenceTarget")
+
+    expect(uploadable).toContain("schemaVersion = 2")
+    expect(uploadable).toContain("delivery = [ordered]@{")
+    expect(uploadable).toContain("$installer = if ($null -eq $Evidence.installer)")
+    expect(uploadable).toContain("installer = $installer")
+    expect(uploadable).toContain("$portableZip = if ($null -eq $Evidence.portableZip)")
+    expect(uploadable).toContain("portableZip = $portableZip")
+    expect(uploadable).toContain("launches = @($launches)")
+    expect(uploadable).toContain("processAliveAtReady = [bool]$launch.processAliveAtReady")
+    expect(uploadable).toContain("bundledGitEnabled = [bool]$launch.bundledGitEnabled")
+    expect(uploadable).toContain("serverReady = [bool]$launch.serverReady")
+    expect(uploadable).toContain("readinessLogCopiedForScan")
+    expect(uploadable).toContain("stop = $stop")
+    expect(uploadable).toContain("profileCount = $Evidence.modelState.profileCount")
+    expect(uploadable).toContain("installDirectoryRemoved = [bool]$Evidence.uninstall.installDirectoryRemoved")
+    expect(uploadable).toContain("copiedLogCount = @($Evidence.diagnostics.copiedLogs).Count")
+    expect(verifier).toContain("$evidence.installer.installExitCode = $installerProcess.ExitCode")
+    expect(verifier).toContain('-LaunchName "first-launch"')
+    expect(verifier).toContain('-LaunchName "restart"')
+    expect(verifier).toContain("$launchEvidence[-1].stop = Stop-ApplicationProcess")
+    expect(verifier).toContain("$evidence.uninstall = Invoke-SilentUninstall")
+    expect(uploadable).not.toMatch(
+      /\b(inputDirectory|directory|installDirectory|installArguments|logPath|evidenceLog|path|temporaryRoot|evidenceDirectory|copiedLogs|error|message|stack)\s*=/,
+    )
+    expect(verifier).toContain("$uploadableEvidence = Get-UploadableEvidence -Evidence $evidence")
+    expect(verifier).toContain("$uploadableEvidence | ConvertTo-Json -Depth 12")
+    expect(verifier).not.toContain("$evidence | ConvertTo-Json -Depth 12")
+    expect(verifier).not.toContain(".Exception.ToString()")
+    expect(verifier).not.toContain(".Exception.Message")
   })
 })

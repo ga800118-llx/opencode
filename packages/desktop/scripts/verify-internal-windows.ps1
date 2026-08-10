@@ -294,9 +294,7 @@ function Wait-ApplicationReady {
     processAliveAtReady = $false
     bundledGitEnabled = $false
     serverReady = $false
-    logPath = $null
-    evidenceLog = $null
-    logSha256 = $null
+    readinessLogCopiedForScan = $false
     stop = $null
   }
   $LaunchEvidenceReference.Value = @($LaunchEvidenceReference.Value) + @($record)
@@ -316,7 +314,6 @@ function Wait-ApplicationReady {
       )
       if ($newLogs.Count -gt 0) {
         $candidate = $newLogs[-1]
-        $record.logPath = $candidate.FullName
         try {
           $contents = Get-Content -LiteralPath $candidate.FullName -Raw -Encoding UTF8
           $record.bundledGitEnabled = $contents.Contains("bundled git enabled")
@@ -331,8 +328,7 @@ function Wait-ApplicationReady {
             $record.readyAtUtc = [DateTime]::UtcNow.ToString("o")
             $record.readyMilliseconds = [Math]::Round($stopwatch.Elapsed.TotalMilliseconds)
             $record.processAliveAtReady = $true
-            $record.evidenceLog = $evidenceLog
-            $record.logSha256 = (Get-FileHash -LiteralPath $evidenceLogPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $record.readinessLogCopiedForScan = $true
             return $process
           }
         }
@@ -412,9 +408,7 @@ function Get-ModelProfileState {
   $path = Join-Path -Path $UserDataDirectory -ChildPath "agent.model-profiles"
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
     return [ordered]@{
-      path = $path
       exists = $false
-      topLevelKeys = @()
       statePresent = $false
       profilesPresent = $false
       profileCount = 0
@@ -424,7 +418,6 @@ function Get-ModelProfileState {
   $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
   Assert-Condition (-not [string]::IsNullOrWhiteSpace($raw)) "Model profile store is empty but present: $path"
   $store = $raw | ConvertFrom-Json
-  $topLevelKeys = @($store.PSObject.Properties | ForEach-Object { $_.Name })
   $stateProperty = $store.PSObject.Properties["state"]
   $statePresent = $null -ne $stateProperty
   $profilesProperty = if ($statePresent -and $null -ne $stateProperty.Value) {
@@ -443,10 +436,7 @@ function Get-ModelProfileState {
   Assert-Condition ($profileCount -eq 0) "Isolated user data unexpectedly contains $profileCount model profile(s)."
 
   return [ordered]@{
-    path = $path
     exists = $true
-    sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-    topLevelKeys = @($topLevelKeys)
     statePresent = $statePresent
     profilesPresent = $profilesPresent
     profileCount = $profileCount
@@ -477,11 +467,14 @@ function Invoke-SilentUninstall {
   Assert-Condition (-not (Test-Path -LiteralPath $InstallDirectory)) "Install directory still exists after silent uninstall: $InstallDirectory"
   return [ordered]@{
     attempted = $true
+    reasonCode = $null
     executable = $uninstaller.Name
     arguments = @("/S")
     exitCode = $process.ExitCode
     elapsedMilliseconds = [Math]::Round($stopwatch.Elapsed.TotalMilliseconds)
     installDirectoryRemoved = $true
+    failureCode = $null
+    errorName = $null
   }
 }
 
@@ -505,6 +498,129 @@ function Copy-DiagnosticLogs {
     $copied += $name
   }
   return @($copied)
+}
+
+function Get-UploadableEvidence {
+  param([System.Collections.IDictionary]$Evidence)
+
+  $launches = @($Evidence.launches | ForEach-Object {
+    $launch = $_
+    $stop = if ($null -eq $launch.stop) {
+      $null
+    }
+    else {
+      [ordered]@{
+        method = $launch.stop.method
+        exitCode = $launch.stop.exitCode
+        elapsedMilliseconds = $launch.stop.elapsedMilliseconds
+      }
+    }
+    [ordered]@{
+      name = $launch.name
+      pid = $launch.pid
+      startedAtUtc = $launch.startedAtUtc
+      readyAtUtc = $launch.readyAtUtc
+      readyMilliseconds = $launch.readyMilliseconds
+      processAliveAtReady = [bool]$launch.processAliveAtReady
+      bundledGitEnabled = [bool]$launch.bundledGitEnabled
+      serverReady = [bool]$launch.serverReady
+      readinessLogCopiedForScan = [bool]$launch.readinessLogCopiedForScan
+      stop = $stop
+    }
+  })
+  $installer = if ($null -eq $Evidence.installer) {
+    $null
+  }
+  else {
+    [ordered]@{
+      name = $Evidence.installer.name
+      sha256 = $Evidence.installer.sha256
+      sizeBytes = $Evidence.installer.sizeBytes
+      authenticodeStatus = $Evidence.installer.authenticodeStatus
+      fileVersion = $Evidence.installer.fileVersion
+      productVersion = $Evidence.installer.productVersion
+      productName = $Evidence.installer.productName
+      expectedFileVersion = $Evidence.installer.expectedFileVersion
+      expectedProductVersionForms = @($Evidence.installer.expectedProductVersionForms)
+      pe = $Evidence.installer.pe
+      licenses = $Evidence.installer.licenses
+      silentInstallRequested = $true
+      customInstallDirectoryRequested = $true
+      installExitCode = $Evidence.installer.installExitCode
+    }
+  }
+  $portableZip = if ($null -eq $Evidence.portableZip) {
+    $null
+  }
+  else {
+    [ordered]@{
+      name = $Evidence.portableZip.name
+      sha256 = $Evidence.portableZip.sha256
+      sizeBytes = $Evidence.portableZip.sizeBytes
+      requiredEntries = @($Evidence.portableZip.requiredEntries)
+      executable = $Evidence.portableZip.executable
+      pe = $Evidence.portableZip.pe
+      licenses = $Evidence.portableZip.licenses
+      gitVersion = $Evidence.portableZip.gitVersion
+    }
+  }
+  $modelState = if ($null -eq $Evidence.modelState) {
+    $null
+  }
+  else {
+    [ordered]@{
+      exists = [bool]$Evidence.modelState.exists
+      statePresent = [bool]$Evidence.modelState.statePresent
+      profilesPresent = [bool]$Evidence.modelState.profilesPresent
+      profileCount = $Evidence.modelState.profileCount
+    }
+  }
+
+  return [ordered]@{
+    schemaVersion = 2
+    success = [bool]$Evidence.success
+    version = $Evidence.version
+    startedAtUtc = $Evidence.startedAtUtc
+    completedAtUtc = $Evidence.completedAtUtc
+    runner = [ordered]@{
+      osVersion = $Evidence.runner.osVersion
+      is64BitOperatingSystem = [bool]$Evidence.runner.is64BitOperatingSystem
+      processArchitecture = $Evidence.runner.processArchitecture
+      powershellVersion = $Evidence.runner.powershellVersion
+      powershellEdition = $Evidence.runner.powershellEdition
+      runnerOS = $Evidence.runner.runnerOS
+      imageOS = $Evidence.runner.imageOS
+      imageVersion = $Evidence.runner.imageVersion
+      githubRunId = $Evidence.runner.githubRunId
+      githubSha = $Evidence.runner.githubSha
+    }
+    delivery = [ordered]@{
+      files = @($Evidence.delivery.files)
+      licenses = $Evidence.delivery.licenses
+    }
+    installer = $installer
+    portableZip = $portableZip
+    gitVersion = $Evidence.gitVersion
+    launches = @($launches)
+    modelState = $modelState
+    uninstall = [ordered]@{
+      attempted = [bool]$Evidence.uninstall.attempted
+      reasonCode = $Evidence.uninstall.reasonCode
+      executable = $Evidence.uninstall.executable
+      silent = @($Evidence.uninstall.arguments) -ccontains "/S"
+      exitCode = $Evidence.uninstall.exitCode
+      elapsedMilliseconds = $Evidence.uninstall.elapsedMilliseconds
+      installDirectoryRemoved = [bool]$Evidence.uninstall.installDirectoryRemoved
+      failureCode = $Evidence.uninstall.failureCode
+      errorName = $Evidence.uninstall.errorName
+    }
+    diagnostics = [ordered]@{
+      failureCode = $Evidence.diagnostics.failureCode
+      errorName = $Evidence.diagnostics.errorName
+      cleanupFailureCodes = @($Evidence.diagnostics.cleanupFailureCodes)
+      copiedLogCount = @($Evidence.diagnostics.copiedLogs).Count
+    }
+  }
 }
 
 function New-EvidenceTarget {
@@ -553,7 +669,7 @@ if ($evidenceDirectoryIsExplicit) {
     $evidenceFile = $evidenceTarget.file
   }
   catch {
-    throw "EvidenceDirectory is invalid or cannot be created, so failure JSON cannot be written: $($_.Exception.Message)"
+    throw "EvidenceDirectory is invalid or cannot be created."
   }
 }
 $originalEnvironment = [ordered]@{
@@ -569,8 +685,6 @@ $evidence = [ordered]@{
   startedAtUtc = $startedAtUtc.ToString("o")
   completedAtUtc = $null
   runner = [ordered]@{
-    machineName = [Environment]::MachineName
-    userName = [Environment]::UserName
     osVersion = [Environment]::OSVersion.VersionString
     is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem
     processArchitecture = $env:PROCESSOR_ARCHITECTURE
@@ -583,8 +697,6 @@ $evidence = [ordered]@{
     githubSha = $env:GITHUB_SHA
   }
   delivery = [ordered]@{
-    inputDirectory = $DeliveryDirectory
-    directory = $null
     files = @()
     licenses = $null
   }
@@ -595,14 +707,20 @@ $evidence = [ordered]@{
   modelState = $null
   uninstall = [ordered]@{
     attempted = $false
+    reasonCode = $null
+    executable = $null
+    arguments = @()
+    exitCode = $null
+    elapsedMilliseconds = $null
     installDirectoryRemoved = $false
+    failureCode = $null
+    errorName = $null
   }
   diagnostics = [ordered]@{
-    error = $null
-    cleanupErrors = @()
+    failureCode = $null
+    errorName = $null
+    cleanupFailureCodes = @()
     copiedLogs = @()
-    temporaryRoot = $null
-    evidenceDirectory = $evidencePath
   }
 }
 $activeProcess = $null
@@ -615,12 +733,10 @@ try {
   Assert-Condition ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) "Installed-package verification must run on Windows."
   Assert-Condition ([Environment]::Is64BitOperatingSystem) "Installed-package verification requires Windows x64."
   $deliveryPath = [System.IO.Path]::GetFullPath($DeliveryDirectory)
-  $evidence.delivery.directory = $deliveryPath
   if (-not $evidenceDirectoryIsExplicit) {
     $evidenceTarget = New-EvidenceTarget -Directory (Join-Path -Path (Split-Path -Path $deliveryPath -Parent) -ChildPath "windows-smoke-evidence")
     $evidencePath = $evidenceTarget.directory
     $evidenceFile = $evidenceTarget.file
-    $evidence.diagnostics.evidenceDirectory = $evidencePath
   }
   $temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "guai-code-windows-smoke-$([guid]::NewGuid().ToString('N'))"
   $installDirectory = Join-Path -Path $temporaryRoot -ChildPath "Installed Guai Code Beta"
@@ -628,7 +744,6 @@ try {
   $userDataDirectory = Join-Path -Path $temporaryRoot -ChildPath "Isolated User Data"
   $xdgRoot = Join-Path -Path $temporaryRoot -ChildPath "Isolated XDG"
   $applicationPath = Join-Path -Path $installDirectory -ChildPath "Guai Code Beta.exe"
-  $evidence.diagnostics.temporaryRoot = $temporaryRoot
   Assert-Condition (Test-Path -LiteralPath $deliveryPath -PathType Container) "Delivery directory does not exist: $deliveryPath"
   Assert-ExactDeliveryFiles -Directory $deliveryPath -ExpectedNames $deliveryNames
 
@@ -665,8 +780,6 @@ try {
     expectedProductVersionForms = @()
     pe = $null
     licenses = $null
-    installDirectory = $installDirectory
-    installArguments = @("/S", "/D=$installDirectory")
     installExitCode = $null
   }
   $evidence.portableZip = [ordered]@{
@@ -737,7 +850,8 @@ try {
 }
 catch {
   $failure = $_
-  $evidence.diagnostics.error = $_.Exception.ToString()
+  $evidence.diagnostics.failureCode = "VERIFICATION_FAILED"
+  $evidence.diagnostics.errorName = "PowerShellError"
 }
 finally {
   $evidence.launches = @($launchEvidence)
@@ -747,10 +861,9 @@ finally {
       $evidenceTarget = New-EvidenceTarget -Directory (Join-Path -Path ([Environment]::CurrentDirectory) -ChildPath "windows-smoke-evidence")
       $evidencePath = $evidenceTarget.directory
       $evidenceFile = $evidenceTarget.file
-      $evidence.diagnostics.evidenceDirectory = $evidencePath
     }
     catch {
-      $cleanupErrors += "Evidence directory fallback failed; failure JSON cannot be written: $($_.Exception.Message)"
+      $cleanupErrors += "EVIDENCE_TARGET_FAILED"
     }
   }
 
@@ -767,7 +880,7 @@ finally {
     }
   }
   catch {
-    $cleanupErrors += "Process cleanup failed: $($_.Exception.Message)"
+    $cleanupErrors += "PROCESS_CLEANUP_FAILED"
   }
 
   try {
@@ -776,7 +889,7 @@ finally {
     }
   }
   catch {
-    $cleanupErrors += "Diagnostic log copy failed: $($_.Exception.Message)"
+    $cleanupErrors += "DIAGNOSTIC_LOG_COPY_FAILED"
   }
 
   try {
@@ -786,25 +899,43 @@ finally {
     elseif ($installationStarted) {
       $evidence.uninstall = [ordered]@{
         attempted = $false
-        reason = "Install directory was already absent."
+        reasonCode = "INSTALL_DIRECTORY_ALREADY_ABSENT"
+        executable = $null
+        arguments = @()
+        exitCode = $null
+        elapsedMilliseconds = $null
         installDirectoryRemoved = $true
+        failureCode = $null
+        errorName = $null
       }
     }
     else {
       $evidence.uninstall = [ordered]@{
         attempted = $false
-        reason = "Installation did not start."
+        reasonCode = "INSTALLATION_NOT_STARTED"
+        executable = $null
+        arguments = @()
+        exitCode = $null
+        elapsedMilliseconds = $null
         installDirectoryRemoved = $true
+        failureCode = $null
+        errorName = $null
       }
     }
   }
   catch {
     $evidence.uninstall = [ordered]@{
       attempted = $true
-      error = $_.Exception.ToString()
+      reasonCode = $null
+      executable = $null
+      arguments = @("/S")
+      exitCode = $null
+      elapsedMilliseconds = $null
       installDirectoryRemoved = $null -eq $installDirectory -or -not (Test-Path -LiteralPath $installDirectory)
+      failureCode = "UNINSTALL_FAILED"
+      errorName = "PowerShellError"
     }
-    $cleanupErrors += "Silent uninstall failed: $($_.Exception.Message)"
+    $cleanupErrors += "UNINSTALL_FAILED"
   }
 
   foreach ($name in @($originalEnvironment.Keys)) {
@@ -817,27 +948,28 @@ finally {
     }
   }
   catch {
-    $cleanupErrors += "Temporary directory cleanup failed: $($_.Exception.Message)"
+    $cleanupErrors += "TEMPORARY_DIRECTORY_CLEANUP_FAILED"
   }
 
-  $evidence.diagnostics.cleanupErrors = @($cleanupErrors)
+  $evidence.diagnostics.cleanupFailureCodes = @($cleanupErrors)
   $evidence.completedAtUtc = [DateTime]::UtcNow.ToString("o")
   $evidence.success = ($null -eq $failure) -and ($cleanupErrors.Count -eq 0) -and [bool]$evidence.uninstall.installDirectoryRemoved
   try {
     Assert-Condition ($null -ne $evidenceFile) "No valid evidence output path is available."
-    $evidence | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidenceFile -Encoding UTF8
-    Write-Host "Windows smoke evidence: $evidenceFile"
+    $uploadableEvidence = Get-UploadableEvidence -Evidence $evidence
+    $uploadableEvidence | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidenceFile -Encoding UTF8
+    Write-Host "Windows smoke evidence written."
   }
   catch {
-    $cleanupErrors += "Evidence write failed: $($_.Exception.Message)"
+    $cleanupErrors += "EVIDENCE_WRITE_FAILED"
   }
 }
 
 if ($null -ne $failure) {
-  throw $failure
+  throw "Installed-package verification failed."
 }
 if ($cleanupErrors.Count -gt 0) {
   throw ($cleanupErrors -join [Environment]::NewLine)
 }
-Assert-Condition $evidence.success "Installed-package verification did not complete successfully. Evidence: $evidenceFile"
+Assert-Condition $evidence.success "Installed-package verification did not complete successfully."
 Write-Host "Installed Windows package verification passed for version $Version."

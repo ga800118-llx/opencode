@@ -823,7 +823,7 @@ jobs:
 
       - name: Scan package and smoke evidence for credential canaries
         id: credential_scan
-        if: always() && steps.package.outcome == 'success' && steps.verifier.outcome == 'success'
+        if: always() && steps.package.outcome == 'success' && steps.safe_storage.outcome == 'success' && steps.verifier.outcome == 'success'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -882,9 +882,99 @@ jobs:
             throw "Credential canary scanner failed with exit code $exitCode."
           }
 
+      - name: Prepare uploadable smoke evidence
+        id: uploadable_evidence
+        if: always() && steps.package.outcome == 'success' && steps.safe_storage.outcome == 'success' && steps.verifier.outcome == 'success' && steps.credential_scan.outcome == 'success'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sourceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
+          $uploadDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-uploadable-evidence"
+          $forbiddenKeys = @(
+            "path",
+            "directory",
+            "inputDirectory",
+            "installDirectory",
+            "installArguments",
+            "logPath",
+            "evidenceLog",
+            "temporaryRoot",
+            "evidenceDirectory",
+            "copiedLogs",
+            "error",
+            "message",
+            "stack"
+          )
+          $allowedEvidenceFiles = [ordered]@{
+            "workflow-context.json" = 1
+            "safe-storage-dpapi.json" = 1
+            "internal-windows-smoke-evidence.json" = 2
+          }
+
+          function Assert-UploadableEvidence {
+            param([object]$Value)
+
+            if ($null -eq $Value) {
+              return
+            }
+            if ($Value -is [string]) {
+              if ([System.IO.Path]::IsPathRooted([string]$Value)) {
+                throw "Uploadable evidence contains a rooted path."
+              }
+              return
+            }
+            if ($Value -is [System.Collections.IDictionary]) {
+              foreach ($key in @($Value.Keys)) {
+                if ($forbiddenKeys -contains [string]$key) {
+                  throw "Uploadable evidence contains a forbidden field."
+                }
+                Assert-UploadableEvidence -Value $Value[$key]
+              }
+              return
+            }
+            if ($Value -is [System.Collections.IEnumerable]) {
+              foreach ($item in @($Value)) {
+                Assert-UploadableEvidence -Value $item
+              }
+              return
+            }
+            foreach ($property in @($Value.PSObject.Properties)) {
+              if ($forbiddenKeys -contains $property.Name) {
+                throw "Uploadable evidence contains a forbidden field."
+              }
+              Assert-UploadableEvidence -Value $property.Value
+            }
+          }
+
+          if (Test-Path -LiteralPath $uploadDirectory) {
+            Remove-Item -LiteralPath $uploadDirectory -Recurse -Force -ErrorAction Stop
+          }
+          [void](New-Item -ItemType Directory -Path $uploadDirectory)
+          foreach ($name in @($allowedEvidenceFiles.Keys)) {
+            $source = Join-Path -Path $sourceDirectory -ChildPath $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Required uploadable evidence is missing."
+            }
+            $document = Get-Content -LiteralPath $source -Raw -Encoding utf8 | ConvertFrom-Json
+            if ([int]$document.schemaVersion -ne [int]$allowedEvidenceFiles[$name]) {
+              throw "Uploadable evidence has an unexpected schema version."
+            }
+            Assert-UploadableEvidence -Value $document
+            $document | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path -Path $uploadDirectory -ChildPath $name) -Encoding utf8
+          }
+          $uploadedNames = @(Get-ChildItem -LiteralPath $uploadDirectory -File | ForEach-Object { $_.Name })
+          if ($uploadedNames.Count -ne $allowedEvidenceFiles.Count) {
+            throw "Uploadable evidence contains an unexpected file count."
+          }
+          foreach ($name in @($allowedEvidenceFiles.Keys)) {
+            if ($uploadedNames -cnotcontains $name) {
+              throw "Uploadable evidence is missing an allowlisted file."
+            }
+          }
+
       - name: Prepare sanitized smoke evidence
         id: sanitized_evidence
-        if: always() && steps.credential_scan.outcome != 'success'
+        if: always() && steps.uploadable_evidence.outcome != 'success'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -917,8 +1007,9 @@ jobs:
               safeStorage = "${{ steps.safe_storage.outcome }}"
               verifier = "${{ steps.verifier.outcome }}"
               credentialScan = "${{ steps.credential_scan.outcome }}"
+              uploadableEvidence = "${{ steps.uploadable_evidence.outcome }}"
             }
-            failure = "Raw smoke evidence was withheld because credential scanning did not complete successfully."
+            failure = "Raw smoke evidence was withheld because evidence validation did not complete successfully."
           } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $sanitizedDirectory "sanitized-smoke-evidence.json") -Encoding utf8
 
       - name: Upload Windows delivery
@@ -930,17 +1021,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload raw smoke evidence
-        if: always() && steps.credential_scan.outcome == 'success'
+      - name: Upload validated smoke evidence
+        if: always() && steps.package.outcome == 'success' && steps.safe_storage.outcome == 'success' && steps.verifier.outcome == 'success' && steps.credential_scan.outcome == 'success' && steps.uploadable_evidence.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guai-code-windows-internal-beta-smoke-evidence
-          path: ${{ runner.temp }}/guai-code-windows-internal-beta-smoke-evidence
+          path: ${{ runner.temp }}/guai-code-windows-internal-beta-uploadable-evidence
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload sanitized smoke evidence
-        if: always() && steps.credential_scan.outcome != 'success'
+        if: always() && steps.uploadable_evidence.outcome != 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guai-code-windows-internal-beta-smoke-evidence
