@@ -161,10 +161,10 @@ Run Desktop full tests/typecheck, App full unit tests/typecheck, focused OpenCod
 
 Record source commit, GitHub run URL, runner image, installer and ZIP hashes/sizes, MinGit version/hash, NSIS install/start/restart/uninstall evidence, signature status, automated test counts, and SmartScreen limitation.
 
-- [ ] **Step 3: Commit verification and tag the tested source**
+- [x] **Step 3: Commit verification and tag the tested source**
 
 Create a conventional documentation commit. Add annotated tag `v0.1.0-alpha.2` to the exact executable source commit and reconfirm the downloaded manifest.
 
-- [ ] **Step 4: Completion audit**
+- [x] **Step 4: Completion audit**
 
 Verify every design requirement against source, test output, Windows run evidence, local artifact hashes, Git history, and tag target before marking the goal complete.

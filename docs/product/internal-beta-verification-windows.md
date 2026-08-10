@@ -7,7 +7,7 @@
 - 分支：`codex/phase-0-3`
 - 可执行文件源码提交：`c6b8abbe81cb4d0b9cbb53a16a4fc1ba90bbe300`
 - 成功运行：[GitHub Actions 31366877286](https://github.com/ga800118-llx/opencode/actions/runs/31366877286)
-- 计划的附注标签：`v0.1.0-alpha.2`。控制器将在本次文档提交后创建该标签，并令其直接指向上述源码提交；本次文档提交更晚，不参与可执行文件构建。
+- 附注标签：`v0.1.0-alpha.2` 已存在，并直接剥离到上述可执行文件源码提交；后续文档提交不参与可执行文件构建。
 - Runner：Microsoft Windows Server 2025 Datacenter（Microsoft Windows NT 10.0.26100.0），AMD64/x64；镜像 `win25-vs2026`，版本 `20260803.193.1`。
 - PowerShell：7.6.4 Core；Windows PowerShell 5.1 与 PowerShell 7 语法解析门禁均通过。
 
