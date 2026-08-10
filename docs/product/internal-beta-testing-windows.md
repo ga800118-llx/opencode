@@ -37,7 +37,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath ".\Guai-Code-Beta-0.1.0-alpha.2-win-
 Get-Content -LiteralPath ".\SHA256SUMS.txt"
 ```
 
-`Get-FileHash` 输出的 `Hash` 应与 `SHA256SUMS.txt` 中同名文件的值逐字一致。值不一致、清单缺失或文件名异常时不要运行程序，请重新向维护者获取交付文件。
+`Get-FileHash` 输出的 `Hash` 应与 `SHA256SUMS.txt` 中同名文件的值一致；十六进制字母大小写不影响哈希值，可忽略大小写比较。哈希值不一致、清单缺失或文件名异常时不要运行程序，请重新向维护者获取交付文件。
 
 ## 安装与 SmartScreen
 

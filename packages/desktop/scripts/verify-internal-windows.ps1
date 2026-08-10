@@ -55,24 +55,95 @@ function Assert-ExecutableVersion {
   )
 
   $versionInfo = (Get-Item -LiteralPath $ExecutablePath).VersionInfo
-  $allowed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-  [void]$allowed.Add([string]$Expected.semantic)
-  [void]$allowed.Add([string]$Expected.core)
-  [void]$allowed.Add([string]$Expected.windows)
-
-  foreach ($value in @($versionInfo.FileVersion, $versionInfo.ProductVersion)) {
-    Assert-Condition (-not [string]::IsNullOrWhiteSpace($value)) "Executable version metadata is missing: $ExecutablePath"
-    $normalized = ($value -replace ",\s*", ".") -replace "\s", ""
-    Assert-Condition ($allowed.Contains($normalized)) "Executable version '$value' does not match $($Expected.semantic): $ExecutablePath"
-  }
+  Assert-Condition (-not [string]::IsNullOrWhiteSpace($versionInfo.FileVersion)) "Executable FileVersion is missing: $ExecutablePath"
+  Assert-Condition ($versionInfo.FileVersion -ceq $Expected.semantic) "Executable FileVersion '$($versionInfo.FileVersion)' does not exactly match '$($Expected.semantic)': $ExecutablePath"
+  Assert-Condition (-not [string]::IsNullOrWhiteSpace($versionInfo.ProductVersion)) "Executable ProductVersion is missing: $ExecutablePath"
+  $normalizedProductVersion = ($versionInfo.ProductVersion -replace ",\s*", ".") -replace "\s", ""
+  $allowedProductVersions = @([string]$Expected.core, [string]$Expected.windows)
+  Assert-Condition ($allowedProductVersions -ccontains $normalizedProductVersion) "Executable ProductVersion '$($versionInfo.ProductVersion)' does not match a numeric form of '$($Expected.semantic)': $ExecutablePath"
   Assert-Condition ($versionInfo.ProductName -eq "Guai Code Beta") "Unexpected executable product name '$($versionInfo.ProductName)'."
 
   return [ordered]@{
     fileVersion = $versionInfo.FileVersion
     productVersion = $versionInfo.ProductVersion
     productName = $versionInfo.ProductName
-    expectedForms = @($Expected.semantic, $Expected.core, $Expected.windows)
+    expectedFileVersion = $Expected.semantic
+    expectedProductVersionForms = @($Expected.core, $Expected.windows)
   }
+}
+
+function Get-VerifiedPeHeader {
+  param([string]$ExecutablePath)
+
+  $stream = [System.IO.File]::Open(
+    $ExecutablePath,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read,
+    [System.IO.FileShare]::ReadWrite
+  )
+  $reader = $null
+  try {
+    Assert-Condition ($stream.Length -ge 64) "Executable is too small to contain a PE header: $ExecutablePath"
+    $reader = [System.IO.BinaryReader]::new($stream)
+    [void]$stream.Seek(0x3C, [System.IO.SeekOrigin]::Begin)
+    $peOffset = $reader.ReadInt32()
+    Assert-Condition ($peOffset -ge 0 -and $peOffset -le ($stream.Length - 6)) "Executable has an invalid PE header offset: $ExecutablePath"
+    [void]$stream.Seek($peOffset, [System.IO.SeekOrigin]::Begin)
+    $signature = $reader.ReadUInt32()
+    Assert-Condition ($signature -eq [uint32]0x00004550) "Executable has an invalid PE signature: $ExecutablePath"
+    $machine = $reader.ReadUInt16()
+    Assert-Condition ($machine -eq [uint16]0x8664) "Executable PE machine must be x64 (0x8664), received $('0x{0:X4}' -f $machine): $ExecutablePath"
+
+    return [ordered]@{
+      signature = "0x{0:X8}" -f $signature
+      peHeaderOffset = $peOffset
+      machine = "0x{0:X4}" -f $machine
+      architecture = "x64"
+    }
+  }
+  finally {
+    if ($null -ne $reader) {
+      $reader.Dispose()
+    }
+    else {
+      $stream.Dispose()
+    }
+  }
+}
+
+function Get-VerifiedLicenseEvidence {
+  param(
+    [string]$RootDirectory,
+    [System.Collections.IDictionary]$ExpectedHashes
+  )
+
+  $result = [ordered]@{}
+  foreach ($license in @(
+    [ordered]@{
+      key = "openCode"
+      relativePath = "resources\licenses\OpenCode-MIT.txt"
+      deliveryName = "OpenCode-MIT-License.txt"
+      expectedSha256 = [string]$ExpectedHashes.openCode
+    },
+    [ordered]@{
+      key = "minGit"
+      relativePath = "resources\mingit\LICENSE.txt"
+      deliveryName = "Git-for-Windows-License.txt"
+      expectedSha256 = [string]$ExpectedHashes.minGit
+    }
+  )) {
+    $path = Join-Path -Path $RootDirectory -ChildPath $license.relativePath
+    Assert-Condition (Test-Path -LiteralPath $path -PathType Leaf) "Package is missing license: $($license.relativePath)"
+    $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-Condition ($actualHash -ceq $license.expectedSha256) "License SHA-256 mismatch for $($license.relativePath). Expected delivery file $($license.deliveryName) hash $($license.expectedSha256), received $actualHash."
+    $result[$license.key] = [ordered]@{
+      relativePath = $license.relativePath.Replace("\", "/")
+      sha256 = $actualHash
+      deliveryName = $license.deliveryName
+      deliverySha256 = $license.expectedSha256
+    }
+  }
+  return $result
 }
 
 function Assert-ExactDeliveryFiles {
@@ -143,7 +214,7 @@ function Invoke-BundledGitVersion {
   $exitCode = $LASTEXITCODE
   $output = ($lines -join [Environment]::NewLine).Trim()
   Assert-Condition ($exitCode -eq 0) "Bundled Git exited with code ${exitCode}: $output"
-  Assert-Condition ($output.Contains("2.55.0.windows.3")) "Bundled Git version is not 2.55.0.windows.3: $output"
+  Assert-Condition ($output -ceq "git version 2.55.0.windows.3") "Bundled Git output must exactly match 'git version 2.55.0.windows.3': $output"
   return $output
 }
 
@@ -152,7 +223,8 @@ function Expand-AndVerifyPortableZip {
     [string]$ZipPath,
     [string]$Destination,
     [string[]]$RequiredEntries,
-    [System.Collections.IDictionary]$ExpectedVersion
+    [System.Collections.IDictionary]$ExpectedVersion,
+    [System.Collections.IDictionary]$ExpectedLicenseHashes
   )
 
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -180,6 +252,8 @@ function Expand-AndVerifyPortableZip {
   return [ordered]@{
     requiredEntries = @($RequiredEntries)
     executable = $metadata
+    pe = Get-VerifiedPeHeader -ExecutablePath $portableExecutable
+    licenses = Get-VerifiedLicenseEvidence -RootDirectory $Destination -ExpectedHashes $ExpectedLicenseHashes
     gitVersion = Invoke-BundledGitVersion -GitPath $gitPath
   }
 }
@@ -430,22 +504,18 @@ function Copy-DiagnosticLogs {
   return @($copied)
 }
 
-$deliveryPath = [System.IO.Path]::GetFullPath($DeliveryDirectory)
-$evidencePath = if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
-  Join-Path -Path (Split-Path -Path $deliveryPath -Parent) -ChildPath "windows-smoke-evidence"
+function New-EvidenceTarget {
+  param([string]$Directory)
+
+  $path = [System.IO.Path]::GetFullPath($Directory)
+  [void][System.IO.Directory]::CreateDirectory($path)
+  return [ordered]@{
+    directory = $path
+    file = Join-Path -Path $path -ChildPath "internal-windows-smoke-evidence.json"
+  }
 }
-else {
-  [System.IO.Path]::GetFullPath($EvidenceDirectory)
-}
-[void][System.IO.Directory]::CreateDirectory($evidencePath)
-$evidenceFile = Join-Path -Path $evidencePath -ChildPath "internal-windows-smoke-evidence.json"
+
 $startedAtUtc = [DateTime]::UtcNow
-$temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "guai-code-windows-smoke-$([guid]::NewGuid().ToString('N'))"
-$installDirectory = Join-Path -Path $temporaryRoot -ChildPath "Installed Guai Code Beta"
-$portableDirectory = Join-Path -Path $temporaryRoot -ChildPath "Portable Guai Code Beta"
-$userDataDirectory = Join-Path -Path $temporaryRoot -ChildPath "Isolated User Data"
-$xdgRoot = Join-Path -Path $temporaryRoot -ChildPath "Isolated XDG"
-$applicationPath = Join-Path -Path $installDirectory -ChildPath "Guai Code Beta.exe"
 $guideName = "Guai-Code-Beta-Windows-$([char]0x8BD5)$([char]0x7528)$([char]0x8BF4)$([char]0x660E).md"
 $installerName = "Guai-Code-Beta-$Version-win-x64.exe"
 $portableName = "Guai-Code-Beta-$Version-win-x64-portable.zip"
@@ -463,6 +533,26 @@ $requiredPortableEntries = @(
   "resources/mingit/LICENSE.txt",
   "resources/licenses/OpenCode-MIT.txt"
 )
+$evidenceDirectoryIsExplicit = -not [string]::IsNullOrWhiteSpace($EvidenceDirectory)
+$deliveryPath = $null
+$evidencePath = $null
+$evidenceFile = $null
+$temporaryRoot = $null
+$installDirectory = $null
+$portableDirectory = $null
+$userDataDirectory = $null
+$xdgRoot = $null
+$applicationPath = $null
+if ($evidenceDirectoryIsExplicit) {
+  try {
+    $evidenceTarget = New-EvidenceTarget -Directory $EvidenceDirectory
+    $evidencePath = $evidenceTarget.directory
+    $evidenceFile = $evidenceTarget.file
+  }
+  catch {
+    throw "EvidenceDirectory is invalid or cannot be created, so failure JSON cannot be written: $($_.Exception.Message)"
+  }
+}
 $originalEnvironment = [ordered]@{
   XDG_DATA_HOME = [Environment]::GetEnvironmentVariable("XDG_DATA_HOME", "Process")
   XDG_CONFIG_HOME = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process")
@@ -490,8 +580,10 @@ $evidence = [ordered]@{
     githubSha = $env:GITHUB_SHA
   }
   delivery = [ordered]@{
-    directory = $deliveryPath
+    inputDirectory = $DeliveryDirectory
+    directory = $null
     files = @()
+    licenses = $null
   }
   installer = $null
   portableZip = $null
@@ -506,7 +598,7 @@ $evidence = [ordered]@{
     error = $null
     cleanupErrors = @()
     copiedLogs = @()
-    temporaryRoot = $temporaryRoot
+    temporaryRoot = $null
     evidenceDirectory = $evidencePath
   }
 }
@@ -519,11 +611,40 @@ $installationStarted = $false
 try {
   Assert-Condition ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) "Installed-package verification must run on Windows."
   Assert-Condition ([Environment]::Is64BitOperatingSystem) "Installed-package verification requires Windows x64."
+  $deliveryPath = [System.IO.Path]::GetFullPath($DeliveryDirectory)
+  $evidence.delivery.directory = $deliveryPath
+  if (-not $evidenceDirectoryIsExplicit) {
+    $evidenceTarget = New-EvidenceTarget -Directory (Join-Path -Path (Split-Path -Path $deliveryPath -Parent) -ChildPath "windows-smoke-evidence")
+    $evidencePath = $evidenceTarget.directory
+    $evidenceFile = $evidenceTarget.file
+    $evidence.diagnostics.evidenceDirectory = $evidencePath
+  }
+  $temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "guai-code-windows-smoke-$([guid]::NewGuid().ToString('N'))"
+  $installDirectory = Join-Path -Path $temporaryRoot -ChildPath "Installed Guai Code Beta"
+  $portableDirectory = Join-Path -Path $temporaryRoot -ChildPath "Portable Guai Code Beta"
+  $userDataDirectory = Join-Path -Path $temporaryRoot -ChildPath "Isolated User Data"
+  $xdgRoot = Join-Path -Path $temporaryRoot -ChildPath "Isolated XDG"
+  $applicationPath = Join-Path -Path $installDirectory -ChildPath "Guai Code Beta.exe"
+  $evidence.diagnostics.temporaryRoot = $temporaryRoot
   Assert-Condition (Test-Path -LiteralPath $deliveryPath -PathType Container) "Delivery directory does not exist: $deliveryPath"
   Assert-ExactDeliveryFiles -Directory $deliveryPath -ExpectedNames $deliveryNames
 
   $manifestPath = Join-Path -Path $deliveryPath -ChildPath "SHA256SUMS.txt"
   $evidence.delivery.files = Get-VerifiedManifestEntries -Directory $deliveryPath -ManifestPath $manifestPath -ExpectedNames $payloadNames
+  $expectedLicenseHashes = [ordered]@{
+    openCode = (Get-FileHash -LiteralPath (Join-Path -Path $deliveryPath -ChildPath "OpenCode-MIT-License.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+    minGit = (Get-FileHash -LiteralPath (Join-Path -Path $deliveryPath -ChildPath "Git-for-Windows-License.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+  $evidence.delivery.licenses = [ordered]@{
+    openCode = [ordered]@{
+      name = "OpenCode-MIT-License.txt"
+      sha256 = $expectedLicenseHashes.openCode
+    }
+    minGit = [ordered]@{
+      name = "Git-for-Windows-License.txt"
+      sha256 = $expectedLicenseHashes.minGit
+    }
+  }
   $installerPath = Join-Path -Path $deliveryPath -ChildPath $installerName
   $portablePath = Join-Path -Path $deliveryPath -ChildPath $portableName
   $installerSignature = Get-AuthenticodeSignature -LiteralPath $installerPath
@@ -537,6 +658,10 @@ try {
     fileVersion = $null
     productVersion = $null
     productName = $null
+    expectedFileVersion = $null
+    expectedProductVersionForms = @()
+    pe = $null
+    licenses = $null
     installDirectory = $installDirectory
     installArguments = @("/S", "/D=$installDirectory")
     installExitCode = $null
@@ -547,14 +672,18 @@ try {
     sizeBytes = (Get-Item -LiteralPath $portablePath).Length
     requiredEntries = @()
     executable = $null
+    pe = $null
+    licenses = $null
     gitVersion = $null
   }
 
   [void][System.IO.Directory]::CreateDirectory($temporaryRoot)
   $expectedVersion = Get-ExpectedVersionMetadata -ExpectedVersion $Version
-  $portableResult = Expand-AndVerifyPortableZip -ZipPath $portablePath -Destination $portableDirectory -RequiredEntries $requiredPortableEntries -ExpectedVersion $expectedVersion
+  $portableResult = Expand-AndVerifyPortableZip -ZipPath $portablePath -Destination $portableDirectory -RequiredEntries $requiredPortableEntries -ExpectedVersion $expectedVersion -ExpectedLicenseHashes $expectedLicenseHashes
   $evidence.portableZip.requiredEntries = $portableResult.requiredEntries
   $evidence.portableZip.executable = $portableResult.executable
+  $evidence.portableZip.pe = $portableResult.pe
+  $evidence.portableZip.licenses = $portableResult.licenses
   $evidence.portableZip.gitVersion = $portableResult.gitVersion
 
   $installationStarted = $true
@@ -571,16 +700,13 @@ try {
   $evidence.installer.fileVersion = $installedMetadata.fileVersion
   $evidence.installer.productVersion = $installedMetadata.productVersion
   $evidence.installer.productName = $installedMetadata.productName
-  foreach ($relativePath in @(
-    "resources\licenses\OpenCode-MIT.txt",
-    "resources\mingit\LICENSE.txt",
-    "resources\mingit\cmd\git.exe"
-  )) {
-    Assert-Condition (Test-Path -LiteralPath (Join-Path -Path $installDirectory -ChildPath $relativePath) -PathType Leaf) "Installed package is missing: $relativePath"
-  }
+  $evidence.installer.expectedFileVersion = $installedMetadata.expectedFileVersion
+  $evidence.installer.expectedProductVersionForms = $installedMetadata.expectedProductVersionForms
+  $evidence.installer.pe = Get-VerifiedPeHeader -ExecutablePath $applicationPath
+  $evidence.installer.licenses = Get-VerifiedLicenseEvidence -RootDirectory $installDirectory -ExpectedHashes $expectedLicenseHashes
   $installedGitPath = Join-Path -Path $installDirectory -ChildPath "resources\mingit\cmd\git.exe"
   $evidence.gitVersion = Invoke-BundledGitVersion -GitPath $installedGitPath
-  Assert-Condition ($evidence.gitVersion -eq $evidence.portableZip.gitVersion) "Installed and portable bundled Git versions differ."
+  Assert-Condition ($evidence.gitVersion -ceq $evidence.portableZip.gitVersion) "Installed and portable bundled Git versions differ."
 
   foreach ($directory in @(
     $userDataDirectory,
@@ -613,6 +739,18 @@ catch {
 finally {
   $evidence.launches = @($launchEvidence)
 
+  if ($null -eq $evidencePath) {
+    try {
+      $evidenceTarget = New-EvidenceTarget -Directory (Join-Path -Path ([Environment]::CurrentDirectory) -ChildPath "windows-smoke-evidence")
+      $evidencePath = $evidenceTarget.directory
+      $evidenceFile = $evidenceTarget.file
+      $evidence.diagnostics.evidenceDirectory = $evidencePath
+    }
+    catch {
+      $cleanupErrors += "Evidence directory fallback failed; failure JSON cannot be written: $($_.Exception.Message)"
+    }
+  }
+
   try {
     if ($null -ne $activeProcess) {
       $activeProcess.Refresh()
@@ -621,7 +759,7 @@ finally {
         [void]$activeProcess.WaitForExit($OperationTimeoutSeconds * 1000)
       }
     }
-    if (Test-Path -LiteralPath $applicationPath -PathType Leaf) {
+    if ($null -ne $applicationPath -and (Test-Path -LiteralPath $applicationPath -PathType Leaf)) {
       Stop-InstalledApplicationProcesses -ApplicationPath $applicationPath -TimeoutSeconds $OperationTimeoutSeconds
     }
   }
@@ -630,14 +768,16 @@ finally {
   }
 
   try {
-    $evidence.diagnostics.copiedLogs = @(Copy-DiagnosticLogs -UserDataDirectory $userDataDirectory -EvidenceDirectoryPath $evidencePath)
+    if ($null -ne $userDataDirectory -and $null -ne $evidencePath) {
+      $evidence.diagnostics.copiedLogs = @(Copy-DiagnosticLogs -UserDataDirectory $userDataDirectory -EvidenceDirectoryPath $evidencePath)
+    }
   }
   catch {
     $cleanupErrors += "Diagnostic log copy failed: $($_.Exception.Message)"
   }
 
   try {
-    if (Test-Path -LiteralPath $installDirectory -PathType Container) {
+    if ($null -ne $installDirectory -and (Test-Path -LiteralPath $installDirectory -PathType Container)) {
       $evidence.uninstall = Invoke-SilentUninstall -InstallDirectory $installDirectory -TimeoutSeconds $OperationTimeoutSeconds
     }
     elseif ($installationStarted) {
@@ -659,7 +799,7 @@ finally {
     $evidence.uninstall = [ordered]@{
       attempted = $true
       error = $_.Exception.ToString()
-      installDirectoryRemoved = -not (Test-Path -LiteralPath $installDirectory)
+      installDirectoryRemoved = $null -eq $installDirectory -or -not (Test-Path -LiteralPath $installDirectory)
     }
     $cleanupErrors += "Silent uninstall failed: $($_.Exception.Message)"
   }
@@ -669,7 +809,7 @@ finally {
   }
 
   try {
-    if (Test-Path -LiteralPath $temporaryRoot) {
+    if ($null -ne $temporaryRoot -and (Test-Path -LiteralPath $temporaryRoot)) {
       Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
     }
   }
@@ -681,6 +821,7 @@ finally {
   $evidence.completedAtUtc = [DateTime]::UtcNow.ToString("o")
   $evidence.success = ($null -eq $failure) -and ($cleanupErrors.Count -eq 0) -and [bool]$evidence.uninstall.installDirectoryRemoved
   try {
+    Assert-Condition ($null -ne $evidenceFile) "No valid evidence output path is available."
     $evidence | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidenceFile -Encoding UTF8
     Write-Host "Windows smoke evidence: $evidenceFile"
   }
