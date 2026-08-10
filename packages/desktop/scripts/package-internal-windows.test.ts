@@ -6,11 +6,20 @@ import pkg from "../package.json"
 import { formatChecksumManifest, sha256 } from "./internal-package"
 import {
   assertInternalWindowsHost,
+  assertMinGitChecksum,
+  assertMinGitContentLength,
+  assertMinGitSize,
   createInternalWindowsArtifactPlan,
+  createPortableZipCommand,
+  createPortableZipVerificationCommand,
   MINGIT_ASSET,
+  MINGIT_DOWNLOAD_TIMEOUT_MS,
   MINGIT_RELEASE,
   MINGIT_SHA256,
+  MINGIT_SIZE_BYTES,
   MINGIT_URL,
+  PORTABLE_ZIP_REQUIRED_ENTRIES,
+  withDownloadTemporaryFile,
 } from "./package-internal-windows"
 
 describe("internal Windows package", () => {
@@ -53,6 +62,53 @@ describe("internal Windows package", () => {
       "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/MinGit-2.55.0.3-64-bit.zip",
     )
     expect(MINGIT_SHA256).toBe("f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05")
+    expect(MINGIT_SIZE_BYTES).toBe(38_791_206)
+    expect(MINGIT_DOWNLOAD_TIMEOUT_MS).toBe(120_000)
+  })
+
+  test("fails closed on MinGit response and archive metadata", () => {
+    expect(() => assertMinGitContentLength(String(MINGIT_SIZE_BYTES))).not.toThrow()
+    expect(() => assertMinGitSize(MINGIT_SIZE_BYTES)).not.toThrow()
+    expect(() => assertMinGitChecksum(MINGIT_SHA256)).not.toThrow()
+
+    expect(() => assertMinGitContentLength(null)).toThrow("Content-Length")
+    expect(() => assertMinGitContentLength(String(MINGIT_SIZE_BYTES - 1))).toThrow("Content-Length")
+    expect(() => assertMinGitSize(MINGIT_SIZE_BYTES + 1)).toThrow("size mismatch")
+    expect(() => assertMinGitChecksum("0".repeat(64))).toThrow("checksum mismatch")
+  })
+
+  test("always removes the current download temporary file", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mingit-download-"))
+    const temporary = path.join(directory, "MinGit.zip.download")
+
+    await expect(
+      withDownloadTemporaryFile(temporary, async () => {
+        await Bun.write(temporary, "partial")
+        throw new Error("write failed")
+      }),
+    ).rejects.toThrow("write failed")
+    expect(await Bun.file(temporary).exists()).toBeFalse()
+
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  test("creates and verifies portable ZIPs with .NET ZipFile", () => {
+    const create = createPortableZipCommand("C:\\build's\\win-unpacked", "C:\\delivery\\portable.zip")
+    const verify = createPortableZipVerificationCommand("C:\\delivery\\portable.zip")
+
+    expect(create).toContain("[System.IO.Compression.ZipFile]::CreateFromDirectory")
+    expect(create).toContain("'C:\\build''s\\win-unpacked'")
+    expect(create).toContain("$false")
+    expect(create).not.toContain("Compress-Archive")
+    expect(verify).toContain("[System.IO.Compression.ZipFile]::OpenRead")
+    expect(verify).toContain("$archive.Dispose()")
+    expect(PORTABLE_ZIP_REQUIRED_ENTRIES).toEqual([
+      "Guai Code Beta.exe",
+      "resources/mingit/cmd/git.exe",
+      "resources/mingit/LICENSE.txt",
+      "resources/licenses/OpenCode-MIT.txt",
+    ])
+    expect(PORTABLE_ZIP_REQUIRED_ENTRIES.every((entry) => verify.includes(entry))).toBeTrue()
   })
 
   test("hashes files and formats stable checksum manifests", async () => {

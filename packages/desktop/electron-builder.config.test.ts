@@ -99,7 +99,7 @@ test("bundles MinGit from a nonempty environment path", async () => {
   const module = await import("./electron-builder.config.ts?bundled-git-resource")
   const config = module.default as Configuration
   if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_GIT_DIR
-  else process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
+  if (previous !== undefined) process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
 
   expect(config.extraResources).toContainEqual({
     from: "C:\\staging\\mingit",
@@ -114,7 +114,7 @@ test("does not bundle MinGit from an empty environment path", async () => {
   const module = await import("./electron-builder.config.ts?no-bundled-git-resource")
   const config = module.default as Configuration
   if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_GIT_DIR
-  else process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
+  if (previous !== undefined) process.env.GUAI_CODE_BUNDLED_GIT_DIR = previous
 
   expect(config.extraResources).not.toContainEqual({
     from: expect.any(String),

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
+import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -11,6 +12,14 @@ export const MINGIT_RELEASE = "v2.55.0.windows.3"
 export const MINGIT_ASSET = "MinGit-2.55.0.3-64-bit.zip"
 export const MINGIT_URL = `https://github.com/git-for-windows/git/releases/download/${MINGIT_RELEASE}/${MINGIT_ASSET}`
 export const MINGIT_SHA256 = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05"
+export const MINGIT_SIZE_BYTES = 38_791_206
+export const MINGIT_DOWNLOAD_TIMEOUT_MS = 120_000
+export const PORTABLE_ZIP_REQUIRED_ENTRIES = [
+  "Guai Code Beta.exe",
+  "resources/mingit/cmd/git.exe",
+  "resources/mingit/LICENSE.txt",
+  "resources/licenses/OpenCode-MIT.txt",
+] as const
 
 export function assertInternalWindowsHost(platform: NodeJS.Platform, arch: string) {
   if (platform !== "win32") throw new Error("The internal Windows package must be built on Windows.")
@@ -35,32 +44,65 @@ export function createInternalWindowsArtifactPlan(packageDir: string, version: s
   }
 }
 
+export function assertMinGitContentLength(contentLength: string | null) {
+  if (contentLength === String(MINGIT_SIZE_BYTES)) return
+  throw new Error(
+    `MinGit Content-Length mismatch: expected ${MINGIT_SIZE_BYTES}, received ${contentLength ?? "missing"}`,
+  )
+}
+
+export function assertMinGitSize(size: number) {
+  if (size === MINGIT_SIZE_BYTES) return
+  throw new Error(`MinGit size mismatch: expected ${MINGIT_SIZE_BYTES}, received ${size}`)
+}
+
+export function assertMinGitChecksum(checksum: string) {
+  if (checksum === MINGIT_SHA256) return
+  throw new Error(`MinGit checksum mismatch: expected ${MINGIT_SHA256}, received ${checksum}`)
+}
+
+export async function withDownloadTemporaryFile<T>(temporary: string, action: () => Promise<T>) {
+  try {
+    return await action()
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
+export function createPortableZipCommand(source: string, destination: string) {
+  return `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory(${quotePowerShell(source)}, ${quotePowerShell(destination)}, [System.IO.Compression.CompressionLevel]::Optimal, $false)`
+}
+
+export function createPortableZipVerificationCommand(file: string) {
+  const required = PORTABLE_ZIP_REQUIRED_ENTRIES.map(quotePowerShell).join(", ")
+  return `Add-Type -AssemblyName System.IO.Compression.FileSystem; $archive = [System.IO.Compression.ZipFile]::OpenRead(${quotePowerShell(file)}); try { $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\\', '/') }); $required = @(${required}); $missing = @($required | Where-Object { $entries -notcontains $_ }); if ($missing.Count -gt 0) { throw "Portable ZIP missing required entries: $($missing -join ', ')" } } finally { $archive.Dispose() }`
+}
+
 async function downloadMinGit() {
   const directory = path.join(homedir(), ".cache", "guai-code", "internal-package")
   const archive = path.join(directory, MINGIT_ASSET)
   await mkdir(directory, { recursive: true })
 
   if (await Bun.file(archive).exists()) {
-    if ((await sha256(archive)) === MINGIT_SHA256) return archive
+    if ((await stat(archive)).size === MINGIT_SIZE_BYTES && (await sha256(archive)) === MINGIT_SHA256) {
+      return archive
+    }
     await rm(archive, { force: true })
   }
 
-  const temporary = `${archive}.${process.pid}.download`
-  await rm(temporary, { force: true })
-  const response = await fetch(MINGIT_URL)
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download MinGit: HTTP ${response.status} ${response.statusText}`)
-  }
-  await Bun.write(temporary, response)
-
-  const checksum = await sha256(temporary)
-  if (checksum !== MINGIT_SHA256) {
-    await rm(temporary, { force: true })
-    throw new Error(`MinGit checksum mismatch: expected ${MINGIT_SHA256}, received ${checksum}`)
-  }
-
-  await rename(temporary, archive)
-  return archive
+  const temporary = `${archive}.${process.pid}-${randomUUID()}.download`
+  return withDownloadTemporaryFile(temporary, async () => {
+    const response = await fetch(MINGIT_URL, { signal: AbortSignal.timeout(MINGIT_DOWNLOAD_TIMEOUT_MS) })
+    if (!response.ok || !response.body) {
+      throw new Error(`Failed to download MinGit: HTTP ${response.status} ${response.statusText}`)
+    }
+    assertMinGitContentLength(response.headers.get("content-length"))
+    await Bun.write(temporary, response)
+    assertMinGitSize((await stat(temporary)).size)
+    assertMinGitChecksum(await sha256(temporary))
+    await rename(temporary, archive)
+    return archive
+  })
 }
 
 async function runPowerShell(command: string) {
@@ -76,8 +118,8 @@ function quotePowerShell(value: string) {
   return `'${value.replaceAll("'", "''")}'`
 }
 
-async function requireFile(file: string) {
-  if (!(await Bun.file(file).exists())) throw new Error(`Expected package file was not created: ${file}`)
+async function requireFile(file: string, description = "Expected package file was not created") {
+  if (!(await Bun.file(file).exists())) throw new Error(`${description}: ${file}`)
 }
 
 export async function packageInternalWindows() {
@@ -86,6 +128,9 @@ export async function packageInternalWindows() {
   const root = path.resolve(packageDir, "../..")
   const plan = createInternalWindowsArtifactPlan(packageDir, pkg.version)
   const cachedModels = path.join(homedir(), ".cache", "opencode", "models.json")
+  const guide = path.join(root, "docs", "product", "internal-beta-testing-windows.md")
+
+  await requireFile(guide, "Windows tester guide is required")
 
   process.env.OPENCODE_CHANNEL = "beta"
   process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false"
@@ -133,12 +178,11 @@ export async function packageInternalWindows() {
   ])
 
   await mkdir(plan.directory, { recursive: true })
-  await runPowerShell(
-    `$global:ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${quotePowerShell(path.join(plan.unpacked, "*"))} -DestinationPath ${quotePowerShell(plan.portableZip)} -CompressionLevel Optimal -Force`,
-  )
+  await runPowerShell(createPortableZipCommand(plan.unpacked, plan.portableZip))
+  await runPowerShell(createPortableZipVerificationCommand(plan.portableZip))
   await Promise.all([
     copyFile(plan.builderInstaller, plan.installer),
-    copyFile(path.join(root, "docs", "product", "internal-beta-testing-windows.md"), plan.guide),
+    copyFile(guide, plan.guide),
     copyFile(path.join(root, "LICENSE"), plan.openCodeLicense),
     copyFile(path.join(plan.staging, "LICENSE.txt"), plan.gitLicense),
   ])
