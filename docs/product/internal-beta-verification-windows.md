@@ -7,7 +7,7 @@
 - 分支：`codex/phase-0-3`
 - 可执行文件源码提交：`d2880064ce62162f4bc22ee22f6919887350a901`
 - 成功运行：[GitHub Actions 31377997106](https://github.com/ga800118-llx/opencode/actions/runs/31377997106)
-- 附注标签：`v0.1.0-alpha.2` 为附注标签；控制器将在本记录提交后移动该标签，移动后剥离到上述可执行文件源码提交，后续文档提交不参与可执行文件构建。
+- 附注标签：`v0.1.0-alpha.2` 已剥离到上述可执行文件源码提交；后续文档提交不参与可执行文件构建。
 - Runner：Microsoft Windows Server 2025 Datacenter（Microsoft Windows NT 10.0.26100.0），AMD64/x64；镜像 `win25-vs2026`，版本 `20260803.193.1`。
 - PowerShell：7.6.4 Core；Windows PowerShell 5.1 与 PowerShell 7 语法解析门禁均通过。
 
@@ -61,7 +61,7 @@ Electron 42.3.3 的 `safeStorage` 在 Windows 上确认使用 DPAPI 且加密可
 
 | 检查 | 结果 |
 | --- | --- |
-| Desktop Windows 全量测试 | 本地复跑 224 pass，0 fail |
+| Desktop Windows 全量测试 | CI 224 pass，0 fail；本地复跑 224 pass，0 fail |
 | App Windows 全量单元测试 | 1046 pass，4 skip，0 fail；共 1050 项、138 个文件 |
 | OpenCode 权限、会话和 HTTP 聚焦测试 | 本地 133 pass，0 fail，4 个文件 |
 | Core URL Skill 发现聚焦测试 | 本地 10 pass，0 fail；Node-target bundle 在系统 Node 下执行生产缓存键辅助函数，固定 SHA-1 `f145b299db43ea48dd1f04fc25254d1df422a858`，确认不依赖 Bun 全局对象；未声明 Core 全量测试通过 |
