@@ -27,11 +27,41 @@ import {
   withDownloadTemporaryFile,
 } from "./package-internal-windows"
 
+const guidePath = path.join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "docs",
+  "product",
+  "internal-beta-testing-windows.md",
+)
+
 describe("internal Windows package", () => {
   test("uses the Windows internal Beta package metadata", () => {
     expect(pkg.version).toBe("0.1.0-alpha.2")
     expect(pkg.description).toBeTruthy()
     expect(pkg.scripts["package:win:internal"]).toBe("bun ./scripts/package-internal-windows.ts")
+  })
+
+  test("states the Windows tester target, validated environment, and conditional SmartScreen flow", async () => {
+    const guide = await Bun.file(guidePath).text()
+
+    expect(guide).not.toContain("Windows SmartScreen 会显示风险提示")
+    expect(guide).not.toContain("SmartScreen 显示“Windows 已保护你的电脑”时")
+    expect(guide).not.toContain("再点击“仍要运行”")
+    expect(guide).not.toContain("仅验证 Windows 11 x64")
+    expect(guide).not.toContain("SmartScreen 放行仅适用于")
+    expect(guide).toContain("目标测试系统：Windows 11 x64")
+    expect(guide).toContain("GitHub Windows Server 2025 x64")
+    expect(guide).toContain("Windows 11 实机安装和界面验证仍待完成")
+    expect(guide).toContain("可能触发 SmartScreen")
+    expect(guide).toContain("文件信誉、下载来源和系统或组织策略")
+    expect(guide).toContain("如果 SmartScreen 出现")
+    expect(guide).toContain("如果“仍要运行”（`Run anyway`）可用")
+    expect(guide).toContain("停止安装并联系维护者")
+    expect(guide).toContain("受管理设备的组织策略可能不提供“仍要运行”选项")
+    expect(guide).toContain("不要绕过组织安全策略")
   })
 
   test("rejects unsupported package hosts", () => {

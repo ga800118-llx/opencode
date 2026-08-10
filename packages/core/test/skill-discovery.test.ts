@@ -8,6 +8,7 @@ import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Global } from "@opencode-ai/core/global"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
+import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 
 const base = "https://skills.example.test/catalog/"
@@ -42,6 +43,25 @@ async function pull(skills: unknown[], files: Record<string, string> = {}, cache
 }
 
 describe("SkillDiscovery.pull", () => {
+  test("uses the Node-compatible deterministic URL key for the cache root", async () => {
+    const result = await pull([{ name: "deploy", files: ["SKILL.md"] }], {
+      [`${base}deploy/SKILL.md`]: "# Deploy",
+    })
+    try {
+      expect(result.directories.map(String)).toEqual([
+        path.join(result.tmp.path, "skills", Hash.fast(base), "deploy"),
+      ])
+    } finally {
+      await result.tmp[Symbol.asyncDispose]()
+    }
+  })
+
+  test("does not reference Bun from the skill discovery runtime", async () => {
+    const source = await fs.readFile(path.join(import.meta.dir, "../src/skill/discovery.ts"), "utf8")
+
+    expect(source).not.toContain("Bun.")
+  })
+
   test("rejects skill name traversal without fetching files", async () => {
     const result = await pull([{ name: "../outside", files: ["SKILL.md"] }])
     try {

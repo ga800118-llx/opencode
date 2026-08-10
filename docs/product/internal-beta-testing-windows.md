@@ -3,9 +3,10 @@
 ## 版本与范围
 
 - 版本：`0.1.0-alpha.2`
-- 系统：Windows 11 x64（64 位 Intel/AMD 电脑）
+- 目标测试系统：Windows 11 x64（64 位 Intel/AMD 电脑）
+- 自动化验证环境：GitHub Windows Server 2025 x64；Windows 11 实机安装和界面验证仍待完成
 - 定位：少量可信测试者使用的内部 Alpha，不是正式发布版本
-- 当前安装器没有代码签名，Windows SmartScreen 会显示风险提示
+- 当前安装器没有代码签名，可能触发 SmartScreen；是否出现提示及可用操作取决于文件信誉、下载来源和系统或组织策略
 - 当前不提供自动更新；收到新版本时需要重新下载安装包
 
 测试者不需要准备开发环境，也不需要另外安装 Bun、Node.js 或 Git。Guai Code Beta 已包含运行所需的 Git for Windows 组件，安装过程不会修改系统 `PATH` 或现有 Git 配置。
@@ -42,11 +43,12 @@ Get-Content -LiteralPath ".\SHA256SUMS.txt"
 ## 安装与 SmartScreen
 
 1. 双击 `Guai-Code-Beta-0.1.0-alpha.2-win-x64.exe`。这是单文件、一键、按用户安装器。
-2. SmartScreen 显示“Windows 已保护你的电脑”时，先确认文件来源和 SHA-256 已通过校验。
-3. 点击“更多信息”（`More info`），确认应用名称为 Guai Code Beta，再点击“仍要运行”（`Run anyway`）。
-4. 等待安装完成，然后从开始菜单打开 Guai Code Beta。
+2. 如果 SmartScreen 出现“Windows 已保护你的电脑”，先确认文件来源和 SHA-256 已通过校验。
+3. 如果“更多信息”（`More info`）可用，点击后确认应用名称为 Guai Code Beta。
+4. 确认无误后，如果“仍要运行”（`Run anyway`）可用，可选择“仍要运行”；如果任一选项不可用，或文件来源、应用名称、SHA-256 有任何疑问，停止安装并联系维护者。
+5. 安装获准并完成后，从开始菜单打开 Guai Code Beta。
 
-“更多信息/仍要运行”是当前内部测试版没有代码签名的已知限制，不代表正式发布状态。不要对来源不明或校验不一致的文件绕过 SmartScreen。
+受管理设备的组织策略可能不提供“仍要运行”选项。不要绕过组织安全策略，也不要对来源不明或校验不一致的文件放行。SmartScreen 是否出现及其可用操作不代表正式发布状态。
 
 ## 首次模型配置
 
@@ -103,7 +105,7 @@ API Key 仅应由密钥持有人输入。不要多人共用长期密钥；测试
 
 ## 当前限制
 
-- 仅验证 Windows 11 x64，不代表 Windows 10、Windows ARM64 或其他系统已通过测试。
-- 当前没有代码签名，SmartScreen 放行仅适用于来源可信且 SHA-256 一致的内部交付文件。
+- 目标测试系统是 Windows 11 x64；自动化验证在 GitHub Windows Server 2025 x64 上完成，Windows 11 实机安装和界面验证仍待完成。Windows 10、Windows ARM64 或其他系统尚未验证。
+- 当前没有代码签名，可能触发 SmartScreen；提示和可用操作取决于文件信誉、下载来源和系统或组织策略。仅使用来源可信且 SHA-256 一致的内部交付文件。
 - 这是内部 Alpha，不承诺数据格式长期兼容，也不提供自动更新或正式发布支持。
 - 便携 ZIP 只是安装器的备用交付形式，不会把用户数据限制在解压目录内。
