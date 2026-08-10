@@ -154,7 +154,10 @@ function Assert-ExactDeliveryFiles {
 
   $items = @(Get-ChildItem -LiteralPath $Directory -Force)
   $directories = @($items | Where-Object { $_.PSIsContainer })
-  Assert-Condition ($directories.Count -eq 0) "Delivery directory contains unexpected directories: $($directories.Name -join ', ')"
+  if ($directories.Count -ne 0) {
+    $directoryNames = @($directories | ForEach-Object { $_.Name })
+    throw "Delivery directory contains unexpected directories: $($directoryNames -join ', ')"
+  }
 
   $actualNames = @($items | ForEach-Object { $_.Name })
   $actual = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)

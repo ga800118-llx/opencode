@@ -273,7 +273,8 @@ jobs:
           $smokeRoot = Join-Path $env:RUNNER_TEMP "guai-code-safe-storage-smoke"
           $evidenceDirectory = Join-Path $env:RUNNER_TEMP "guai-code-windows-internal-beta-smoke-evidence"
           $safeStorageEvidence = Join-Path $evidenceDirectory "safe-storage-dpapi.json"
-          $userDataDirectory = Join-Path $smokeRoot "user-data"
+          $profileDirectory = Join-Path $smokeRoot "profile"
+          $localStatePath = Join-Path $profileDirectory "Local State"
           $ciphertextPath = Join-Path $smokeRoot "ciphertext.base64"
           $encryptResultPath = Join-Path $smokeRoot "encrypt-result.json"
           $decryptResultPath = Join-Path $smokeRoot "decrypt-result.json"
@@ -308,19 +309,77 @@ jobs:
                 }
                 throw "safeStorage $Mode Electron process timed out after $TimeoutSeconds seconds."
               }
-              if ($process.ExitCode -ne 0) {
-                throw "safeStorage $Mode Electron process failed with exit code $($process.ExitCode)."
+              return [ordered]@{
+                processId = $process.Id
+                exitCode = $process.ExitCode
               }
-              return $process.Id
             }
             finally {
               $process.Dispose()
             }
           }
 
+          function Get-DurableLocalStateStatus {
+            param([string]$Path)
+
+            $status = [ordered]@{
+              localStateExists = $false
+              localStateValid = $false
+              encryptedKeyPresent = $false
+            }
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+              return $status
+            }
+
+            $status.localStateExists = $true
+            try {
+              $localState = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json
+              $status.localStateValid = $null -ne $localState
+              $status.encryptedKeyPresent = (
+                $null -ne $localState.os_crypt -and
+                -not [string]::IsNullOrWhiteSpace([string]$localState.os_crypt.encrypted_key)
+              )
+            }
+            catch {
+              $status.localStateValid = $false
+              $status.encryptedKeyPresent = $false
+            }
+            return $status
+          }
+
+          function Wait-DurableLocalState {
+            param(
+              [string]$Path,
+              [int]$TimeoutSeconds
+            )
+
+            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+            do {
+              $status = Get-DurableLocalStateStatus -Path $Path
+              if ($status.localStateExists -and $status.localStateValid -and $status.encryptedKeyPresent) {
+                return $status
+              }
+              Start-Sleep -Milliseconds 250
+            } while ([DateTime]::UtcNow -lt $deadline)
+            return (Get-DurableLocalStateStatus -Path $Path)
+          }
+
+          function Select-AllowlistedDiagnostic {
+            param(
+              [string]$Value,
+              [string[]]$Allowed,
+              [string]$Fallback
+            )
+
+            if ($Allowed -ccontains $Value) {
+              return $Value
+            }
+            return $Fallback
+          }
+
           Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
           [void](New-Item -ItemType Directory -Path $smokeRoot -Force)
-          [void](New-Item -ItemType Directory -Path $userDataDirectory -Force)
+          [void](New-Item -ItemType Directory -Path $profileDirectory -Force)
 
           @'
           {"name":"guai-code-safe-storage-smoke","version":"1.0.0","private":true,"main":"main.cjs"}
@@ -330,103 +389,244 @@ jobs:
           const { app, safeStorage } = require("electron")
           const { createHash, randomBytes } = require("node:crypto")
           const { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } = require("node:fs")
+          const { join, resolve } = require("node:path")
 
           const mode = process.env.GUAI_CODE_SAFE_STORAGE_MODE
           const ciphertextPath = process.env.GUAI_CODE_SAFE_STORAGE_CIPHERTEXT
           const resultPath = process.env.GUAI_CODE_SAFE_STORAGE_RESULT
-          const userDataPath = process.env.GUAI_CODE_SAFE_STORAGE_USER_DATA
+          const expectedProfilePath = resolve(process.env.GUAI_CODE_SAFE_STORAGE_USER_DATA)
+          const localStatePath = join(expectedProfilePath, "Local State")
 
           const sha256 = (value) => createHash("sha256").update(value).digest("hex")
+          const fail = (code) => {
+            const error = new Error()
+            error.name = "SafeStorageSmokeError"
+            error.safeCode = code
+            throw error
+          }
           const decodeBase64Strict = (value) => {
             if (
               value.length === 0 ||
               !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
             ) {
-              throw new Error("invalid-base64")
+              fail("INVALID_BASE64")
             }
             const decoded = Buffer.from(value, "base64")
-            if (decoded.toString("base64") !== value) throw new Error("non-canonical-base64")
+            if (decoded.toString("base64") !== value) fail("NON_CANONICAL_BASE64")
             return decoded
           }
           const userIdentity = `${process.env.USERDOMAIN || ""}\\${process.env.USERNAME || ""}`
           const writeResult = (result) =>
             writeFileSync(resultPath, `${JSON.stringify(result)}\n`, { encoding: "utf8", flag: "wx" })
-
-          mkdirSync(userDataPath, { recursive: true })
-          app.setPath("userData", userDataPath)
-
-          app.whenReady().then(() => {
-            if (process.platform !== "win32") throw new Error("native-windows-required")
-            if (!safeStorage.isEncryptionAvailable()) throw new Error("encryption-unavailable")
-
-            if (mode === "encrypt") {
-              let canary = `safe-storage-canary:${randomBytes(32).toString("hex")}`
-              const plaintextBuffer = Buffer.from(canary, "utf8")
-              const plaintextSha256 = sha256(plaintextBuffer)
-              let encrypted
-              try {
-                encrypted = safeStorage.encryptString(canary)
-                canary = ""
-                if (encrypted.includes(plaintextBuffer)) throw new Error("plaintext-in-encrypted-bytes")
-                writeFileSync(ciphertextPath, encrypted.toString("base64"), { encoding: "ascii", flag: "wx" })
-                const decodedPersisted = decodeBase64Strict(readFileSync(ciphertextPath, "ascii"))
-                if (!decodedPersisted.equals(encrypted)) throw new Error("persisted-ciphertext-mismatch")
-                if (decodedPersisted.includes(plaintextBuffer)) {
-                  throw new Error("plaintext-in-persisted-ciphertext")
-                }
-                writeResult({
-                  schemaVersion: 1,
-                  success: true,
-                  mode,
-                  pid: process.pid,
-                  platform: process.platform,
-                  electronVersion: process.versions.electron,
-                  encryptionAvailable: true,
-                  userIdentitySha256: sha256(userIdentity),
-                  plaintextSha256,
-                  ciphertextSha256: sha256(encrypted),
-                  ciphertextBytes: encrypted.length,
-                  plaintextPersisted: false,
-                })
-              }
-              finally {
-                canary = ""
-                plaintextBuffer.fill(0)
-              }
-              app.exit(0)
-              return
+          const allowedFailureCodes = new Set([
+            "PROFILE_PATH_MISMATCH",
+            "NATIVE_WINDOWS_REQUIRED",
+            "ENCRYPTION_UNAVAILABLE",
+            "INVALID_MODE",
+            "INVALID_BASE64",
+            "NON_CANONICAL_BASE64",
+            "PLAINTEXT_IN_ENCRYPTED_BYTES",
+            "PERSISTED_CIPHERTEXT_MISMATCH",
+            "PLAINTEXT_IN_PERSISTED_CIPHERTEXT",
+            "LOCAL_STATE_NOT_READY",
+            "CIPHERTEXT_NOT_DELETED",
+          ])
+          const inspectLocalState = () => {
+            const status = {
+              localStateExists: existsSync(localStatePath),
+              localStateValid: false,
+              encryptedKeyPresent: false,
             }
-
-            if (mode !== "decrypt") throw new Error("invalid-mode")
-            const encoded = readFileSync(ciphertextPath, "ascii")
-            const encrypted = decodeBase64Strict(encoded)
-            let canary = safeStorage.decryptString(encrypted)
-            const plaintextSha256 = sha256(canary)
-            canary = ""
-            unlinkSync(ciphertextPath)
-            writeResult({
-              schemaVersion: 1,
-              success: true,
-              mode,
-              pid: process.pid,
-              platform: process.platform,
-              electronVersion: process.versions.electron,
-              encryptionAvailable: true,
-              userIdentitySha256: sha256(userIdentity),
-              plaintextSha256,
-              ciphertextSha256: sha256(encrypted),
-              ciphertextBytes: encrypted.length,
-              ciphertextDeleted: !existsSync(ciphertextPath),
-            })
-            app.exit(0)
-          }).catch(() => {
+            if (!status.localStateExists) return status
             try {
-              writeResult({ schemaVersion: 1, success: false, mode, error: "safe-storage-smoke-failed" })
+              const localStateContents = JSON.parse(readFileSync(localStatePath, "utf8"))
+              status.localStateValid =
+                localStateContents !== null && typeof localStateContents === "object" && !Array.isArray(localStateContents)
+              status.encryptedKeyPresent =
+                typeof localStateContents?.os_crypt?.encrypted_key === "string" &&
+                localStateContents.os_crypt.encrypted_key.trim().length > 0
             } catch {}
-            console.error("safeStorage smoke failed")
-            app.exit(1)
-          })
+            return status
+          }
+
+          let failureStage = "configure-profile"
+          let actualPathsMatched = false
+          const writeFailure = (error) => {
+            const localStateStatus = inspectLocalState()
+            const failureCode = allowedFailureCodes.has(error?.safeCode) ? error.safeCode : "UNEXPECTED_ERROR"
+            const errorName = ["Error", "TypeError", "SyntaxError", "SafeStorageSmokeError"].includes(error?.name)
+              ? error.name
+              : "Error"
+            try {
+              writeResult({
+                schemaVersion: 1,
+                success: false,
+                failureStage,
+                failureCode,
+                errorName,
+                ...localStateStatus,
+                actualPathsMatched,
+              })
+            } catch {}
+            console.error(`safeStorage smoke failed at ${failureStage} (${failureCode})`)
+            process.exitCode = 1
+            app.quit()
+          }
+
+          let startupError
+          try {
+            mkdirSync(expectedProfilePath, { recursive: true })
+            app.setPath("userData", expectedProfilePath)
+            app.setPath("sessionData", expectedProfilePath)
+            actualPathsMatched = [app.getPath("userData"), app.getPath("sessionData")].every(
+              (value) => resolve(value).toLowerCase() === expectedProfilePath.toLowerCase(),
+            )
+            if (!actualPathsMatched) fail("PROFILE_PATH_MISMATCH")
+          } catch (error) {
+            startupError = error
+          }
+
+          if (startupError) {
+            writeFailure(startupError)
+          } else {
+            failureStage = "await-ready"
+            app.whenReady().then(() => {
+              failureStage = "validate-runtime"
+              if (process.platform !== "win32") fail("NATIVE_WINDOWS_REQUIRED")
+              if (!safeStorage.isEncryptionAvailable()) fail("ENCRYPTION_UNAVAILABLE")
+
+              if (mode === "encrypt") {
+                failureStage = "encrypt"
+                let canary = `safe-storage-canary:${randomBytes(32).toString("hex")}`
+                const plaintextBuffer = Buffer.from(canary, "utf8")
+                const plaintextSha256 = sha256(plaintextBuffer)
+                let encrypted
+                try {
+                  encrypted = safeStorage.encryptString(canary)
+                  canary = ""
+                  if (encrypted.includes(plaintextBuffer)) fail("PLAINTEXT_IN_ENCRYPTED_BYTES")
+                  failureStage = "persist-ciphertext"
+                  writeFileSync(ciphertextPath, encrypted.toString("base64"), { encoding: "ascii", flag: "wx" })
+                  const decodedPersisted = decodeBase64Strict(readFileSync(ciphertextPath, "ascii"))
+                  if (!decodedPersisted.equals(encrypted)) fail("PERSISTED_CIPHERTEXT_MISMATCH")
+                  if (decodedPersisted.includes(plaintextBuffer)) fail("PLAINTEXT_IN_PERSISTED_CIPHERTEXT")
+                  failureStage = "write-encrypt-result"
+                  writeResult({
+                    schemaVersion: 1,
+                    success: true,
+                    mode,
+                    pid: process.pid,
+                    platform: process.platform,
+                    electronVersion: process.versions.electron,
+                    encryptionAvailable: true,
+                    userIdentitySha256: sha256(userIdentity),
+                    plaintextSha256,
+                    ciphertextSha256: sha256(encrypted),
+                    ciphertextBytes: encrypted.length,
+                    plaintextPersisted: false,
+                    actualPathsMatched,
+                    ...inspectLocalState(),
+                  })
+                } finally {
+                  canary = ""
+                  plaintextBuffer.fill(0)
+                }
+                process.exitCode = 0
+                app.quit()
+                return
+              }
+
+              if (mode !== "decrypt") fail("INVALID_MODE")
+              failureStage = "validate-local-state"
+              const localStateStatus = inspectLocalState()
+              if (
+                !localStateStatus.localStateExists ||
+                !localStateStatus.localStateValid ||
+                !localStateStatus.encryptedKeyPresent
+              ) {
+                fail("LOCAL_STATE_NOT_READY")
+              }
+              failureStage = "decrypt"
+              const encoded = readFileSync(ciphertextPath, "ascii")
+              const encrypted = decodeBase64Strict(encoded)
+              let canary = safeStorage.decryptString(encrypted)
+              const plaintextSha256 = sha256(canary)
+              canary = ""
+              failureStage = "delete-ciphertext"
+              unlinkSync(ciphertextPath)
+              if (existsSync(ciphertextPath)) fail("CIPHERTEXT_NOT_DELETED")
+              failureStage = "write-decrypt-result"
+              writeResult({
+                schemaVersion: 1,
+                success: true,
+                mode,
+                pid: process.pid,
+                platform: process.platform,
+                electronVersion: process.versions.electron,
+                encryptionAvailable: true,
+                userIdentitySha256: sha256(userIdentity),
+                plaintextSha256,
+                ciphertextSha256: sha256(encrypted),
+                ciphertextBytes: encrypted.length,
+                ciphertextDeleted: true,
+                actualPathsMatched,
+                ...localStateStatus,
+              })
+              process.exitCode = 0
+              app.quit()
+            }).catch(writeFailure)
+          }
           '@ | Set-Content -LiteralPath (Join-Path $smokeRoot "main.cjs") -Encoding utf8
+
+          $allowedFailureStages = @(
+            "configure-profile",
+            "await-ready",
+            "validate-runtime",
+            "encrypt",
+            "persist-ciphertext",
+            "write-encrypt-result",
+            "validate-local-state",
+            "decrypt",
+            "delete-ciphertext",
+            "write-decrypt-result",
+            "resolve-electron",
+            "encrypt-process",
+            "encrypt-result",
+            "durable-local-state",
+            "decrypt-process",
+            "decrypt-result",
+            "verify-proof",
+            "write-evidence"
+          )
+          $allowedFailureCodes = @(
+            "PROFILE_PATH_MISMATCH",
+            "NATIVE_WINDOWS_REQUIRED",
+            "ENCRYPTION_UNAVAILABLE",
+            "INVALID_MODE",
+            "INVALID_BASE64",
+            "NON_CANONICAL_BASE64",
+            "PLAINTEXT_IN_ENCRYPTED_BYTES",
+            "PERSISTED_CIPHERTEXT_MISMATCH",
+            "PLAINTEXT_IN_PERSISTED_CIPHERTEXT",
+            "LOCAL_STATE_NOT_READY",
+            "CIPHERTEXT_NOT_DELETED",
+            "UNEXPECTED_ERROR",
+            "ELECTRON_RESOLUTION_FAILED",
+            "ENCRYPT_PROCESS_FAILED",
+            "DECRYPT_PROCESS_FAILED",
+            "RESULT_MISSING",
+            "RESULT_INVALID",
+            "RESULT_CONTRACT_MISMATCH",
+            "LOCAL_STATE_NOT_DURABLE",
+            "PROOF_MISMATCH",
+            "EVIDENCE_WRITE_FAILED"
+          )
+          $allowedErrorNames = @("Error", "TypeError", "SyntaxError", "SafeStorageSmokeError", "PowerShellError")
+          $failureStage = "resolve-electron"
+          $failureCode = "ELECTRON_RESOLUTION_FAILED"
+          $failureErrorName = "PowerShellError"
+          $actualPathsMatched = $false
+          $localStateStatus = Get-DurableLocalStateStatus -Path $localStatePath
 
           try {
             Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
@@ -436,39 +636,126 @@ jobs:
             }
 
             $env:GUAI_CODE_SAFE_STORAGE_CIPHERTEXT = $ciphertextPath
-            $env:GUAI_CODE_SAFE_STORAGE_USER_DATA = $userDataDirectory
+            $env:GUAI_CODE_SAFE_STORAGE_USER_DATA = $profileDirectory
             $env:GUAI_CODE_SAFE_STORAGE_MODE = "encrypt"
             $env:GUAI_CODE_SAFE_STORAGE_RESULT = $encryptResultPath
-            $encryptProcessId = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $userDataDirectory -Mode "encryption" -TimeoutSeconds $electronTimeoutSeconds
+            $failureStage = "encrypt-process"
+            $failureCode = "ENCRYPT_PROCESS_FAILED"
+            $encryptProcess = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $profileDirectory -Mode "encryption" -TimeoutSeconds $electronTimeoutSeconds
+
+            $failureStage = "encrypt-result"
+            $failureCode = "RESULT_MISSING"
+            if (-not (Test-Path -LiteralPath $encryptResultPath -PathType Leaf)) {
+              throw "safeStorage encryption result is missing."
+            }
+            try {
+              $encryptResult = Get-Content -LiteralPath $encryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
+            }
+            catch {
+              $failureCode = "RESULT_INVALID"
+              throw "safeStorage encryption result is invalid."
+            }
+            if (-not $encryptResult.success) {
+              $failureStage = Select-AllowlistedDiagnostic -Value ([string]$encryptResult.failureStage) -Allowed $allowedFailureStages -Fallback "encrypt-result"
+              $failureCode = Select-AllowlistedDiagnostic -Value ([string]$encryptResult.failureCode) -Allowed $allowedFailureCodes -Fallback "UNEXPECTED_ERROR"
+              $failureErrorName = Select-AllowlistedDiagnostic -Value ([string]$encryptResult.errorName) -Allowed $allowedErrorNames -Fallback "Error"
+              $actualPathsMatched = [bool]$encryptResult.actualPathsMatched
+              $localStateStatus = [ordered]@{
+                localStateExists = [bool]$encryptResult.localStateExists
+                localStateValid = [bool]$encryptResult.localStateValid
+                encryptedKeyPresent = [bool]$encryptResult.encryptedKeyPresent
+              }
+              throw "safeStorage encryption process reported failure."
+            }
+            if ($encryptProcess.exitCode -ne 0) {
+              $failureCode = "ENCRYPT_PROCESS_FAILED"
+              throw "safeStorage encryption process exited unsuccessfully."
+            }
+            $actualPathsMatched = [bool]$encryptResult.actualPathsMatched
+            if (
+              $encryptResult.mode -cne "encrypt" -or
+              $encryptResult.pid -ne $encryptProcess.processId -or
+              -not $actualPathsMatched
+            ) {
+              $failureCode = "RESULT_CONTRACT_MISMATCH"
+              throw "safeStorage encryption result failed validation."
+            }
+
+            $failureStage = "durable-local-state"
+            $failureCode = "LOCAL_STATE_NOT_DURABLE"
+            $localStateStatus = Wait-DurableLocalState -Path $localStatePath -TimeoutSeconds 15
+            if (
+              -not $localStateStatus.localStateExists -or
+              -not $localStateStatus.localStateValid -or
+              -not $localStateStatus.encryptedKeyPresent
+            ) {
+              throw "safeStorage Local State was not durable after encryption."
+            }
+            Start-Sleep -Milliseconds 500
 
             $env:GUAI_CODE_SAFE_STORAGE_MODE = "decrypt"
             $env:GUAI_CODE_SAFE_STORAGE_RESULT = $decryptResultPath
-            $decryptProcessId = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $userDataDirectory -Mode "decryption" -TimeoutSeconds $electronTimeoutSeconds
+            $failureStage = "decrypt-process"
+            $failureCode = "DECRYPT_PROCESS_FAILED"
+            $decryptProcess = Invoke-ElectronSmokeProcess -ElectronPath $electronPath -ApplicationPath $smokeRoot -UserDataPath $profileDirectory -Mode "decryption" -TimeoutSeconds $electronTimeoutSeconds
 
-            $encryptResult = Get-Content -LiteralPath $encryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
-            $decryptResult = Get-Content -LiteralPath $decryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
-            if (-not $encryptResult.success -or -not $decryptResult.success) {
-              throw "safeStorage process did not report success."
+            $failureStage = "decrypt-result"
+            $failureCode = "RESULT_MISSING"
+            if (-not (Test-Path -LiteralPath $decryptResultPath -PathType Leaf)) {
+              throw "safeStorage decryption result is missing."
             }
-            if ($encryptResult.pid -eq $decryptResult.pid) {
-              throw "safeStorage smoke did not use two independent Electron processes."
+            try {
+              $decryptResult = Get-Content -LiteralPath $decryptResultPath -Raw -Encoding utf8 | ConvertFrom-Json
             }
-            if ($encryptResult.pid -ne $encryptProcessId -or $decryptResult.pid -ne $decryptProcessId) {
-              throw "safeStorage result process IDs do not match the launched Electron processes."
+            catch {
+              $failureCode = "RESULT_INVALID"
+              throw "safeStorage decryption result is invalid."
             }
-            if ($encryptResult.userIdentitySha256 -cne $decryptResult.userIdentitySha256) {
-              throw "safeStorage smoke processes did not run as the same Windows user."
+            if (-not $decryptResult.success) {
+              $failureStage = Select-AllowlistedDiagnostic -Value ([string]$decryptResult.failureStage) -Allowed $allowedFailureStages -Fallback "decrypt-result"
+              $failureCode = Select-AllowlistedDiagnostic -Value ([string]$decryptResult.failureCode) -Allowed $allowedFailureCodes -Fallback "UNEXPECTED_ERROR"
+              $failureErrorName = Select-AllowlistedDiagnostic -Value ([string]$decryptResult.errorName) -Allowed $allowedErrorNames -Fallback "Error"
+              $actualPathsMatched = [bool]$decryptResult.actualPathsMatched
+              $localStateStatus = [ordered]@{
+                localStateExists = [bool]$decryptResult.localStateExists
+                localStateValid = [bool]$decryptResult.localStateValid
+                encryptedKeyPresent = [bool]$decryptResult.encryptedKeyPresent
+              }
+              throw "safeStorage decryption process reported failure."
             }
-            if ($encryptResult.plaintextSha256 -cne $decryptResult.plaintextSha256) {
-              throw "safeStorage decrypted plaintext hash does not match the generated canary hash."
+            if ($decryptProcess.exitCode -ne 0) {
+              $failureCode = "DECRYPT_PROCESS_FAILED"
+              throw "safeStorage decryption process exited unsuccessfully."
             }
-            if ($encryptResult.ciphertextSha256 -cne $decryptResult.ciphertextSha256) {
-              throw "safeStorage ciphertext hash changed between processes."
-            }
-            if (-not $decryptResult.ciphertextDeleted -or (Test-Path -LiteralPath $ciphertextPath)) {
-              throw "safeStorage ciphertext was not deleted by the decryption process."
+            $actualPathsMatched = $actualPathsMatched -and [bool]$decryptResult.actualPathsMatched
+            if (
+              $decryptResult.mode -cne "decrypt" -or
+              $decryptResult.pid -ne $decryptProcess.processId -or
+              -not $actualPathsMatched -or
+              -not $decryptResult.localStateExists -or
+              -not $decryptResult.localStateValid -or
+              -not $decryptResult.encryptedKeyPresent
+            ) {
+              $failureCode = "RESULT_CONTRACT_MISMATCH"
+              throw "safeStorage decryption result failed validation."
             }
 
+            $failureStage = "verify-proof"
+            $failureCode = "PROOF_MISMATCH"
+            if (
+              $encryptResult.pid -eq $decryptResult.pid -or
+              $encryptResult.userIdentitySha256 -cne $decryptResult.userIdentitySha256 -or
+              $encryptResult.plaintextSha256 -cne $decryptResult.plaintextSha256 -or
+              $encryptResult.ciphertextSha256 -cne $decryptResult.ciphertextSha256 -or
+              $encryptResult.plaintextPersisted -or
+              -not $decryptResult.ciphertextDeleted -or
+              (Test-Path -LiteralPath $ciphertextPath)
+            ) {
+              throw "safeStorage cross-process proof failed validation."
+            }
+
+            $failureStage = "write-evidence"
+            $failureCode = "EVIDENCE_WRITE_FAILED"
             [ordered]@{
               schemaVersion = 1
               success = $true
@@ -485,7 +772,27 @@ jobs:
               ciphertextBytes = $encryptResult.ciphertextBytes
               plaintextPersisted = $false
               ciphertextDeleted = $true
+              localStateExists = $true
+              localStateValid = $true
+              encryptedKeyPresent = $true
+              actualPathsMatched = $true
             } | ConvertTo-Json | Set-Content -LiteralPath $safeStorageEvidence -Encoding utf8
+          }
+          catch {
+            $failureErrorName = Select-AllowlistedDiagnostic -Value $failureErrorName -Allowed $allowedErrorNames -Fallback "PowerShellError"
+            $localStateStatus = Get-DurableLocalStateStatus -Path $localStatePath
+            [ordered]@{
+              schemaVersion = 1
+              success = $false
+              failureStage = $failureStage
+              failureCode = $failureCode
+              errorName = $failureErrorName
+              localStateExists = [bool]$localStateStatus.localStateExists
+              localStateValid = [bool]$localStateStatus.localStateValid
+              encryptedKeyPresent = [bool]$localStateStatus.encryptedKeyPresent
+              actualPathsMatched = [bool]$actualPathsMatched
+            } | ConvertTo-Json | Set-Content -LiteralPath $safeStorageEvidence -Encoding utf8
+            throw "safeStorage smoke failed at stage '$failureStage' with code '$failureCode'."
           }
           finally {
             Remove-Item Env:GUAI_CODE_SAFE_STORAGE_MODE -ErrorAction SilentlyContinue
@@ -508,7 +815,7 @@ jobs:
 
       - name: Scan package and smoke evidence for credential canaries
         id: credential_scan
-        if: always() && steps.package.outcome == 'success'
+        if: always() && steps.package.outcome == 'success' && steps.verifier.outcome == 'success'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
