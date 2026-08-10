@@ -46,13 +46,6 @@ export function createInternalWindowsArtifactPlan(packageDir: string, version: s
   }
 }
 
-export function assertMinGitContentLength(contentLength: string | null) {
-  if (contentLength === String(MINGIT_SIZE_BYTES)) return
-  throw new Error(
-    `MinGit Content-Length mismatch: expected ${MINGIT_SIZE_BYTES}, received ${contentLength ?? "missing"}`,
-  )
-}
-
 export function assertMinGitSize(size: number) {
   if (size === MINGIT_SIZE_BYTES) return
   throw new Error(`MinGit size mismatch: expected ${MINGIT_SIZE_BYTES}, received ${size}`)
@@ -88,30 +81,28 @@ export function createMinGitDownloadCommand(temporary: string) {
 
 type DownloadProcess = {
   exited: Promise<number>
-  kill: () => void
+}
+
+type DownloadProcessOptions = {
+  stdout: "inherit"
+  stderr: "inherit"
+  timeout: number
+  killSignal: "SIGKILL"
 }
 
 export async function runProcessWithHardTimeout(
   command: string[],
   timeoutMs: number,
-  spawn: (command: string[]) => DownloadProcess = (input) =>
-    Bun.spawn(input, { stdout: "inherit", stderr: "inherit" }),
+  spawn: (command: string[], options: DownloadProcessOptions) => DownloadProcess = (input, options) =>
+    Bun.spawn(input, options),
 ) {
-  const child = spawn(command)
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  const result = await Promise.race([
-    child.exited.then((exitCode) => ({ type: "exit" as const, exitCode })),
-    new Promise<{ type: "timeout" }>((resolve) => {
-      timeout = setTimeout(() => resolve({ type: "timeout" }), timeoutMs)
-    }),
-  ]).finally(() => clearTimeout(timeout))
-
-  if (result.type === "timeout") {
-    child.kill()
-    await child.exited
-    throw new Error(`Download process timed out after ${timeoutMs} ms`)
-  }
-  if (result.exitCode !== 0) throw new Error(`Download process failed with exit code ${result.exitCode}`)
+  const exitCode = await spawn(command, {
+    stdout: "inherit",
+    stderr: "inherit",
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
+  }).exited
+  if (exitCode !== 0) throw new Error(`Download process failed with exit code ${exitCode}`)
 }
 
 export async function runDownloadAttempts(options: {

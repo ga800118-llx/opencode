@@ -7,7 +7,6 @@ import { formatChecksumManifest, sha256 } from "./internal-package"
 import {
   assertInternalWindowsHost,
   assertMinGitChecksum,
-  assertMinGitContentLength,
   assertMinGitSize,
   createMinGitDownloadCommand,
   createInternalWindowsArtifactPlan,
@@ -73,13 +72,10 @@ describe("internal Windows package", () => {
     expect(MINGIT_DOWNLOAD_RETRY_DELAY_MS).toBe(5_000)
   })
 
-  test("fails closed on MinGit response and archive metadata", () => {
-    expect(() => assertMinGitContentLength(String(MINGIT_SIZE_BYTES))).not.toThrow()
+  test("fails closed on MinGit archive metadata", () => {
     expect(() => assertMinGitSize(MINGIT_SIZE_BYTES)).not.toThrow()
     expect(() => assertMinGitChecksum(MINGIT_SHA256)).not.toThrow()
 
-    expect(() => assertMinGitContentLength(null)).toThrow("Content-Length")
-    expect(() => assertMinGitContentLength(String(MINGIT_SIZE_BYTES - 1))).toThrow("Content-Length")
     expect(() => assertMinGitSize(MINGIT_SIZE_BYTES + 1)).toThrow("size mismatch")
     expect(() => assertMinGitChecksum("0".repeat(64))).toThrow("checksum mismatch")
   })
@@ -116,23 +112,24 @@ describe("internal Windows package", () => {
     ])
   })
 
-  test("kills a download process when its whole transfer exceeds the hard timeout", async () => {
-    let finish = (_exitCode: number) => {}
-    let killed = false
-    const exited = new Promise<number>((resolve) => {
-      finish = resolve
+  test("gives the download process a native hard timeout and force-kill signal", async () => {
+    const command = ["curl.exe", MINGIT_URL]
+    let spawnedCommand: string[] | undefined
+    let spawnedOptions: Record<string, unknown> | undefined
+
+    await runProcessWithHardTimeout(command, 120_000, (input, options) => {
+      spawnedCommand = input
+      spawnedOptions = options
+      return { exited: Promise.resolve(0) }
     })
 
-    await expect(
-      runProcessWithHardTimeout(["curl.exe", MINGIT_URL], 5, () => ({
-        exited,
-        kill() {
-          killed = true
-          finish(1)
-        },
-      })),
-    ).rejects.toThrow("timed out after 5 ms")
-    expect(killed).toBeTrue()
+    expect(spawnedCommand).toEqual(command)
+    expect(spawnedOptions).toEqual({
+      stdout: "inherit",
+      stderr: "inherit",
+      timeout: 120_000,
+      killSignal: "SIGKILL",
+    })
   })
 
   test("retries a bounded number of times, logs each stage, and removes partial downloads", async () => {
