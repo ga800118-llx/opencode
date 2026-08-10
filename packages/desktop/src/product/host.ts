@@ -134,7 +134,7 @@ export function createProductCredentialCapabilities(
       : platform === "win32"
         ? "windows-credential-manager"
         : "unsupported"
-  const enabled = platform === "darwin" && available
+  const enabled = (platform === "darwin" || platform === "win32") && available
   return Object.freeze({
     namespace,
     backend,

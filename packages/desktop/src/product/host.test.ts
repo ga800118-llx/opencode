@@ -84,7 +84,7 @@ describe("desktop product host", () => {
     ).toEqual({ state: "unavailable", attempt: 0, changedAt: 50 })
   })
 
-  test("declares credential backends without enabling secret operations", () => {
+  test("enables supported credential backends only when encryption is available", () => {
     const mac = createProductCredentialCapabilities("dev.agent.desktop.credentials", "darwin")
     const windows = createProductCredentialCapabilities("dev.agent.desktop.credentials", "win32")
     const linux = createProductCredentialCapabilities("dev.agent.desktop.credentials", "linux")
@@ -99,9 +99,18 @@ describe("desktop product host", () => {
       available: true,
       operations: { read: true, write: true, delete: true },
     })
-    expect(createProductCredentialCapabilities("dev.agent.desktop.credentials", "win32", true).available).toBe(
-      false,
-    )
+    expect(createProductCredentialCapabilities("dev.agent.desktop.credentials", "win32", true)).toEqual({
+      namespace: "dev.agent.desktop.credentials",
+      backend: "windows-credential-manager",
+      available: true,
+      operations: { read: true, write: true, delete: true },
+    })
+    expect(createProductCredentialCapabilities("dev.agent.desktop.credentials", "linux", true)).toEqual({
+      namespace: "dev.agent.desktop.credentials",
+      backend: "unsupported",
+      available: false,
+      operations: { read: false, write: false, delete: false },
+    })
   })
 
   test("creates a frozen host that delegates lifecycle operations", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createProductCredentialCapabilities } from "../../product/host"
 import { createCredentialService, type CredentialStore, type SafeStorageAdapter } from "./credentials"
 
-function fixture(input: { platform?: NodeJS.Platform; available?: boolean } = {}) {
+function fixture(input: { platform?: NodeJS.Platform; available?: boolean; availabilityThrows?: boolean } = {}) {
   const values = new Map<string, unknown>()
   const writes: unknown[] = []
   const store: CredentialStore = {
@@ -18,7 +18,10 @@ function fixture(input: { platform?: NodeJS.Platform; available?: boolean } = {}
     },
   }
   const safeStorage: SafeStorageAdapter = {
-    isEncryptionAvailable: () => input.available ?? true,
+    isEncryptionAvailable: () => {
+      if (input.availabilityThrows) throw new Error("raw availability detail")
+      return input.available ?? true
+    },
     encryptString: (plainText) => Buffer.from(`cipher:${Buffer.from(plainText).toString("base64")}`),
     decryptString: (encrypted) => {
       const value = encrypted.toString()
@@ -67,10 +70,35 @@ describe("createCredentialService", () => {
     expect(fake.service.has("model-profile:one")).toBe(false)
   })
 
-  test("reports unavailable operations outside an available macOS keychain", () => {
+  test("writes, reads, and deletes encrypted credential envelopes on Windows", () => {
+    const fake = fixture({ platform: "win32" })
+    fake.service.write("model-profile:windows", {
+      apiKey: "sk-windows-secret",
+      headers: { Authorization: "Bearer windows-header" },
+    })
+
+    expect(fake.service.capabilities()).toEqual({
+      namespace: "dev.agent.desktop.credentials",
+      backend: "windows-credential-manager",
+      available: true,
+      operations: { read: true, write: true, delete: true },
+    })
+    expect(fake.service.read("model-profile:windows")).toEqual({
+      apiKey: "sk-windows-secret",
+      headers: { Authorization: "Bearer windows-header" },
+    })
+    expect(JSON.stringify(fake.values.get("credentials"))).not.toContain("sk-windows-secret")
+    expect(JSON.stringify(fake.values.get("credentials"))).not.toContain("Bearer windows-header")
+
+    fake.service.delete("model-profile:windows")
+    expect(fake.service.has("model-profile:windows")).toBe(false)
+    expect(fake.values.has("credentials")).toBe(false)
+  })
+
+  test("reports unavailable operations without supported encryption", () => {
     for (const item of [
       { platform: "darwin", available: false, backend: "macos-keychain" },
-      { platform: "win32", available: true, backend: "windows-credential-manager" },
+      { platform: "win32", available: false, backend: "windows-credential-manager" },
       { platform: "linux", available: true, backend: "unsupported" },
     ] as const) {
       const fake = fixture({ platform: item.platform, available: item.available })
@@ -82,6 +110,21 @@ describe("createCredentialService", () => {
         "Secure credential storage is unavailable.",
       )
     }
+  })
+
+  test("fails closed when safeStorage availability checks throw", () => {
+    const fake = fixture({ platform: "win32", availabilityThrows: true })
+
+    expect(fake.service.capabilities()).toEqual(
+      createProductCredentialCapabilities("dev.agent.desktop.credentials", "win32", false),
+    )
+    expect(() => fake.service.read("model-profile:one")).toThrow("Secure credential storage is unavailable.")
+    expect(() => fake.service.write("model-profile:one", { apiKey: "secret" })).toThrow(
+      "Secure credential storage is unavailable.",
+    )
+    expect(() => fake.service.delete("model-profile:one")).toThrow(
+      "Secure credential storage is unavailable.",
+    )
   })
 
   test("maps corrupt ciphertext and malformed envelopes to fixed errors", () => {

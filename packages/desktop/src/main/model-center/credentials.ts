@@ -39,7 +39,7 @@ const MAX_SECRET_LENGTH = 32_768
 
 export function createCredentialService(options: CredentialServiceOptions): ProductCredentialService {
   const encryptionAvailable = () => {
-    if (options.platform !== "darwin") return false
+    if (options.platform !== "darwin" && options.platform !== "win32") return false
     try {
       return options.safeStorage.isEncryptionAvailable()
     } catch {
