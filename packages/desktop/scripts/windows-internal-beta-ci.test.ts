@@ -5,14 +5,21 @@ const verifierPath = path.join(import.meta.dir, "verify-internal-windows.ps1")
 const workflowPath = path.join(import.meta.dir, "..", "..", "..", ".github", "workflows", "windows-internal-beta.yml")
 
 function section(source: string, start: string, end: string) {
-  const startIndex = source.indexOf(start)
-  const endIndex = source.indexOf(end, startIndex)
+  const normalizedSource = source.replaceAll("\r\n", "\n")
+  const startIndex = normalizedSource.indexOf(start)
+  const endIndex = normalizedSource.indexOf(end, startIndex)
   expect(startIndex).toBeGreaterThanOrEqual(0)
   expect(endIndex).toBeGreaterThan(startIndex)
-  return source.slice(startIndex, endIndex)
+  return normalizedSource.slice(startIndex, endIndex)
 }
 
 describe("Windows internal beta CI safety contracts", () => {
+  test("extracts sections from CRLF sources with LF markers", () => {
+    const source = "before\r\nstart\r\nbody\r\nend\r\nafter"
+
+    expect(section(source, "start\nbody", "\nend")).toBe("start\nbody")
+  })
+
   test("validates exact delivery contents without dereferencing an empty directory collection", async () => {
     const verifier = await Bun.file(verifierPath).text()
     const exactDelivery = section(
