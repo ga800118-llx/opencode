@@ -389,6 +389,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         case "session.agent.selected":
           if (store.session.info[event.data.sessionID])
             setStore("session", "info", event.data.sessionID, "agent", event.data.agent)
+          if (!store.session.message[event.data.sessionID]) break
           message.update(event.data.sessionID, (draft, index) => {
             message.append(draft, index, {
               id: messageIDFromEvent(event.id),
@@ -397,6 +398,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               time: { created: event.created },
             })
           })
+          void client.api.session
+            .message({ sessionID: event.data.sessionID, messageID: messageIDFromEvent(event.id) })
+            .then((item) => {
+              message.update(event.data.sessionID, (draft, index) => {
+                const position = index.get(item.id)
+                if (position === undefined) return message.append(draft, index, item)
+                draft[position] = item
+              })
+            })
+            .catch((error) => console.error("Failed to load projected agent switch message", error))
           break
         case "session.model.selected":
           if (store.session.info[event.data.sessionID])

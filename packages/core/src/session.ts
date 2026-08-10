@@ -307,6 +307,7 @@ const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const activeShells = new Set<SessionSchema.ID>()
     const shellLocks = KeyedMutex.makeUnsafe<SessionSchema.ID>()
+    const selectionLocks = KeyedMutex.makeUnsafe<SessionSchema.ID>()
     const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Info)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
     const persistProject = (project: Project.Resolved) => {
@@ -716,24 +717,29 @@ const layer = Layer.effect(
             .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
       }),
       switchAgent: Effect.fn("Session.switchAgent")(function* (input) {
-        yield* result.get(input.sessionID)
-        yield* bus.publish(SessionEvent.AgentSelected, {
-          sessionID: input.sessionID,
-          agent: input.agent,
-        })
+        yield* Effect.gen(function* () {
+          const session = yield* result.get(input.sessionID)
+          if (session.agent === input.agent) return
+          yield* bus.publish(SessionEvent.AgentSelected, {
+            sessionID: input.sessionID,
+            agent: input.agent,
+          })
+        }).pipe(selectionLocks.withLock(input.sessionID))
       }),
       switchModel: Effect.fn("Session.switchModel")(function* (input) {
-        const session = yield* result.get(input.sessionID)
-        if (
-          session.model?.providerID === input.model.providerID &&
-          session.model.id === input.model.id &&
-          (session.model.variant ?? "default") === (input.model.variant ?? "default")
-        )
-          return
-        yield* bus.publish(SessionEvent.ModelSelected, {
-          sessionID: input.sessionID,
-          model: input.model,
-        })
+        yield* Effect.gen(function* () {
+          const session = yield* result.get(input.sessionID)
+          if (
+            session.model?.providerID === input.model.providerID &&
+            session.model.id === input.model.id &&
+            (session.model.variant ?? "default") === (input.model.variant ?? "default")
+          )
+            return
+          yield* bus.publish(SessionEvent.ModelSelected, {
+            sessionID: input.sessionID,
+            model: input.model,
+          })
+        }).pipe(selectionLocks.withLock(input.sessionID))
       }),
       rename: Effect.fn("Session.rename")(function* (input) {
         yield* result.get(input.sessionID)

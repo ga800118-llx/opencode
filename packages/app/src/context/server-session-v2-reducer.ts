@@ -9,6 +9,7 @@ export type V2SessionReduction = {
   messages: SessionMessageInfo[]
   touched: string[]
   missing?: string
+  hydrate?: string
 }
 
 export function createV2SessionReducer() {
@@ -24,6 +25,7 @@ export function createV2SessionReducer() {
     })
     const append = (message: SessionMessageInfo) =>
       result(source.some((item) => item.id === message.id) ? [...source] : [...source, message], [message.id])
+    const hydrate = (message: SessionMessageInfo) => ({ ...append(message), hydrate: message.id })
 
     switch (event.type) {
       case "session.input.admitted":
@@ -56,15 +58,19 @@ export function createV2SessionReducer() {
         })
       }
       case "session.agent.selected":
-        return append({
+        return hydrate({
           id: messageID(event.id),
           type: "agent-switched",
           metadata: event.metadata,
           agent: event.data.agent,
+          previous: source.findLast(
+            (item): item is Extract<SessionMessageInfo, { type: "agent-switched" | "assistant" }> =>
+              item.type === "agent-switched" || item.type === "assistant",
+          )?.agent,
           time: { created: event.created },
         })
       case "session.model.selected":
-        return append({
+        return hydrate({
           id: messageID(event.id),
           type: "model-switched",
           metadata: event.metadata,

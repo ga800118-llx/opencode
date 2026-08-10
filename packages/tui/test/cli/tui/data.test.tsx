@@ -2569,6 +2569,17 @@ test("reconciles active session forms when the event stream reconnects", async (
 test("settles pending tools when a live failure arrives", async () => {
   const events = createEventStream()
   const calls = createFetch((url) => {
+    if (url.pathname === "/api/session/session-1/message") return json({ data: [], cursor: {} })
+    if (url.pathname === "/api/session/session-1/message/msg_agent_1")
+      return json({
+        data: {
+          id: "msg_agent_1",
+          type: "agent-switched",
+          previous: "plan",
+          agent: "build",
+          time: { created: 0 },
+        },
+      })
     if (url.pathname === "/api/session/session-1/message/msg_model_1")
       return json({
         data: {
@@ -2606,6 +2617,7 @@ test("settles pending tools when a live failure arrives", async () => {
 
   try {
     await mounted
+    await sync.session.message.sync("session-1")
     emitEvent(events, {
       id: "evt_agent_1",
       created: 0,
@@ -2728,6 +2740,11 @@ test("settles pending tools when a live failure arrives", async () => {
       "model-switched",
       "assistant",
     ])
+    expect(sync.session.message.get("session-1", "msg_agent_1")).toMatchObject({
+      type: "agent-switched",
+      previous: "plan",
+      agent: "build",
+    })
     expect(sync.session.message.get("session-1", "msg_model_1")).toMatchObject({
       type: "model-switched",
       previous: { id: "model-1", providerID: "provider-1", variant: "medium" },

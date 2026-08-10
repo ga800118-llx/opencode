@@ -154,6 +154,60 @@ describe("v2 session reducer", () => {
     expect(result).toMatchObject({ sessionID: "ses_1", missing: "msg_user", touched: [] })
   })
 
+  test("tracks the previous agent on agent switch messages", () => {
+    const reducer = createV2SessionReducer()
+    let messages: SessionMessageInfo[] = [
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [],
+        time: { created: 0 },
+      },
+    ]
+    const apply = (agent: string, id: string) => {
+      const result = reducer.reduce(
+        messages,
+        event({ ...base, id, type: "session.agent.selected", data: { sessionID: "ses_1", agent } }),
+      )
+      if (result) messages = result.messages
+    }
+
+    apply("plan", "evt_plan")
+    apply("build", "evt_build")
+
+    expect(messages.slice(-2)).toMatchObject([
+      { type: "agent-switched", agent: "plan", previous: "build" },
+      { type: "agent-switched", agent: "build", previous: "plan" },
+    ])
+  })
+
+  test("requests canonical hydration for selection messages", () => {
+    const reducer = createV2SessionReducer()
+    const agent = reducer.reduce(
+      [],
+      event({
+        ...base,
+        id: "evt_agent",
+        type: "session.agent.selected",
+        data: { sessionID: "ses_1", agent: "plan" },
+      }),
+    )
+    const model = reducer.reduce(
+      [],
+      event({
+        ...base,
+        id: "evt_model",
+        type: "session.model.selected",
+        data: { sessionID: "ses_1", model: { id: "model", providerID: "provider" } },
+      }),
+    )
+
+    expect(agent).toMatchObject({ hydrate: "msg_agent" })
+    expect(model).toMatchObject({ hydrate: "msg_model" })
+  })
+
   test("removes cancelled input from the pending promotion fold", () => {
     const reducer = createV2SessionReducer()
     reducer.reduce(

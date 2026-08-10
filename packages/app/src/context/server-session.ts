@@ -901,6 +901,7 @@ export function createServerSession(
     if (reduction) {
       projectV2(reduction)
       if (reduction.missing) hydrateV2Message(sessionID, reduction.missing)
+      if (reduction.hydrate) hydrateV2Message(sessionID, reduction.hydrate)
     }
 
     const info = data.info[sessionID]

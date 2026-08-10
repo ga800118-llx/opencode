@@ -673,6 +673,36 @@ describe("Session.create", () => {
     }),
   )
 
+  it.effect("ignores an agent switch when the selected agent is unchanged", () =>
+    Effect.gen(function* () {
+      const session = yield* Session.Service
+      const created = yield* session.create({ location, agent: Agent.defaultID })
+
+      yield* session.switchAgent({ sessionID: created.id, agent: Agent.ID.make("plan") })
+      yield* session.switchAgent({ sessionID: created.id, agent: Agent.ID.make("plan") })
+
+      const { db } = yield* Database.Service
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, created.id)).all().pipe(Effect.orDie),
+      ).toHaveLength(2)
+    }),
+  )
+
+  it.effect("serializes concurrent duplicate agent switches", () =>
+    Effect.gen(function* () {
+      const session = yield* Session.Service
+      const created = yield* session.create({ location, agent: Agent.defaultID })
+      const input = { sessionID: created.id, agent: Agent.ID.make("plan") }
+
+      yield* Effect.all([session.switchAgent(input), session.switchAgent(input)], { concurrency: "unbounded" })
+
+      const { db } = yield* Database.Service
+      expect(
+        yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, created.id)).all().pipe(Effect.orDie),
+      ).toHaveLength(2)
+    }),
+  )
+
   it.effect("switches the selected model through the durable Session event", () =>
     Effect.gen(function* () {
       const session = yield* Session.Service
