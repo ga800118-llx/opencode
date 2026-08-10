@@ -9,16 +9,21 @@ import {
   assertMinGitChecksum,
   assertMinGitContentLength,
   assertMinGitSize,
+  createMinGitDownloadCommand,
   createInternalWindowsArtifactPlan,
   createPortableZipCommand,
   createPortableZipVerificationCommand,
   MINGIT_ASSET,
+  MINGIT_DOWNLOAD_ATTEMPTS,
+  MINGIT_DOWNLOAD_RETRY_DELAY_MS,
   MINGIT_DOWNLOAD_TIMEOUT_MS,
   MINGIT_RELEASE,
   MINGIT_SHA256,
   MINGIT_SIZE_BYTES,
   MINGIT_URL,
   PORTABLE_ZIP_REQUIRED_ENTRIES,
+  runDownloadAttempts,
+  runProcessWithHardTimeout,
   withDownloadTemporaryFile,
 } from "./package-internal-windows"
 
@@ -64,6 +69,8 @@ describe("internal Windows package", () => {
     expect(MINGIT_SHA256).toBe("f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05")
     expect(MINGIT_SIZE_BYTES).toBe(38_791_206)
     expect(MINGIT_DOWNLOAD_TIMEOUT_MS).toBe(120_000)
+    expect(MINGIT_DOWNLOAD_ATTEMPTS).toBe(3)
+    expect(MINGIT_DOWNLOAD_RETRY_DELAY_MS).toBe(5_000)
   })
 
   test("fails closed on MinGit response and archive metadata", () => {
@@ -88,6 +95,83 @@ describe("internal Windows package", () => {
       }),
     ).rejects.toThrow("write failed")
     expect(await Bun.file(temporary).exists()).toBeFalse()
+
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  test("downloads MinGit with curl.exe and visible transfer progress", () => {
+    const temporary = path.join("C:\\cache", `${MINGIT_ASSET}.download`)
+
+    expect(createMinGitDownloadCommand(temporary)).toEqual([
+      "curl.exe",
+      "--fail",
+      "--location",
+      "--show-error",
+      "--progress-bar",
+      "--connect-timeout",
+      "30",
+      "--output",
+      temporary,
+      MINGIT_URL,
+    ])
+  })
+
+  test("kills a download process when its whole transfer exceeds the hard timeout", async () => {
+    let finish = (_exitCode: number) => {}
+    let killed = false
+    const exited = new Promise<number>((resolve) => {
+      finish = resolve
+    })
+
+    await expect(
+      runProcessWithHardTimeout(["curl.exe", MINGIT_URL], 5, () => ({
+        exited,
+        kill() {
+          killed = true
+          finish(1)
+        },
+      })),
+    ).rejects.toThrow("timed out after 5 ms")
+    expect(killed).toBeTrue()
+  })
+
+  test("retries a bounded number of times, logs each stage, and removes partial downloads", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mingit-retry-"))
+    const temporary = path.join(directory, `${MINGIT_ASSET}.download`)
+    const logs: string[] = []
+    const delays: number[] = []
+    const observedPartialFiles: boolean[] = []
+
+    await expect(
+      runDownloadAttempts({
+        temporary,
+        attempts: MINGIT_DOWNLOAD_ATTEMPTS,
+        retryDelayMs: MINGIT_DOWNLOAD_RETRY_DELAY_MS,
+        log: (message) => logs.push(message),
+        delay: async (milliseconds) => {
+          delays.push(milliseconds)
+        },
+        run: async (attempt) => {
+          observedPartialFiles.push(await Bun.file(temporary).exists())
+          await Bun.write(temporary, `partial-${attempt}`)
+          throw new Error(`network-${attempt}`)
+        },
+      }),
+    ).rejects.toThrow("failed after 3 attempts")
+
+    expect(observedPartialFiles).toEqual([false, false, false])
+    expect(delays).toEqual([MINGIT_DOWNLOAD_RETRY_DELAY_MS, MINGIT_DOWNLOAD_RETRY_DELAY_MS])
+    expect(await Bun.file(temporary).exists()).toBeFalse()
+    expect(logs).toEqual([
+      `[MinGit] Download attempt 1/${MINGIT_DOWNLOAD_ATTEMPTS}`,
+      `[MinGit] Download attempt 1/${MINGIT_DOWNLOAD_ATTEMPTS} failed: network-1`,
+      `[MinGit] Retrying in ${MINGIT_DOWNLOAD_RETRY_DELAY_MS} ms`,
+      `[MinGit] Download attempt 2/${MINGIT_DOWNLOAD_ATTEMPTS}`,
+      `[MinGit] Download attempt 2/${MINGIT_DOWNLOAD_ATTEMPTS} failed: network-2`,
+      `[MinGit] Retrying in ${MINGIT_DOWNLOAD_RETRY_DELAY_MS} ms`,
+      `[MinGit] Download attempt 3/${MINGIT_DOWNLOAD_ATTEMPTS}`,
+      `[MinGit] Download attempt 3/${MINGIT_DOWNLOAD_ATTEMPTS} failed: network-3`,
+    ])
 
     await rm(directory, { recursive: true, force: true })
   })

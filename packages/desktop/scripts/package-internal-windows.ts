@@ -14,6 +14,8 @@ export const MINGIT_URL = `https://github.com/git-for-windows/git/releases/downl
 export const MINGIT_SHA256 = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05"
 export const MINGIT_SIZE_BYTES = 38_791_206
 export const MINGIT_DOWNLOAD_TIMEOUT_MS = 120_000
+export const MINGIT_DOWNLOAD_ATTEMPTS = 3
+export const MINGIT_DOWNLOAD_RETRY_DELAY_MS = 5_000
 export const PORTABLE_ZIP_REQUIRED_ENTRIES = [
   "Guai Code Beta.exe",
   "resources/mingit/cmd/git.exe",
@@ -69,6 +71,87 @@ export async function withDownloadTemporaryFile<T>(temporary: string, action: ()
   }
 }
 
+export function createMinGitDownloadCommand(temporary: string) {
+  return [
+    "curl.exe",
+    "--fail",
+    "--location",
+    "--show-error",
+    "--progress-bar",
+    "--connect-timeout",
+    "30",
+    "--output",
+    temporary,
+    MINGIT_URL,
+  ]
+}
+
+type DownloadProcess = {
+  exited: Promise<number>
+  kill: () => void
+}
+
+export async function runProcessWithHardTimeout(
+  command: string[],
+  timeoutMs: number,
+  spawn: (command: string[]) => DownloadProcess = (input) =>
+    Bun.spawn(input, { stdout: "inherit", stderr: "inherit" }),
+) {
+  const child = spawn(command)
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const result = await Promise.race([
+    child.exited.then((exitCode) => ({ type: "exit" as const, exitCode })),
+    new Promise<{ type: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => resolve({ type: "timeout" }), timeoutMs)
+    }),
+  ]).finally(() => clearTimeout(timeout))
+
+  if (result.type === "timeout") {
+    child.kill()
+    await child.exited
+    throw new Error(`Download process timed out after ${timeoutMs} ms`)
+  }
+  if (result.exitCode !== 0) throw new Error(`Download process failed with exit code ${result.exitCode}`)
+}
+
+export async function runDownloadAttempts(options: {
+  temporary: string
+  attempts: number
+  retryDelayMs: number
+  run: (attempt: number) => Promise<void>
+  log?: (message: string) => void
+  delay?: (milliseconds: number) => Promise<void>
+}) {
+  const log = options.log ?? console.log
+  const delay =
+    options.delay ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)))
+
+  const attempt = async (current: number): Promise<void> => {
+    await rm(options.temporary, { force: true })
+    log(`[MinGit] Download attempt ${current}/${options.attempts}`)
+    const result = await options.run(current).then(
+      () => ({ success: true as const }),
+      (error: unknown) => ({ success: false as const, error }),
+    )
+    if (result.success) return
+
+    await rm(options.temporary, { force: true })
+    const message = result.error instanceof Error ? result.error.message : String(result.error)
+    log(`[MinGit] Download attempt ${current}/${options.attempts} failed: ${message}`)
+    if (current >= options.attempts) {
+      throw new Error(`MinGit download failed after ${options.attempts} attempts: ${message}`, {
+        cause: result.error,
+      })
+    }
+
+    log(`[MinGit] Retrying in ${options.retryDelayMs} ms`)
+    await delay(options.retryDelayMs)
+    return attempt(current + 1)
+  }
+
+  return attempt(1)
+}
+
 export function createPortableZipCommand(source: string, destination: string) {
   return `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory(${quotePowerShell(source)}, ${quotePowerShell(destination)}, [System.IO.Compression.CompressionLevel]::Optimal, $false)`
 }
@@ -83,23 +166,32 @@ async function downloadMinGit() {
   const archive = path.join(directory, MINGIT_ASSET)
   await mkdir(directory, { recursive: true })
 
+  console.log(`[MinGit] Checking cache: ${archive}`)
   if (await Bun.file(archive).exists()) {
     if ((await stat(archive)).size === MINGIT_SIZE_BYTES && (await sha256(archive)) === MINGIT_SHA256) {
+      console.log("[MinGit] Using verified cached archive")
       return archive
     }
+    console.log("[MinGit] Cached archive is invalid; removing it")
     await rm(archive, { force: true })
   }
 
   const temporary = `${archive}.${process.pid}-${randomUUID()}.download`
   return withDownloadTemporaryFile(temporary, async () => {
-    const response = await fetch(MINGIT_URL, { signal: AbortSignal.timeout(MINGIT_DOWNLOAD_TIMEOUT_MS) })
-    if (!response.ok || !response.body) {
-      throw new Error(`Failed to download MinGit: HTTP ${response.status} ${response.statusText}`)
-    }
-    assertMinGitContentLength(response.headers.get("content-length"))
-    await Bun.write(temporary, response)
-    assertMinGitSize((await stat(temporary)).size)
-    assertMinGitChecksum(await sha256(temporary))
+    console.log(`[MinGit] Cache miss; downloading ${MINGIT_URL}`)
+    await runDownloadAttempts({
+      temporary,
+      attempts: MINGIT_DOWNLOAD_ATTEMPTS,
+      retryDelayMs: MINGIT_DOWNLOAD_RETRY_DELAY_MS,
+      run: async () => {
+        await runProcessWithHardTimeout(createMinGitDownloadCommand(temporary), MINGIT_DOWNLOAD_TIMEOUT_MS)
+        console.log("[MinGit] Validating downloaded archive size")
+        assertMinGitSize((await stat(temporary)).size)
+        console.log("[MinGit] Validating downloaded archive SHA-256")
+        assertMinGitChecksum(await sha256(temporary))
+      },
+    })
+    console.log("[MinGit] Promoting verified archive to cache")
     await rename(temporary, archive)
     return archive
   })
@@ -138,6 +230,7 @@ export async function packageInternalWindows() {
     process.env.MODELS_DEV_API_JSON = cachedModels
   }
 
+  console.log("[Windows package] Cleaning previous build outputs")
   await rm(plan.directory, { recursive: true, force: true })
   await Promise.all([
     rm(plan.builderInstaller, { force: true }),
@@ -145,7 +238,9 @@ export async function packageInternalWindows() {
     rm(plan.staging, { recursive: true, force: true }),
   ])
 
+  console.log("[Windows package] Preparing bundled MinGit")
   const archive = await downloadMinGit()
+  console.log("[Windows package] Extracting bundled MinGit")
   await mkdir(path.dirname(plan.staging), { recursive: true })
   await runPowerShell(
     `$global:ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath ${quotePowerShell(archive)} -DestinationPath ${quotePowerShell(plan.staging)} -Force`,
@@ -156,12 +251,16 @@ export async function packageInternalWindows() {
   ])
 
   process.env.GUAI_CODE_BUNDLED_GIT_DIR = plan.staging
+  console.log("[Windows package] Preparing desktop assets")
   await $`bun ./scripts/prebuild.ts`.cwd(packageDir)
+  console.log("[Windows package] Building desktop application")
   await $`./node_modules/.bin/electron-vite build`.cwd(packageDir)
+  console.log("[Windows package] Creating Windows installer and unpacked application")
   await $`./node_modules/.bin/electron-builder --win --x64 --publish never --config electron-builder.config.ts`.cwd(
     packageDir,
   )
 
+  console.log("[Windows package] Validating packaged application resources")
   if (!(await stat(plan.unpacked)).isDirectory()) {
     throw new Error(`Expected unpacked application directory was not created: ${plan.unpacked}`)
   }
@@ -177,6 +276,7 @@ export async function packageInternalWindows() {
     requireFile(path.join(resources, "licenses", "OpenCode-MIT.txt")),
   ])
 
+  console.log("[Windows package] Creating and verifying portable ZIP")
   await mkdir(plan.directory, { recursive: true })
   await runPowerShell(createPortableZipCommand(plan.unpacked, plan.portableZip))
   await runPowerShell(createPortableZipVerificationCommand(plan.portableZip))
@@ -186,6 +286,7 @@ export async function packageInternalWindows() {
     copyFile(path.join(root, "LICENSE"), plan.openCodeLicense),
     copyFile(path.join(plan.staging, "LICENSE.txt"), plan.gitLicense),
   ])
+  console.log("[Windows package] Writing delivery checksums")
   await Bun.write(
     plan.checksums,
     formatChecksumManifest([
