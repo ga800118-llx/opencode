@@ -46,6 +46,22 @@ export function createInternalWindowsArtifactPlan(packageDir: string, version: s
   }
 }
 
+export function createDesktopBuildCommands(packageDir: string) {
+  return [
+    ["bun", path.join(packageDir, "node_modules", "electron-vite", "bin", "electron-vite.js"), "build"],
+    [
+      "bun",
+      path.join(packageDir, "node_modules", "electron-builder", "cli.js"),
+      "--win",
+      "--x64",
+      "--publish",
+      "never",
+      "--config",
+      "electron-builder.config.ts",
+    ],
+  ]
+}
+
 export function assertMinGitSize(size: number) {
   if (size === MINGIT_SIZE_BYTES) return
   throw new Error(`MinGit size mismatch: expected ${MINGIT_SIZE_BYTES}, received ${size}`)
@@ -210,10 +226,15 @@ export async function packageInternalWindows() {
   const packageDir = path.resolve(import.meta.dirname, "..")
   const root = path.resolve(packageDir, "../..")
   const plan = createInternalWindowsArtifactPlan(packageDir, pkg.version)
+  const buildCommands = createDesktopBuildCommands(packageDir)
   const cachedModels = path.join(homedir(), ".cache", "opencode", "models.json")
   const guide = path.join(root, "docs", "product", "internal-beta-testing-windows.md")
 
-  await requireFile(guide, "Windows tester guide is required")
+  await Promise.all([
+    requireFile(guide, "Windows tester guide is required"),
+    requireFile(buildCommands[0][1], "electron-vite CLI dependency is required"),
+    requireFile(buildCommands[1][1], "electron-builder CLI dependency is required"),
+  ])
 
   process.env.OPENCODE_CHANNEL = "beta"
   process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false"
@@ -245,11 +266,9 @@ export async function packageInternalWindows() {
   console.log("[Windows package] Preparing desktop assets")
   await $`bun ./scripts/prebuild.ts`.cwd(packageDir)
   console.log("[Windows package] Building desktop application")
-  await $`./node_modules/.bin/electron-vite build`.cwd(packageDir)
+  await $`${buildCommands[0]}`.cwd(packageDir)
   console.log("[Windows package] Creating Windows installer and unpacked application")
-  await $`./node_modules/.bin/electron-builder --win --x64 --publish never --config electron-builder.config.ts`.cwd(
-    packageDir,
-  )
+  await $`${buildCommands[1]}`.cwd(packageDir)
 
   console.log("[Windows package] Validating packaged application resources")
   if (!(await stat(plan.unpacked)).isDirectory()) {

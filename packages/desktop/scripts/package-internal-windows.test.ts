@@ -8,6 +8,7 @@ import {
   assertInternalWindowsHost,
   assertMinGitChecksum,
   assertMinGitSize,
+  createDesktopBuildCommands,
   createMinGitDownloadCommand,
   createInternalWindowsArtifactPlan,
   createPortableZipCommand,
@@ -57,6 +58,29 @@ describe("internal Windows package", () => {
     expect(path.basename(plan.guide)).toBe("Guai-Code-Beta-Windows-试用说明.md")
     expect(path.basename(plan.openCodeLicense)).toBe("OpenCode-MIT-License.txt")
     expect(path.basename(plan.gitLicense)).toBe("Git-for-Windows-License.txt")
+  })
+
+  test("runs desktop build tools through Bun using portable local CLI entrypoints", () => {
+    const packageDir = path.join(path.parse(process.cwd()).root, "repo with spaces", "packages", "desktop")
+
+    expect(createDesktopBuildCommands(packageDir)).toEqual([
+      ["bun", path.join(packageDir, "node_modules", "electron-vite", "bin", "electron-vite.js"), "build"],
+      [
+        "bun",
+        path.join(packageDir, "node_modules", "electron-builder", "cli.js"),
+        "--win",
+        "--x64",
+        "--publish",
+        "never",
+        "--config",
+        "electron-builder.config.ts",
+      ],
+    ])
+    expect(
+      createDesktopBuildCommands(packageDir)
+        .flat()
+        .some((part) => part.replaceAll("\\", "/").includes("node_modules/.bin")),
+    ).toBeFalse()
   })
 
   test("pins the official MinGit release", () => {
