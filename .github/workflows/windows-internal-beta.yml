@@ -75,6 +75,26 @@ jobs:
             throw ($parseErrors | Format-List | Out-String)
           }
 
+      - name: Validate safeStorage byte-scan counterexample
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          @'
+          const canary = "static-safe-storage-byte-canary"
+          const plaintextBuffer = Buffer.from(canary, "utf8")
+          const misalignedCiphertext = Buffer.concat([Buffer.from([0x5a]), plaintextBuffer, Buffer.from([0xa5])])
+          const persistedBase64 = misalignedCiphertext.toString("base64")
+          if (persistedBase64.includes(plaintextBuffer.toString("base64"))) {
+            throw new Error("counterexample did not defeat the old Base64 substring check")
+          }
+          if (!misalignedCiphertext.includes(plaintextBuffer)) {
+            throw new Error("raw byte scan did not detect embedded plaintext")
+          }
+          '@ | node
+          if ($LASTEXITCODE -ne 0) {
+            throw "safeStorage byte-scan counterexample failed with exit code $LASTEXITCODE."
+          }
+
       - name: Test Desktop
         working-directory: packages/desktop
         shell: pwsh
@@ -134,6 +154,17 @@ jobs:
           const userDataPath = process.env.GUAI_CODE_SAFE_STORAGE_USER_DATA
 
           const sha256 = (value) => createHash("sha256").update(value).digest("hex")
+          const decodeBase64Strict = (value) => {
+            if (
+              value.length === 0 ||
+              !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
+            ) {
+              throw new Error("invalid-base64")
+            }
+            const decoded = Buffer.from(value, "base64")
+            if (decoded.toString("base64") !== value) throw new Error("non-canonical-base64")
+            return decoded
+          }
           const userIdentity = `${process.env.USERDOMAIN || ""}\\${process.env.USERNAME || ""}`
           const writeResult = (result) =>
             writeFileSync(resultPath, `${JSON.stringify(result)}\n`, { encoding: "utf8", flag: "wx" })
@@ -147,15 +178,21 @@ jobs:
 
             if (mode === "encrypt") {
               let canary = `safe-storage-canary:${randomBytes(32).toString("hex")}`
+              const plaintextBuffer = Buffer.from(canary, "utf8")
+              const plaintextSha256 = sha256(plaintextBuffer)
               const encrypted = safeStorage.encryptString(canary)
-              const encoded = encrypted.toString("base64")
-              if (encoded.includes(canary)) throw new Error("plaintext-in-encoded-ciphertext")
-              writeFileSync(ciphertextPath, encoded, { encoding: "ascii", flag: "wx" })
-              if (readFileSync(ciphertextPath, "ascii").includes(canary)) {
-                throw new Error("plaintext-persisted")
-              }
-              const plaintextSha256 = sha256(canary)
               canary = ""
+              try {
+                if (encrypted.includes(plaintextBuffer)) throw new Error("plaintext-in-encrypted-bytes")
+                writeFileSync(ciphertextPath, encrypted.toString("base64"), { encoding: "ascii", flag: "wx" })
+                const decodedPersisted = decodeBase64Strict(readFileSync(ciphertextPath, "ascii"))
+                if (!decodedPersisted.equals(encrypted)) throw new Error("persisted-ciphertext-mismatch")
+                if (decodedPersisted.includes(plaintextBuffer)) {
+                  throw new Error("plaintext-in-persisted-ciphertext")
+                }
+              } finally {
+                plaintextBuffer.fill(0)
+              }
               writeResult({
                 schemaVersion: 1,
                 success: true,
@@ -176,9 +213,7 @@ jobs:
 
             if (mode !== "decrypt") throw new Error("invalid-mode")
             const encoded = readFileSync(ciphertextPath, "ascii")
-            if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error("invalid-base64")
-            const encrypted = Buffer.from(encoded, "base64")
-            if (encrypted.toString("base64") !== encoded) throw new Error("non-canonical-base64")
+            const encrypted = decodeBase64Strict(encoded)
             let canary = safeStorage.decryptString(encrypted)
             const plaintextSha256 = sha256(canary)
             canary = ""
