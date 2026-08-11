@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { request, type IncomingMessage } from "node:http"
+import { connect, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import {
@@ -13,6 +14,7 @@ import {
   type MacRuntimeSoakEvidencePolicy,
   type MacRuntimeSoakServerEvidence,
 } from "./mac-runtime-soak"
+import { formatChecksumManifest, sha256 } from "./internal-package"
 
 const shortPolicy: MacRuntimeSoakEvidencePolicy = {
   minimumRequestedDurationMs: 40,
@@ -42,27 +44,25 @@ describe("Mac runtime soak evidence", () => {
     expect(DEFAULT_MAC_RUNTIME_SOAK_DURATION_MS).toBe(65 * 60_000)
   })
 
-  test("requires independently hashed packaged-client artifacts", async () => {
+  test("binds a structured packaged-client export to the package manifest and valid ZIP", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-"))
-    const sourcePath = path.join(directory, "transcript.log")
-    const packagePath = path.join(directory, "Guai-Code-Beta.dmg")
     try {
-      await Bun.write(sourcePath, `run ${valid().runID}\nassistant ${valid().terminalMarker}\n`)
-      await Bun.write(packagePath, "packaged-app")
+      const artifacts = await createEvidenceArtifacts(directory)
       expect(assertMacRuntimeSoakServerEvidence(valid(), shortPolicy)).toEqual(valid())
       expect(() => assertMacRuntimeSoakEvidence(valid(), shortPolicy)).toThrow("fields")
-      const evidence = await combineMacRuntimeSoakEvidence(
-        valid(),
-        { source: "packaged-client-transcript", sourcePath, packagePath },
-        shortPolicy,
-      )
+      const evidence = await combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)
       expect(evidence.packagedClientAcknowledgment).toMatchObject({
         runID: valid().runID,
         terminalMarker: valid().terminalMarker,
-        sourcePath,
-        packagePath,
+        source: "packaged-client-session-export",
+        sourcePath: artifacts.sourcePath,
+        manifestPath: artifacts.manifestPath,
+        packagePath: artifacts.packagePath,
+        packageVersion: "0.1.0-alpha.2",
+        packageFormat: "zip",
       })
       expect(evidence.packagedClientAcknowledgment.sourceSha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(evidence.packagedClientAcknowledgment.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
       expect(await verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).toEqual(evidence)
       expect(() =>
         assertMacRuntimeSoakEvidence(
@@ -73,10 +73,107 @@ describe("Mac runtime soak evidence", () => {
           shortPolicy,
         ),
       ).toThrow("runID")
-      await Bun.write(sourcePath, "tampered")
-      await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow()
-      await Bun.write(sourcePath, `run ${valid().runID}\nassistant ${valid().terminalMarker}\n`)
-      await Bun.write(packagePath, "tampered-package")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects unstructured and forged packaged-client evidence", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-forged-"))
+    try {
+      const artifacts = await createEvidenceArtifacts(directory)
+      await Bun.write(artifacts.sourcePath, `assistant ${valid().runID} ${valid().terminalMarker}`)
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("JSON")
+
+      await writeSessionExport(artifacts, await sha256(artifacts.packagePath))
+      await writeSessionExport(artifacts, "f".repeat(64))
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow(
+        "session export package hash",
+      )
+
+      await writeSessionExport(artifacts, await sha256(artifacts.packagePath))
+      await Bun.write(
+        artifacts.manifestPath,
+        `${await sha256(artifacts.packagePath)} ${path.basename(artifacts.packagePath)}`,
+      )
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("manifest format")
+
+      await Bun.write(
+        artifacts.manifestPath,
+        formatChecksumManifest([{ file: artifacts.packagePath, sha256: "0".repeat(64) }]),
+      )
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("manifest")
+
+      await Bun.write(
+        artifacts.manifestPath,
+        formatChecksumManifest([{ file: artifacts.packagePath, sha256: await sha256(artifacts.packagePath) }]),
+      )
+      const wrongNamePath = path.join(directory, "Guai-Code-Beta-mac-arm64.zip")
+      await Bun.write(wrongNamePath, Bun.file(artifacts.packagePath))
+      await expect(
+        combineMacRuntimeSoakEvidence(valid(), { ...artifacts, packagePath: wrongNamePath }, shortPolicy),
+      ).rejects.toThrow("name")
+
+      const wrongManifestPath = path.join(directory, "checksums.txt")
+      await Bun.write(wrongManifestPath, Bun.file(artifacts.manifestPath))
+      await expect(
+        combineMacRuntimeSoakEvidence(valid(), { ...artifacts, manifestPath: wrongManifestPath }, shortPolicy),
+      ).rejects.toThrow("SHA256SUMS.txt")
+
+      await Bun.write(artifacts.packagePath, "not a ZIP archive")
+      const invalidHash = await sha256(artifacts.packagePath)
+      await writeSessionExport(artifacts, invalidHash)
+      await Bun.write(
+        artifacts.manifestPath,
+        formatChecksumManifest([{ file: artifacts.packagePath, sha256: invalidHash }]),
+      )
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("ZIP")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects transcript fields that do not exactly prove the assistant output", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-transcript-"))
+    try {
+      const artifacts = await createEvidenceArtifacts(directory)
+      const packageSha256 = await sha256(artifacts.packagePath)
+      await writeSessionExport(artifacts, packageSha256, {
+        output: `completed ${valid().terminalMarker} suffix`,
+        parts: [{ type: "text", text: `completed ${valid().terminalMarker} suffix` }],
+      })
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("terminal marker")
+
+      await writeSessionExport(artifacts, packageSha256, {
+        output: `response\n${valid().terminalMarker}`,
+        parts: [{ type: "text", text: `response\n${valid().terminalMarker}\nforged extra` }],
+      })
+      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("parts")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("revalidates session export, manifest, and package artifacts after combination", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-reverify-"))
+    try {
+      const artifacts = await createEvidenceArtifacts(directory)
+      const evidence = await combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)
+      const source = await Bun.file(artifacts.sourcePath).text()
+      const manifest = await Bun.file(artifacts.manifestPath).text()
+
+      await Bun.write(artifacts.sourcePath, `${source} `)
+      await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow("no longer matches")
+      await Bun.write(artifacts.sourcePath, source)
+
+      await Bun.write(artifacts.manifestPath, `${manifest}\n`)
+      await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow("manifest format")
+      await Bun.write(artifacts.manifestPath, manifest)
+
+      await Bun.write(
+        artifacts.packagePath,
+        Buffer.concat([Buffer.from(await Bun.file(artifacts.packagePath).arrayBuffer()), Buffer.from("tampered")]),
+      )
       await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow("package hash")
     } finally {
       await rm(directory, { recursive: true, force: true })
@@ -190,6 +287,46 @@ describe("Mac runtime soak fixture", () => {
     }
   })
 
+  test("validates bounded OpenAI message records and content parts", async () => {
+    const fixture = await createMacRuntimeSoakFixture({
+      durationMs: 30,
+      intervalMs: 5,
+      connectionTimeoutMs: 500,
+      maxRequestBodyBytes: 100_000,
+    })
+    const invalidMessages = [
+      [],
+      [{ role: "invalid", content: "soak" }],
+      [{ role: "user", content: null }],
+      [{ role: "user", content: 1 }],
+      [{ role: "user", content: "" }],
+      [{ role: "user", content: "   " }],
+      [{ role: "user", content: [] }],
+      [{ role: "user", content: [{ type: "text", text: "" }] }],
+      [{ role: "user", content: [{ type: "image_url", image_url: { url: "https://example.com" } }] }],
+      Array.from({ length: 257 }, () => ({ role: "user", content: "soak" })),
+    ]
+    try {
+      for (const messages of invalidMessages) {
+        expect(
+          await completion(fixture.endpoint, fixture.token, fixture.model, messages).then((item) => item.status),
+        ).toBe(400)
+      }
+      const response = await completion(fixture.endpoint, fixture.token, fixture.model, [
+        { role: "system", content: "system" },
+        { role: "developer", content: [{ type: "text", text: "developer" }] },
+        { role: "user", content: [{ type: "text", text: "soak" }] },
+        { role: "assistant", content: "assistant" },
+        { role: "tool", content: [{ type: "text", text: "tool" }], tool_call_id: "call-1" },
+      ])
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain("[DONE]")
+      expect((await fixture.observation).disconnectReason).toBe("completed")
+    } finally {
+      await fixture.stop()
+    }
+  })
+
   test("settles an unused fixture with a connection timeout", async () => {
     const fixture = await createMacRuntimeSoakFixture({ durationMs: 100, intervalMs: 5, connectionTimeoutMs: 25 })
     const evidence = await fixture.observation
@@ -271,28 +408,48 @@ describe("Mac runtime soak fixture", () => {
     }
   })
 
-  test("records a cancelled client as an invalid abort", async () => {
+  test("records a connected client that stops reading as client-unresponsive", async () => {
     const fixture = await createMacRuntimeSoakFixture({
-      durationMs: 200,
-      intervalMs: 10,
+      durationMs: 500,
+      intervalMs: 1,
       connectionTimeoutMs: 100,
-      backpressureTimeoutMs: 50,
+      backpressureTimeoutMs: 30,
+      chunkContent: "x".repeat(512 * 1024),
     })
+    let socket: Socket | undefined
     try {
-      const response = await rawStream(fixture.endpoint, fixture.token, fixture.model)
-      await new Promise<void>((resolve) => {
-        response.once("data", () => {
-          response.socket.destroy()
-          resolve()
-        })
-      })
+      socket = await rawSocket(fixture.endpoint, fixture.token, fixture.model)
+      socket.pause()
       const evidence = await fixture.observation
-      expect(evidence.clientAbort).toBe(true)
-      expect(evidence.completed).toBe(false)
-      expect(["client-abort", "client-unresponsive"]).toContain(evidence.disconnectReason)
-      expect(() => assertMacRuntimeSoakServerEvidence(evidence, shortPolicy)).toThrow()
+      expect(evidence).toMatchObject({
+        clientAbort: true,
+        completed: false,
+        disconnectReason: "client-unresponsive",
+      })
     } finally {
+      socket?.destroy()
       await fixture.stop()
+    }
+  })
+
+  test("deterministically records an actively destroyed client socket as client-abort", async () => {
+    for (const index of Array.from({ length: 8 }, (_, item) => item)) {
+      const fixture = await createMacRuntimeSoakFixture({
+        durationMs: 300,
+        intervalMs: 5,
+        connectionTimeoutMs: 1_000,
+        backpressureTimeoutMs: 30,
+        initialSilenceMs: 250,
+        runID: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      })
+      try {
+        await abortStream(fixture.endpoint, fixture.token, fixture.model)
+        const evidence = await fixture.observation
+        expect(evidence).toMatchObject({ clientAbort: true, completed: false, disconnectReason: "client-abort" })
+        expect(() => assertMacRuntimeSoakServerEvidence(evidence, shortPolicy)).toThrow()
+      } finally {
+        await fixture.stop()
+      }
     }
   })
 
@@ -320,8 +477,12 @@ function post(endpoint: string, token: string, body: string) {
   })
 }
 
+function completion(endpoint: string, token: string, model: string, messages: unknown[]) {
+  return post(endpoint, token, JSON.stringify({ model, messages, stream: true }))
+}
+
 function stream(endpoint: string, token: string, model: string) {
-  return post(endpoint, token, JSON.stringify({ model, messages: [{ role: "user", content: "soak" }], stream: true }))
+  return completion(endpoint, token, model, [{ role: "user", content: "soak" }])
 }
 
 function rawStream(endpoint: string, token: string, model: string) {
@@ -336,6 +497,66 @@ function rawStream(endpoint: string, token: string, model: string) {
   })
 }
 
+function rawSocket(endpoint: string, token: string, model: string) {
+  return new Promise<Socket>((resolve, reject) => {
+    const url = new URL(endpoint)
+    const body = JSON.stringify({ model, messages: [{ role: "user", content: "soak" }], stream: true })
+    const socket = connect({ host: url.hostname, port: Number(url.port) })
+    const onError = (error: Error) => reject(error)
+    socket.once("error", onError)
+    socket.once("connect", () => {
+      socket.write(
+        [
+          `POST ${url.pathname}/chat/completions HTTP/1.1`,
+          `Host: ${url.host}`,
+          `Authorization: Bearer ${token}`,
+          "Content-Type: application/json",
+          `Content-Length: ${Buffer.byteLength(body)}`,
+          "Connection: keep-alive",
+          "",
+          body,
+        ].join("\r\n"),
+      )
+    })
+    socket.once("data", () => {
+      socket.off("error", onError)
+      resolve(socket)
+    })
+  })
+}
+
+async function abortStream(endpoint: string, token: string, model: string) {
+  const node = Bun.which("node")
+  if (!node) throw new Error("Node.js is required for the independent abort client")
+  const script = `
+const net = require("node:net")
+const endpoint = new URL(process.argv[1])
+const token = process.argv[2]
+const model = process.argv[3]
+const body = JSON.stringify({ model, messages: [{ role: "user", content: "soak" }], stream: true })
+const socket = net.connect({ host: endpoint.hostname, port: Number(endpoint.port) })
+socket.once("connect", () => socket.write([
+  "POST " + endpoint.pathname + "/chat/completions HTTP/1.1",
+  "Host: " + endpoint.host,
+  "Authorization: Bearer " + token,
+  "Content-Type: application/json",
+  "Content-Length: " + Buffer.byteLength(body),
+  "Connection: keep-alive",
+  "",
+  body,
+].join("\\r\\n")))
+socket.once("data", () => process.stdout.write("READY\\n"))
+setInterval(() => undefined, 1_000)
+`
+  const child = Bun.spawn([node, "-e", script, endpoint, token, model], { stdout: "pipe", stderr: "pipe" })
+  const first = await child.stdout.getReader().read()
+  if (first.done || !Buffer.from(first.value).toString("utf8").includes("READY")) {
+    throw new Error(await new Response(child.stderr).text())
+  }
+  child.kill(9)
+  await child.exited
+}
+
 function read(response: IncomingMessage) {
   return new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -344,4 +565,64 @@ function read(response: IncomingMessage) {
     response.once("error", reject)
     response.resume()
   })
+}
+
+async function createEvidenceArtifacts(directory: string) {
+  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.zip")
+  const sourcePath = path.join(directory, "packaged-client-session.json")
+  const manifestPath = path.join(directory, "SHA256SUMS.txt")
+  const contents = path.join(directory, "Guai Code Beta.app", "Contents")
+  await mkdir(path.join(contents, "MacOS"), { recursive: true })
+  await Bun.write(path.join(contents, "Info.plist"), '<?xml version="1.0"?><plist></plist>\n')
+  await Bun.write(path.join(contents, "MacOS", "Guai Code Beta"), "#!/bin/sh\nexit 0\n")
+  const zip = Bun.spawn(["/usr/bin/zip", "-qry", packagePath, "Guai Code Beta.app"], {
+    cwd: directory,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if ((await zip.exited) !== 0) throw new Error(await new Response(zip.stderr).text())
+  const packageSha256 = await sha256(packagePath)
+  const artifacts = { sourcePath, manifestPath, packagePath }
+  await writeSessionExport(artifacts, packageSha256)
+  await Bun.write(manifestPath, formatChecksumManifest([{ file: packagePath, sha256: packageSha256 }]))
+  return artifacts
+}
+
+async function writeSessionExport(
+  artifacts: { sourcePath: string; packagePath: string },
+  packageSha256: string,
+  assistant: {
+    output: string
+    parts: { type: "text"; text: string }[]
+  } = {
+    output: `response\n${valid().terminalMarker}`,
+    parts: [
+      { type: "text", text: "response\n" },
+      { type: "text", text: valid().terminalMarker },
+    ],
+  },
+) {
+  await Bun.write(
+    artifacts.sourcePath,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        producer: {
+          id: "guai-code-packaged-qa",
+          product: "Guai Code Beta",
+          version: "0.1.0-alpha.2",
+          platform: "darwin",
+          arch: "arm64",
+        },
+        package: { fileName: path.basename(artifacts.packagePath), sha256: packageSha256 },
+        session: {
+          runID: valid().runID,
+          completedAt: valid().completedAt,
+          assistant: { role: "assistant", ...assistant },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
 }

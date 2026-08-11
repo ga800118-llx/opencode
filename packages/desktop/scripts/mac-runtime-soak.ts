@@ -25,6 +25,7 @@ export type {
   MacRuntimeSoakEvidencePolicy,
   MacRuntimeSoakObservation,
   MacRuntimeSoakPackagedClientAcknowledgment,
+  MacRuntimeSoakSessionExport,
   MacRuntimeSoakServerEvidence,
 } from "./mac-runtime-soak-evidence"
 
@@ -79,16 +80,18 @@ export async function createMacRuntimeSoakFixture(input?: {
   let connectionTimer: ReturnType<typeof setTimeout> | undefined
   let closePromise: Promise<void> | undefined
   let stopPromise: Promise<MacRuntimeSoakObservation> | undefined
-  const connectedSockets = new Map<number, IncomingMessage["socket"]>()
   let active:
     | {
         response: ServerResponse
         socket: IncomingMessage["socket"]
+        localPort?: number
+        remotePort?: number
         startedAt: number
         startedMonotonic: number
         activityElapsedMs: number[]
         terminalElapsedMs?: number
         finishObserved: boolean
+        peerDisconnected: boolean
         cancellers: Set<() => void>
       }
     | undefined
@@ -135,14 +138,6 @@ export async function createMacRuntimeSoakFixture(input?: {
     void handleRequest(request, response).catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: { message: "Soak fixture request failed" } })
       else response.destroy()
-    })
-  })
-  server.on("connection", (socket) => {
-    const remotePort = socket.remotePort
-    if (remotePort !== undefined) connectedSockets.set(remotePort, socket)
-    socket.once("close", () => {
-      if (remotePort !== undefined) connectedSockets.delete(remotePort)
-      if (active?.socket === socket && !active.finishObserved) settle("client-abort")
     })
   })
 
@@ -210,8 +205,9 @@ export async function createMacRuntimeSoakFixture(input?: {
       sendJson(response, 400, { error: { message: "The soak fixture requires stream=true" } })
       return
     }
-    if (!Array.isArray(parsed.value.messages) || parsed.value.messages.length === 0) {
-      sendJson(response, 400, { error: { message: "The soak fixture requires at least one message" } })
+    const messageError = validateMessages(parsed.value.messages)
+    if (messageError) {
+      sendJson(response, 400, { error: { message: messageError } })
       return
     }
     if (settled || active) {
@@ -224,17 +220,53 @@ export async function createMacRuntimeSoakFixture(input?: {
     if (connectionTimer) clearTimeout(connectionTimer)
     const state = {
       response,
-      socket: connectedSockets.get(request.socket.remotePort ?? -1) ?? request.socket,
+      socket: request.socket,
+      localPort: request.socket.localPort,
+      remotePort: request.socket.remotePort,
       startedAt: Date.now(),
       startedMonotonic: performance.now(),
       activityElapsedMs: [],
       terminalElapsedMs: undefined,
       finishObserved: false,
+      peerDisconnected: false,
       cancellers: new Set<() => void>(),
     }
     active = state
+    const peerDisconnected = () =>
+      state.peerDisconnected ||
+      state.socket.destroyed ||
+      state.socket.closed ||
+      !state.socket.readable ||
+      state.socket.readableEnded ||
+      !state.socket.writable
+    const disconnectReason = (fallback: MacRuntimeSoakDisconnectReason) =>
+      peerDisconnected() ? "client-abort" : fallback
+    const classifyDisconnect = async (fallback: MacRuntimeSoakDisconnectReason) => {
+      if (peerDisconnected()) return "client-abort" as const
+      const established = await macSocketEstablished(state.localPort, state.remotePort)
+      if (established === false) {
+        state.peerDisconnected = true
+        return "client-abort" as const
+      }
+      return fallback
+    }
+    const markPeerDisconnected = () => {
+      state.peerDisconnected = true
+      if (!state.finishObserved) settle("client-abort")
+    }
+    state.socket.once("end", markPeerDisconnected)
+    state.socket.once("close", markPeerDisconnected)
+    state.socket.once("error", markPeerDisconnected)
+    state.cancellers.add(() => {
+      state.socket.off("end", markPeerDisconnected)
+      state.socket.off("close", markPeerDisconnected)
+      state.socket.off("error", markPeerDisconnected)
+    })
     const disconnectPoll = setInterval(() => {
-      if (state.socket.destroyed || !state.socket.writable) settle("client-abort")
+      if (peerDisconnected()) {
+        state.peerDisconnected = true
+        settle("client-abort")
+      }
     }, 1_000)
     disconnectPoll.unref()
     state.cancellers.add(() => clearInterval(disconnectPoll))
@@ -243,10 +275,15 @@ export async function createMacRuntimeSoakFixture(input?: {
       settle("completed")
     })
     response.once("close", () => {
-      if (!state.finishObserved) settle("client-abort")
+      if (state.finishObserved) return
+      state.peerDisconnected = true
+      settle("client-abort")
     })
-    response.once("error", () => settle("response-error"))
-    request.once("aborted", () => settle("client-abort"))
+    response.once("error", () => settle(disconnectReason("response-error")))
+    request.once("aborted", () => {
+      state.peerDisconnected = true
+      settle("client-abort")
+    })
     response.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
@@ -278,7 +315,10 @@ export async function createMacRuntimeSoakFixture(input?: {
     const write = (value: string) =>
       new Promise<boolean>((resolve) => {
         if (settled || response.destroyed || response.socket?.destroyed) {
-          if (!settled) settle("client-abort")
+          if (!settled) {
+            state.peerDisconnected = true
+            settle("client-abort")
+          }
           resolve(false)
           return
         }
@@ -295,7 +335,10 @@ export async function createMacRuntimeSoakFixture(input?: {
         }
         const onDrain = () => {
           drainObserved = true
-          if (!settled && (response.destroyed || response.socket?.destroyed)) settle("client-abort")
+          if (!settled && (response.destroyed || response.socket?.destroyed)) {
+            state.peerDisconnected = true
+            settle("client-abort")
+          }
           finish(!settled && !response.destroyed && !response.socket?.destroyed)
         }
         const cancel = () => finish(false)
@@ -305,14 +348,20 @@ export async function createMacRuntimeSoakFixture(input?: {
           if (!drainObserved) {
             response.once("drain", onDrain)
             backpressureTimer = setTimeout(() => {
-              settle(state.socket.destroyed ? "client-abort" : "client-unresponsive")
-              response.destroy()
-              finish(false)
+              void classifyDisconnect("client-unresponsive").then((reason) => {
+                if (settled) {
+                  finish(false)
+                  return
+                }
+                settle(reason)
+                response.destroy()
+                finish(false)
+              })
             }, backpressureTimeoutMs)
           }
           if (drainObserved) finish(true)
         } catch {
-          settle("response-error")
+          settle(disconnectReason("response-error"))
           finish(false)
         }
       })
@@ -374,8 +423,11 @@ export async function createMacRuntimeSoakFixture(input?: {
       if (!settled && !state.finishObserved) {
         const finishTimer = setTimeout(() => {
           if (state.finishObserved) return
-          settle(state.socket.destroyed ? "client-abort" : "client-unresponsive")
-          response.destroy()
+          void classifyDisconnect("client-unresponsive").then((reason) => {
+            if (settled || state.finishObserved) return
+            settle(reason)
+            response.destroy()
+          })
         }, backpressureTimeoutMs)
         state.cancellers.add(() => clearTimeout(finishTimer))
       }
@@ -437,6 +489,50 @@ async function readRequestBody(request: IncomingMessage, maximumBytes: number) {
   }
   if (oversized) return { ok: false as const, status: 413, message: "Request body is too large" }
   return { ok: true as const, value: Buffer.concat(chunks).toString("utf8") }
+}
+
+function validateMessages(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return "The soak fixture requires at least one message"
+  if (value.length > 256) return "The soak fixture accepts at most 256 messages"
+  const roles = new Set(["system", "developer", "user", "assistant", "tool"])
+  const invalid = value.findIndex((message) => {
+    if (!isRecord(message) || typeof message.role !== "string" || !roles.has(message.role)) return true
+    if (typeof message.content === "string") {
+      return !message.content.trim() || Buffer.byteLength(message.content) > 1024 * 1024
+    }
+    if (!Array.isArray(message.content) || message.content.length === 0 || message.content.length > 64) return true
+    return message.content.some((value) => {
+      if (!isRecord(value) || Object.keys(value).sort().join() !== "text,type") return true
+      return (
+        value.type !== "text" ||
+        typeof value.text !== "string" ||
+        !value.text.trim() ||
+        Buffer.byteLength(value.text) > 1024 * 1024
+      )
+    })
+  })
+  if (invalid !== -1) return `The soak fixture message at index ${invalid} is invalid`
+  return undefined
+}
+
+async function macSocketEstablished(localPort: number | undefined, remotePort: number | undefined) {
+  if (process.platform !== "darwin" || localPort === undefined || remotePort === undefined) {
+    return undefined
+  }
+  const child = Bun.spawn(["/usr/sbin/lsof", "-nP", "-a", "-p", String(process.pid), "-iTCP"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  if (stderr.trim()) return undefined
+  if (exitCode !== 0 && exitCode !== 1) return undefined
+  return stdout
+    .split("\n")
+    .some((line) => line.includes(`:${localPort}->`) && line.includes(`:${remotePort} (ESTABLISHED)`))
 }
 
 function parseRequest(value: string) {
