@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   automaticProjectColorPatch,
+  createProjectMetadataLocalWriter,
   createProjectMetadataWriter,
   editProjectMetadataPatch,
   mergeProjectMetadata,
@@ -9,6 +10,7 @@ import {
   projectMetadataErrorMessage,
   renameProjectMetadataPatch,
 } from "./project-metadata"
+import { ServerScope } from "@/utils/server-scope"
 
 describe("mergeProjectMetadata", () => {
   test("merges icon and commands field by field", () => {
@@ -246,7 +248,9 @@ describe("createProjectMetadataWriter", () => {
     const projected: unknown[] = []
     let serverCalls = 0
     const writer = createProjectMetadataWriter({
+      scope: () => ServerScope.local,
       protocol: () => "v2",
+      readProject: () => project,
       updateServer: async () => {
         serverCalls += 1
         return project
@@ -278,6 +282,120 @@ describe("createProjectMetadataWriter", () => {
       { ...project, name: "Renamed" },
       { ...project, icon: { color: "mint" } },
     ])
+  })
+
+  test("serializes automatic and user colors across writer instances and normalized worktrees", async () => {
+    const initial = { id: "project-1", worktree: "C:\\repo" }
+    let current = initial as typeof initial & { icon?: { color?: string } }
+    let releaseAutomatic: ((project: typeof current) => void) | undefined
+    const automaticResult = new Promise<typeof current>((resolve) => {
+      releaseAutomatic = resolve
+    })
+    const calls: string[] = []
+    const createWriter = () =>
+      createProjectMetadataWriter({
+        scope: () => ServerScope.local,
+        protocol: () => "v1",
+        readProject: () => current,
+        updateServer: async (project, update) => {
+          const color = update.patch.icon?.color
+          calls.push(color ?? "missing")
+          if (color === "mint") return automaticResult
+          return { ...project, icon: { ...project.icon, ...update.patch.icon } }
+        },
+        writeLocal: async () => {},
+        updateProjection: (project) => {
+          current = project
+        },
+      })
+    const automaticWriter = createWriter()
+    const userWriter = createWriter()
+
+    const automatic = automaticWriter(initial, automaticProjectColorPatch("mint"))
+    await Promise.resolve()
+    const user = userWriter({ ...initial, worktree: "C:/repo" }, editProjectMetadataPatch({
+      name: "",
+      color: "purple",
+      override: undefined,
+      start: "",
+    }))
+    await Promise.resolve()
+
+    expect(calls).toEqual(["mint"])
+    releaseAutomatic?.({ ...initial, icon: { color: "mint" } })
+    await automatic
+    await user
+
+    expect(calls).toEqual(["mint", "purple"])
+    expect(current.icon?.color).toBe("purple")
+  })
+
+  test("rechecks automatic color eligibility when its shared queue turn begins", async () => {
+    const initial = { id: "project-1", worktree: "/project" }
+    let current = initial as typeof initial & { icon?: { color?: string } }
+    let releaseUser: ((project: typeof current) => void) | undefined
+    const userResult = new Promise<typeof current>((resolve) => {
+      releaseUser = resolve
+    })
+    const calls: string[] = []
+    const createWriter = () =>
+      createProjectMetadataWriter({
+        scope: () => ServerScope.local,
+        protocol: () => "v1",
+        readProject: () => current,
+        updateServer: async (project, update) => {
+          const color = update.patch.icon?.color
+          calls.push(color ?? "missing")
+          if (color === "purple") return userResult
+          return { ...project, icon: { ...project.icon, ...update.patch.icon } }
+        },
+        writeLocal: async () => {},
+        updateProjection: (project) => {
+          current = project
+        },
+      })
+    const userWriter = createWriter()
+    const automaticWriter = createWriter()
+
+    const user = userWriter(initial, editProjectMetadataPatch({
+      name: "",
+      color: "purple",
+      override: undefined,
+      start: "",
+    }))
+    await Promise.resolve()
+    const automatic = automaticWriter(initial, automaticProjectColorPatch("mint"), {
+      shouldWrite: needsAutomaticProjectColor,
+    })
+
+    releaseUser?.({ ...initial, icon: { color: "purple" } })
+    await user
+    await automatic
+
+    expect(calls).toEqual(["purple"])
+    expect(current.icon?.color).toBe("purple")
+  })
+})
+
+describe("createProjectMetadataLocalWriter", () => {
+  test("does not produce a legacy icon partial write when metadata persistence fails", async () => {
+    const calls: string[] = []
+    const project = {
+      meta: async () => {
+        calls.push("meta")
+        throw new Error("metadata failed")
+      },
+      icon: async () => {
+        calls.push("icon")
+      },
+    }
+    const writeLocal = createProjectMetadataLocalWriter(project)
+
+    await expect(
+      writeLocal({ worktree: "/project" }, { icon: { override: "custom.png" } }),
+    ).rejects.toThrow("metadata failed")
+
+    expect(calls).toEqual(["meta"])
   })
 })
 

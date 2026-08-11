@@ -23,6 +23,7 @@ import { type DraftTab, useTabs } from "./tabs"
 import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
 import {
   automaticProjectColorPatch,
+  createProjectMetadataLocalWriter,
   createProjectMetadataWriter,
   mergeProjectMetadata,
   needsAutomaticProjectColor,
@@ -447,7 +448,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       retry: () => setColorRetryRevision((revision) => revision + 1),
     })
     const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+      scope: () => serverSdk().scope,
       protocol: () => serverSdk().protocol,
+      readProject: (worktree) => {
+        const project = server.projects
+          .list()
+          .find((item) => pathKey(item.worktree) === pathKey(worktree))
+        if (!project) return
+        return enrich(project)
+      },
       updateServer: async (project, input) => {
         const sdk = serverSdk()
         const result = await sdk.client.project
@@ -456,12 +465,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         if (!result) return
         return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
       },
-      writeLocal: async (project, patch) => {
-        await serverSync().project.meta(project.worktree, patch)
-        if (patch.icon?.override !== undefined) {
-          await serverSync().project.icon(project.worktree, patch.icon.override)
-        }
-      },
+      writeLocal: createProjectMetadataLocalWriter({
+        meta: (directory, patch) => serverSync().project.meta(directory, patch),
+      }),
       updateProjection: (project) => {
         if (!project.id) return
         serverSync().set("project", (items) =>
@@ -568,20 +574,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     })
 
     createEffect(() => {
-      const projects = enriched()
-      if (projects.length === 0) return
-      if (!serverSync().ready) return
-
-      for (const project of projects) {
-        if (!project.id) continue
-        if (project.id === "global") continue
-        void serverSync()
-          .project.icon(project.worktree, project.icon?.override)
-          .catch(() => {})
-      }
-    })
-
-    createEffect(() => {
       colorRetryRevision()
       const projects = enriched()
       const worktrees = new Set(projects.map((project) => project.worktree))
@@ -629,7 +621,14 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         if (requested === color) continue
         colorRequested.set(worktree, color)
 
-        void writeProjectMetadata(project, automaticProjectColorPatch(color))
+        void writeProjectMetadata(project, automaticProjectColorPatch(color), {
+          shouldWrite: (current) =>
+            needsAutomaticProjectColor(current) ||
+            (colorRetry.has(worktree) &&
+              current.icon?.color === color &&
+              !current.icon?.override &&
+              !current.icon?.url),
+        })
           .then(
             () => colorRetry.clear(worktree),
             () => {

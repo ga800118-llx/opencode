@@ -8,17 +8,22 @@ import { useGlobal } from "@/context/global"
 import { type LocalProject } from "@/context/layout"
 import { ServerConnection } from "@/context/server"
 import {
+  createProjectMetadataLocalWriter,
   createProjectMetadataWriter,
   editProjectMetadataPatch,
   projectMetadataErrorMessage,
 } from "@/context/project-metadata"
+import { pathKey } from "@/utils/path-key"
 
 export function createEditProjectModel(props: { project: LocalProject; server: ServerConnection.Any }) {
   const dialog = useDialog()
   const global = useGlobal()
   const serverCtx = createMemo(() => global.ensureServerCtx(props.server))
   const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+    scope: () => serverCtx().sdk.scope,
     protocol: () => serverCtx().sdk.protocol,
+    readProject: (worktree) =>
+      serverCtx().projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
     updateServer: async (project, input) => {
       const result = await serverCtx()
         .sdk.client.project.update({
@@ -30,12 +35,9 @@ export function createEditProjectModel(props: { project: LocalProject; server: S
       if (!result) return
       return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
     },
-    writeLocal: async (project, patch) => {
-      await serverCtx().sync.project.meta(project.worktree, patch)
-      if (patch.icon?.override !== undefined) {
-        await serverCtx().sync.project.icon(project.worktree, patch.icon.override)
-      }
-    },
+    writeLocal: createProjectMetadataLocalWriter({
+      meta: (directory, patch) => serverCtx().sync.project.meta(directory, patch),
+    }),
     updateProjection: (project) => {
       if (!project.id) return
       serverCtx().sync.set("project", (items) =>

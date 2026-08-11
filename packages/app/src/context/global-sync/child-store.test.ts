@@ -42,6 +42,10 @@ class DeferredStorage {
 
   async removeItem() {}
 
+  get pending() {
+    return this.writes.length
+  }
+
   resolveNext() {
     const write = this.writes.shift()
     if (!write) throw new Error("pending write required")
@@ -53,6 +57,14 @@ class DeferredStorage {
     if (!write) throw new Error("pending write required")
     write.reject(error)
   }
+}
+
+async function waitForPending(storage: DeferredStorage) {
+  for (const _ of Array.from({ length: 20 })) {
+    if (storage.pending > 0) return
+    await Promise.resolve()
+  }
+  throw new Error("pending write required")
 }
 
 const queryOptionsApi = {
@@ -466,6 +478,7 @@ describe("createChildStoreManager", () => {
       )
 
       expect(store.icon).toBe("custom.png")
+      await waitForPending(storage)
       expect(storage.calls.set).toBe(1)
       storage.rejectNext(new Error("icon write failed"))
       const error = await first
@@ -473,6 +486,7 @@ describe("createChildStoreManager", () => {
       expect((error as Error).message).toBe("icon write failed")
 
       const second = manager.projectIcon("/project", "custom.png")
+      await waitForPending(storage)
       expect(storage.calls.set).toBe(2)
       storage.resolveNext()
       await second

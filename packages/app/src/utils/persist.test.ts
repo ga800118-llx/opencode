@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { ServerScope } from "./server-scope"
 import { createStore } from "solid-js/store"
 import { renderToString } from "solid-js/web"
+import type { AsyncStorage } from "@solid-primitives/storage"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
 type PersistType = typeof import("./persist").Persist
@@ -10,7 +11,7 @@ type PersistedType = typeof import("./persist").persisted
 
 type TestPlatform = {
   platform: "web" | "desktop"
-  storage?: () => DeferredStorage
+  storage?: (name?: string) => AsyncStorage
 }
 
 class DeferredStorage {
@@ -46,6 +47,106 @@ class DeferredStorage {
     if (!write) throw new Error("pending write required")
     write.reject(error)
   }
+}
+
+async function waitForPending(storage: DeferredStorage) {
+  for (const _ of Array.from({ length: 20 })) {
+    if (storage.pending > 0) return
+    await Promise.resolve()
+  }
+  throw new Error("pending write required")
+}
+
+class MigrationStorage {
+  private values = new Map<string, string>()
+  private deferred = new Set<string>()
+  private reads = new Map<string, (value: string | null) => void>()
+  readonly events: string[]
+
+  constructor(events: string[]) {
+    this.events = events
+  }
+
+  defer(key: string) {
+    this.deferred.add(key)
+  }
+
+  release(key: string, value: string | null) {
+    const read = this.reads.get(key)
+    if (!read) throw new Error(`deferred read required for ${key}`)
+    this.reads.delete(key)
+    this.deferred.delete(key)
+    if (value === null) this.values.delete(key)
+    else this.values.set(key, value)
+    read(value)
+  }
+
+  getItem(key: string) {
+    this.events.push(`get:${key}`)
+    if (!this.deferred.has(key)) return Promise.resolve(this.values.get(key) ?? null)
+    return new Promise<string | null>((resolve) => this.reads.set(key, resolve))
+  }
+
+  async setItem(key: string, value: string) {
+    this.events.push(`set:${key}:${value}`)
+    this.values.set(key, value)
+  }
+
+  async removeItem(key: string) {
+    this.events.push(`remove:${key}`)
+    this.values.delete(key)
+  }
+
+  value(key: string) {
+    return this.values.get(key)
+  }
+
+  waiting(key: string) {
+    return this.reads.has(key)
+  }
+}
+
+async function waitForRead(storage: MigrationStorage, key: string) {
+  for (const _ of Array.from({ length: 20 })) {
+    if (storage.waiting(key)) return
+    await Promise.resolve()
+  }
+  throw new Error(`deferred read required for ${key}`)
+}
+
+class RejectingStorage {
+  calls = 0
+
+  async getItem() {
+    return null
+  }
+
+  setItem() {
+    this.calls += 1
+    return Promise.reject(new Error(`write failed ${this.calls}`))
+  }
+
+  async removeItem() {}
+}
+
+class SyncThrowStorage {
+  private fail = true
+  value: string | undefined
+
+  async getItem() {
+    return null
+  }
+
+  setItem(_key: string, value: string) {
+    if (this.fail) {
+      this.fail = false
+      throw new Error("synchronous write failed")
+    }
+    this.value = value
+    return Promise.resolve()
+  }
+
+  async removeItem() {}
 }
 
 class MemoryStorage implements Storage {
@@ -146,6 +247,7 @@ describe("persist flush", () => {
     await Promise.resolve()
     expect(settled).toBe(false)
 
+    await waitForPending(storage)
     storage.resolveNext()
     await flushed
     expect(settled).toBe(true)
@@ -163,22 +265,100 @@ describe("persist flush", () => {
 
     const [, setStore, , , flush] = result
     setStore("value", 1)
-    expect(storage.pending).toBe(1)
 
     const failed = flush().then(
       () => undefined,
       (error) => error,
     )
+    await waitForPending(storage)
     storage.rejectNext(new Error("desktop write failed"))
     const error = await failed
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe("desktop write failed")
 
     setStore("value", 2)
-    expect(storage.pending).toBe(1)
     const recovered = flush()
+    await waitForPending(storage)
     storage.resolveNext()
     await recovered
+  })
+
+  test("orders delayed legacy migration before a user write and flushes the final value", async () => {
+    const events: string[] = []
+    const target = Persist.workspace("/project", "project", ["project.v1"])
+    const current = new MigrationStorage(events)
+    const legacy = new MigrationStorage(events)
+    legacy.defer("project.v1")
+    platform = {
+      platform: "desktop",
+      storage: (name) => (name === target.storage ? current : legacy),
+    }
+    let result: ReturnType<typeof persisted<{ value: { name?: string } | undefined }>> | undefined
+    renderToString(() => {
+      result = persisted(target, createStore({ value: undefined as { name?: string } | undefined }))
+      return ""
+    })
+    if (!result) throw new Error("persisted store required")
+
+    const [store, setStore, , , flush] = result
+    setStore("value", { name: "new" })
+    let settled = false
+    const saving = flush().then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+
+    expect(settled).toBe(false)
+    await waitForRead(legacy, "project.v1")
+    legacy.release("project.v1", '{"value":{"name":"old"}}')
+    await saving
+
+    expect(store.value).toEqual({ name: "new" })
+    expect(current.value(target.key)).toBe('{"value":{"name":"new"}}')
+    expect(events.filter((event) => event.startsWith(`set:${target.key}:`))).toEqual([
+      `set:${target.key}:{"value":{"name":"old"}}`,
+      `set:${target.key}:{"value":{"name":"new"}}`,
+    ])
+  })
+
+  test("retains only the latest unflushed asynchronous failure and consumes it", async () => {
+    const storage = new RejectingStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let result: ReturnType<typeof createTestPersisted> | undefined
+    renderToString(() => {
+      result = createTestPersisted("flush.bounded")
+      return ""
+    })
+    if (!result) throw new Error("persisted store required")
+
+    const [, setStore, init, , flush] = result
+    if (init instanceof Promise) await init
+    for (const value of Array.from({ length: 40 }, (_, index) => index + 1)) setStore("value", value)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await expect(flush()).rejects.toThrow("write failed 40")
+    await expect(flush()).resolves.toBeUndefined()
+  })
+
+  test("does not retain a synchronous failure after a successful retry", async () => {
+    const storage = new SyncThrowStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let result: ReturnType<typeof createTestPersisted> | undefined
+    renderToString(() => {
+      result = createTestPersisted("flush.sync-recover")
+      return ""
+    })
+    if (!result) throw new Error("persisted store required")
+
+    const [, setStore, init, , flush] = result
+    if (init instanceof Promise) await init
+    await Promise.resolve()
+    expect(() => setStore("value", 1)).toThrow("synchronous write failed")
+
+    setStore("value", 2)
+    await expect(flush()).resolves.toBeUndefined()
+    expect(storage.value).toBe('{"value":2}')
   })
 })
 

@@ -49,7 +49,11 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { listAllSessions } from "@/utils/session"
-import { createProjectMetadataWriter, renameProjectMetadataPatch } from "@/context/project-metadata"
+import {
+  createProjectMetadataLocalWriter,
+  createProjectMetadataWriter,
+  renameProjectMetadataPatch,
+} from "@/context/project-metadata"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1301,7 +1305,10 @@ export default function LegacyLayout(props: ParentProps) {
   })
 
   const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+    scope: () => serverSDK().scope,
     protocol: () => serverSDK().protocol,
+    readProject: (worktree) =>
+      layout.projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
     updateServer: async (project, input) => {
       const sdk = serverSDK()
       const result = await sdk.client.project
@@ -1310,10 +1317,9 @@ export default function LegacyLayout(props: ParentProps) {
       if (!result) return
       return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
     },
-    writeLocal: async (project, patch) => {
-      await serverSync().project.meta(project.worktree, patch)
-      if (patch.icon?.override !== undefined) await serverSync().project.icon(project.worktree, patch.icon.override)
-    },
+    writeLocal: createProjectMetadataLocalWriter({
+      meta: (directory, patch) => serverSync().project.meta(directory, patch),
+    }),
     updateProjection: (project) => {
       if (!project.id) return
       serverSync().set("project", (items) =>

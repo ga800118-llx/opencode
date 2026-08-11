@@ -15,9 +15,10 @@ type PersistedWithReady<T> = [
   () => Promise<void>,
 ]
 
-type PendingWrite = {
+type PendingOperation = {
+  id: number
   promise: Promise<void>
-  failed?: boolean
+  failed?: true
   error?: unknown
 }
 
@@ -582,42 +583,71 @@ export function persisted<T>(
   })()
 
   const legacyStorageNames = config.legacyStorageNames ?? []
-  const writes = new Set<PendingWrite>()
+  const operations = new Set<PendingOperation>()
+  let operationID = 0
+  let operationTail: Promise<void> | undefined
+  let retainedFailure: { id: number; error: unknown } | undefined
 
-  function trackWrite<T>(write: () => T): T {
-    try {
-      const result = write()
-      if (!(result instanceof Promise)) return result
+  function trackOperation<T>(operation: () => T): T {
+    const result = operation()
+    if (!(result instanceof Promise)) return result
 
-      const pending = {} as PendingWrite
-      pending.promise = result.then(
-        () => {
-          writes.delete(pending)
-        },
-        (error) => {
-          pending.failed = true
-          pending.error = error
-          throw error
-        },
-      )
-      writes.add(pending)
-      void pending.promise.catch(() => {})
+    const pending = { id: ++operationID } as PendingOperation
+    pending.promise = result.then(
+      () => {
+        operations.delete(pending)
+      },
+      (error) => {
+        pending.failed = true
+        pending.error = error
+        operations.delete(pending)
+        retainedFailure = { id: pending.id, error }
+        throw error
+      },
+    )
+    operations.add(pending)
+    void pending.promise.catch(() => {})
+    return result
+  }
+
+  function updateOperationTail(result: Promise<unknown>) {
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    operationTail = settled
+    void settled.then(() => {
+      if (operationTail === settled) operationTail = undefined
+    })
+  }
+
+  function runOrdered<T>(operation: () => Promise<T>): Promise<T>
+  function runOrdered<T>(operation: () => T): T
+  function runOrdered<T>(operation: () => T | Promise<T>) {
+    if (!operationTail) {
+      const result = trackOperation(operation)
+      if (result instanceof Promise) updateOperationTail(result)
       return result
-    } catch (error) {
-      const pending = { promise: Promise.reject(error), failed: true, error }
-      writes.add(pending)
-      void pending.promise.catch(() => {})
-      throw error
     }
+
+    const result = trackOperation(() => operationTail!.then(operation))
+    updateOperationTail(result)
+    return result
   }
 
   async function flush() {
-    const current = [...writes]
-    if (current.length === 0) return
+    const current = [...operations]
+    const remembered = retainedFailure
+    if (retainedFailure === remembered) retainedFailure = undefined
+    if (current.length > 0) await Promise.allSettled(current.map((item) => item.promise))
 
-    await Promise.allSettled(current.map((item) => item.promise))
-    current.forEach((item) => writes.delete(item))
-    const failed = current.find((item) => item.failed)
+    const ids = new Set(current.map((item) => item.id))
+    if (retainedFailure && ids.has(retainedFailure.id)) retainedFailure = undefined
+    const failed = current
+      .filter((item): item is PendingOperation & { failed: true } => item.failed === true)
+      .map((item) => ({ id: item.id, error: item.error }))
+      .concat(remembered ? [remembered] : [])
+      .sort((a, b) => b.id - a.id)[0]
     if (failed) throw failed.error
   }
 
@@ -642,10 +672,10 @@ export function persisted<T>(
           })
         },
         setItem: (key, value) => {
-          trackWrite(() => current.setItem(key, value))
+          trackOperation(() => current.setItem(key, value))
         },
         removeItem: (key) => {
-          trackWrite(() => current.removeItem(key))
+          trackOperation(() => current.removeItem(key))
         },
       }
 
@@ -659,21 +689,22 @@ export function persisted<T>(
       .filter((x) => !!x)
 
     const api: AsyncStorage = {
-      getItem: async (key) => {
-        const value = await readCurrentAsync({ storage: current, key, defaults, migrate: config.migrate })
-        if (value !== undefined) return value
-        return migrateLegacyAsync({
-          current,
-          legacyStore,
-          stores: legacyStores,
-          keys: legacy,
-          key,
-          defaults,
-          migrate: config.migrate,
-        })
-      },
-      setItem: (key, value) => trackWrite(() => current.setItem(key, value)),
-      removeItem: (key) => trackWrite(() => current.removeItem(key)),
+      getItem: (key) =>
+        runOrdered(async () => {
+          const value = await readCurrentAsync({ storage: current, key, defaults, migrate: config.migrate })
+          if (value !== undefined) return value
+          return migrateLegacyAsync({
+            current,
+            legacyStore,
+            stores: legacyStores,
+            keys: legacy,
+            key,
+            defaults,
+            migrate: config.migrate,
+          })
+        }),
+      setItem: (key, value) => runOrdered(() => current.setItem(key, value)),
+      removeItem: (key) => runOrdered(() => current.removeItem(key)),
     }
 
     return api

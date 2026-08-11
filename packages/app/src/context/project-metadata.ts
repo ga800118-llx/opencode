@@ -1,4 +1,6 @@
 import type { ProjectMeta } from "./global-sync/types"
+import { pathKey } from "@/utils/path-key"
+import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 
 export type ProjectMetadata = {
   id?: string
@@ -27,6 +29,23 @@ export type ProjectMetadataUpdate = {
   projectID: string
   directory: string
   patch: ProjectMeta
+}
+
+const projectMetadataWrites = new Map<string, Promise<void>>()
+
+function serializeProjectMetadataWrite<T>(scope: ServerScope, worktree: string, run: () => Promise<T>) {
+  const key = ScopedKey.from(scope, pathKey(worktree))
+  const previous = projectMetadataWrites.get(key) ?? Promise.resolve()
+  const result = previous.then(run)
+  const settled = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  projectMetadataWrites.set(key, settled)
+  void settled.then(() => {
+    if (projectMetadataWrites.get(key) === settled) projectMetadataWrites.delete(key)
+  })
+  return result
 }
 
 export function mergeProjectMetadata<T extends Omit<ProjectMetadata, "worktree">>(
@@ -83,20 +102,34 @@ export async function persistProjectMetadata<T extends ProjectMetadata>(input: {
 }
 
 export function createProjectMetadataWriter<T extends ProjectMetadata>(input: {
+  scope: () => ServerScope
   protocol: () => "v1" | "v2" | Promise<"v1" | "v2">
+  readProject: (worktree: string) => T | undefined
   updateServer: (project: T, update: ProjectMetadataUpdate) => Promise<T | undefined>
   writeLocal: (project: T, patch: ProjectMeta) => void | Promise<void>
   updateProjection: (project: MergedProjectMetadata<T>) => void | Promise<void>
 }) {
-  return async (project: T, patch: ProjectMeta) =>
-    persistProjectMetadata({
-      protocol: await input.protocol(),
-      project,
-      patch,
-      updateServer: (update) => input.updateServer(project, update),
-      writeLocal: (next) => input.writeLocal(project, next),
-      updateProjection: input.updateProjection,
+  return (project: T, patch: ProjectMeta, options?: { shouldWrite?: (project: T) => boolean }) =>
+    serializeProjectMetadataWrite(input.scope(), project.worktree, async () => {
+      const latest = input.readProject(project.worktree)
+      if (!latest && options?.shouldWrite) return project
+      const current = latest ?? project
+      if (options?.shouldWrite && !options.shouldWrite(current)) return current
+      return persistProjectMetadata({
+        protocol: await input.protocol(),
+        project: current,
+        patch,
+        updateServer: (update) => input.updateServer(current, update),
+        writeLocal: (next) => input.writeLocal(current, next),
+        updateProjection: input.updateProjection,
+      })
     })
+}
+
+export function createProjectMetadataLocalWriter(input: {
+  meta: (directory: string, patch: ProjectMeta) => void | Promise<void>
+}) {
+  return (project: Pick<ProjectMetadata, "worktree">, patch: ProjectMeta) => input.meta(project.worktree, patch)
 }
 
 export function editProjectMetadataPatch(input: {
