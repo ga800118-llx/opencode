@@ -7,6 +7,8 @@ import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { File } from "@opencode-ai/session-ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
+import { Button } from "@opencode-ai/ui/button"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import {
@@ -72,6 +74,7 @@ import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { ProductRuntimeProvider, type ProductRuntime } from "@/product/context"
 import { runLocationName } from "@/components/server/run-location"
+import { resolveSessionRouteReadiness } from "@/pages/session-route-readiness"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -82,6 +85,25 @@ const SessionRoute = () => {
   const sdk = useSDK()
   const server = useServer()
   const tabs = useTabs()
+  const language = useLanguage()
+
+  const [readiness, readinessActions] = createResource(
+    () => {
+      if (params.id || !tabs.ready() || !sdk().directory) return
+      return {
+        mode: settings.general.newLayoutDesigns() ? ("draft" as const) : ("legacy" as const),
+        server: server.key,
+        directory: sdk().directory,
+        prompt: search.prompt,
+      }
+    },
+    (target) =>
+      resolveSessionRouteReadiness({
+        mode: target.mode,
+        prepare: () => tabs.prepareDraft({ server: target.server, directory: target.directory }),
+        newDraft: () => tabs.newDraft({ server: target.server, directory: target.directory }, target.prompt),
+      }),
+  )
 
   if (params.id && settings.general.newLayoutDesigns()) {
     const sessionID = params.id
@@ -95,19 +117,24 @@ const SessionRoute = () => {
     )
   }
 
-  // When the new layout is enabled, the legacy new-session route (/:dir/session with no id)
-  // is replaced by a draft at /new-session?draftId=…
-  createEffect(() => {
-    if (!settings.general.newLayoutDesigns()) return
-    if (params.id || search.draftId) return
-    if (!tabs.ready() || !sdk().directory) return
-    tabs.newDraft({ server: server.key, directory: sdk().directory }, search.prompt)
-  })
-
   return (
-    <SessionRouteErrorBoundary sessionID={params.id}>
-      <SessionPage />
-    </SessionRouteErrorBoundary>
+    <Show
+      when={params.id || readiness() === "ready"}
+      fallback={
+        <div class="size-full flex items-center justify-center" aria-busy={readiness() !== "failed"}>
+          <Show
+            when={readiness() === "failed"}
+            fallback={<Spinner class="size-5 text-text-weak" />}
+          >
+            <Button onClick={() => void readinessActions.refetch()}>{language.t("command.session.new")}</Button>
+          </Show>
+        </div>
+      }
+    >
+      <SessionRouteErrorBoundary sessionID={params.id}>
+        <SessionPage />
+      </SessionRouteErrorBoundary>
+    </Show>
   )
 }
 

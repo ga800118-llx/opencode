@@ -24,6 +24,8 @@ import { usePermissionModeRequester } from "@/components/permission-mode-control
 import { toggleAutoMode } from "@/components/settings-v2/general-controllers"
 import { createSessionCompaction } from "./session-compaction"
 import { formatServerError } from "@/utils/server-errors"
+import { useTabs } from "@/context/tabs"
+import { useServer } from "@/context/server"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -54,6 +56,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const terminal = useTerminal()
   const layout = useLayout()
   const local = useLocal()
+  const appTabs = useTabs()
+  const server = useServer()
   const navigate = useNavigate()
   const { params, sessionKey, tabs, view } = useSessionLayout()
   const sessionOwnership = createSessionOwnership(sessionKey)
@@ -465,12 +469,14 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.new"),
       keybind: "mod+shift+s",
       slash: "new",
+      disabled:
+        !settings.general.newLayoutDesigns() && appTabs.draftPending(server.key, sdk().directory),
       onSelect: (source) => {
         if (settings.general.newLayoutDesigns()) {
           command.trigger("tab.new", source)
           return
         }
-        navigate(`/${params.dir}/session`)
+        void appTabs.openLegacyDraft({ server: server.key, directory: sdk().directory })
       },
     }),
     sessionCommand({

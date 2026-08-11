@@ -279,6 +279,53 @@ describe("createChildStoreManager", () => {
     }
   })
 
+  test("enables MCP for a fresh readiness child without starting another bootstrap", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    const offset = querySingles.length
+    const bootstraps: string[] = []
+    const mcpLoads: string[] = []
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => true,
+        isLoadingSessions: () => false,
+        onBootstrap(directory) {
+          bootstraps.push(directory)
+        },
+        onMcp(directory) {
+          mcpLoads.push(directory)
+        },
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store, setStore] = manager.peek("/project", { bootstrap: false, mcp: true })
+      const queries = querySingles.slice(offset)
+
+      expect(store.status).toBe("loading")
+      expect(queries[1]?.().enabled).toBe(true)
+      expect(queries[2]?.().enabled).toBe(true)
+      expect(manager.mcp("/project")).toBe(true)
+      expect(bootstraps).toEqual([])
+      expect(mcpLoads).toEqual([])
+
+      setStore("status", "complete")
+      manager.child("/project", { mcp: true })
+      expect(bootstraps).toEqual([])
+      expect(mcpLoads).toEqual([])
+    } finally {
+      dispose()
+    }
+  })
+
   test("keeps non-bootstrapping children passive until a real directory access", () => {
     let manager: ReturnType<typeof createChildStoreManager> | undefined
     const offset = querySingles.length

@@ -2,30 +2,31 @@ import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useGlobal } from "@/context/global"
 import { useLanguage } from "@/context/language"
-import { type ServerConnection, useServer } from "@/context/server"
+import { ServerConnection, useServer } from "@/context/server"
 import { useServerSync } from "@/context/server-sync"
 import { useSettings } from "@/context/settings"
+import { useTabs } from "@/context/tabs"
 import { createRunLocationPresentation } from "@/product/workflow"
 import { RemoteRunIndicator } from "@/components/status-popover"
 import { runLocationName } from "@/components/server/run-location"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Logo } from "@opencode-ai/ui/logo"
-import { useNavigate } from "@solidjs/router"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { DateTime } from "luxon"
-import { createMemo, For, Match, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 
 export function LegacyHome() {
   const sync = useServerSync()
   const pickDirectory = useDirectoryPicker()
   const dialog = useDialog()
-  const navigate = useNavigate()
   const global = useGlobal()
   const server = useServer()
+  const tabs = useTabs()
   const language = useLanguage()
   const settings = useSettings()
+  const [opening, setOpening] = createSignal(0)
   const runLocation = createMemo(() =>
     createRunLocationPresentation({ mode: settings.general.presentationMode(), local: server.isLocal() }),
   )
@@ -49,7 +50,10 @@ export function LegacyHome() {
     const serverCtx = global.ensureServerCtx(conn)
     serverCtx.projects.open(directory)
     serverCtx.projects.touch(directory)
-    navigate(`/${base64Encode(directory)}`)
+    setOpening((value) => value + 1)
+    void tabs
+      .openLegacyDraft({ server: ServerConnection.key(conn), directory })
+      .finally(() => setOpening((value) => Math.max(0, value - 1)))
   }
 
   function chooseProject() {
@@ -103,30 +107,44 @@ export function LegacyHome() {
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
               <Button
-                icon="folder-add-left"
+                icon={opening() > 0 ? undefined : "folder-add-left"}
                 size="normal"
                 class="pl-2 pr-3"
-                disabled={serverUnreachable()}
+                disabled={serverUnreachable() || opening() > 0}
+                aria-busy={opening() > 0}
                 onClick={chooseProject}
               >
+                <Show when={opening() > 0}>
+                  <Spinner class="size-3.5" />
+                </Show>
                 {language.t("command.project.open")}
               </Button>
             </div>
             <ul class="flex flex-col gap-2">
               <For each={recent()}>
-                {(project) => (
-                  <Button
-                    size="large"
-                    variant="ghost"
-                    class="text-14-mono text-left justify-between px-3"
-                    onClick={() => openProject(server.current!, project.worktree)}
-                  >
-                    {project.worktree.replace(homedir(), "~")}
-                    <div class="text-14-regular text-text-weak">
-                      {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
-                    </div>
-                  </Button>
-                )}
+                {(project) => {
+                  const pending = () => tabs.draftPending(server.key, project.worktree)
+                  return (
+                    <Button
+                      size="large"
+                      variant="ghost"
+                      class="text-14-mono text-left justify-between px-3"
+                      disabled={pending()}
+                      aria-busy={pending()}
+                      onClick={() => openProject(server.current!, project.worktree)}
+                    >
+                      {project.worktree.replace(homedir(), "~")}
+                      <Show
+                        when={!pending()}
+                        fallback={<Spinner class="size-4 shrink-0 text-text-weak" />}
+                      >
+                        <div class="text-14-regular text-text-weak">
+                          {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
+                        </div>
+                      </Show>
+                    </Button>
+                  )
+                }}
               </For>
             </ul>
           </div>
@@ -134,7 +152,15 @@ export function LegacyHome() {
         <Match when={!sync().ready}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
             <div class="text-12-regular text-text-weak">{language.t("common.loading")}</div>
-            <Button class="px-3" disabled={serverUnreachable()} onClick={chooseProject}>
+            <Button
+              class="px-3"
+              disabled={serverUnreachable() || opening() > 0}
+              aria-busy={opening() > 0}
+              onClick={chooseProject}
+            >
+              <Show when={opening() > 0}>
+                <Spinner class="size-3.5" />
+              </Show>
               {language.t("command.project.open")}
             </Button>
           </div>
@@ -146,7 +172,15 @@ export function LegacyHome() {
               <div class="text-14-medium text-text-strong">{language.t("home.empty.title")}</div>
               <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
-            <Button class="px-3 mt-1" disabled={serverUnreachable()} onClick={chooseProject}>
+            <Button
+              class="px-3 mt-1"
+              disabled={serverUnreachable() || opening() > 0}
+              aria-busy={opening() > 0}
+              onClick={chooseProject}
+            >
+              <Show when={opening() > 0}>
+                <Spinner class="size-3.5" />
+              </Show>
               {language.t("command.project.open")}
             </Button>
           </div>

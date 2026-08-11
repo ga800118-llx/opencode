@@ -75,6 +75,51 @@ describe("workspace readiness", () => {
     expect(calls).toBe(2)
   })
 
+  test("merges automatic refresh with readiness and records the result for later consumers", async () => {
+    const bootstrap = deferred<{ status: "ready"; errors: readonly Error[] }>()
+    let calls = 0
+    const controller = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: () => {
+        calls++
+        return bootstrap.promise
+      },
+    })
+
+    const automatic = controller.refresh("C:\\project\\")
+    const readiness = controller.ensureReady("C:/project")
+
+    expect(readiness).toBe(automatic)
+    expect(calls).toBe(1)
+    bootstrap.resolve({ status: "ready", errors: [] })
+    expect(await automatic).toBe("ready")
+    expect(await controller.ensureReady("C:/project/")).toBe("ready")
+    expect(calls).toBe(1)
+  })
+
+  test("refreshes a settled workspace while sharing the refresh with readiness callers", async () => {
+    const refresh = deferred<{ status: "degraded"; errors: readonly Error[] }>()
+    let calls = 0
+    const controller = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        calls++
+        if (calls === 1) return { status: "ready", errors: [] }
+        return refresh.promise
+      },
+    })
+
+    expect(await controller.ensureReady("/project")).toBe("ready")
+    const automatic = controller.refresh("/project/")
+    const readiness = controller.ensureReady("/project")
+    expect(readiness).toBe(automatic)
+    expect(calls).toBe(2)
+
+    refresh.resolve({ status: "degraded", errors: [new Error("provider failed")] })
+    expect(await automatic).toBe("degraded")
+    expect(controller.readiness("/project")).toBe("degraded")
+  })
+
   test("retains degraded and ready results for the child lifetime", async () => {
     let degradedCalls = 0
     const degraded = createWorkspaceReadinessController({

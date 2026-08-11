@@ -86,6 +86,7 @@ function v2Sdk(config: () => Promise<{ data: Config }> = async () => ({ data: {}
 function bootstrapInput(input: {
   sdk?: OpencodeClient
   api?: ServerApi
+  mcp?: boolean
   project?: Project[]
   path?: { state: string; config: string; worktree: string; directory: string; home: string }
   loadSessions?: () => Promise<void> | void
@@ -95,7 +96,7 @@ function bootstrapInput(input: {
   const result = bootstrapDirectory({
     directory: "/project",
     scope: ServerScope.local,
-    mcp: false,
+    mcp: input.mcp ?? false,
     global: {
       config: {},
       path: input.path ?? { state: "", config: "", worktree: "/project", directory: "/project", home: "/home" },
@@ -251,6 +252,40 @@ describe("bootstrapDirectory", () => {
     const result = await run.result
     expect(result.status).toBe("degraded")
     expect(result.errors.map((error) => error.message).sort()).toEqual(["history failed", "provider failed"])
+    expect(run.store.status).toBe("complete")
+  })
+
+  test("loads commands, MCP status, and resources for a fresh child and degrades on optional failure", async () => {
+    const calls: string[] = []
+    const run = bootstrapInput({
+      mcp: true,
+      api: {
+        ...api,
+        command: {
+          list: async () => {
+            calls.push("command")
+            return { location: {}, data: [] }
+          },
+        },
+        mcp: {
+          list: async () => {
+            calls.push("status")
+            throw new Error("mcp failed")
+          },
+          resource: {
+            catalog: async () => {
+              calls.push("resource")
+              return { location: {}, data: { resources: [] } }
+            },
+          },
+        },
+      } as unknown as ServerApi,
+    })
+
+    const result = await run.result
+    expect(new Set(calls)).toEqual(new Set(["command", "status", "resource"]))
+    expect(result.status).toBe("degraded")
+    expect(result.errors.map((error) => error.message)).toEqual(["mcp failed"])
     expect(run.store.status).toBe("complete")
   })
 })

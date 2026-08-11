@@ -29,6 +29,7 @@ import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { decode64 } from "@/utils/base64"
 
 const legacyTitlebarHeight = 40
 const v2TitlebarHeight = 36
@@ -55,6 +56,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
   const language = useLanguage()
   const settings = useSettings()
   const server = useServer()
+  const tabs = useTabs()
   const navigate = useNavigate()
   const location = useLocation()
   const params = useParams()
@@ -92,6 +94,16 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
     if (params.id) return false
     const parts = location.pathname.replace(/\/+$/, "").split("/")
     return parts.at(-1) === "session"
+  })
+  const legacyNewSessionTarget = createMemo(() => {
+    const directory = decode64(params.dir)
+    if (!directory) return
+    return { server: server.key, directory }
+  })
+  const legacyNewSessionPending = createMemo(() => {
+    const target = legacyNewSessionTarget()
+    if (!target) return false
+    return tabs.draftPending(target.server, target.directory)
   })
 
   createEffect(() => {
@@ -180,7 +192,6 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
             const layout = useLayout()
             const global = useGlobal()
 
-            const tabs = useTabs()
             const tabsStore = tabs.store
             const tabsStoreActions = tabs
             const [session] = createResource(
@@ -507,16 +518,23 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                           <Button
                             variant="ghost"
                             class="titlebar-icon w-8 h-6 p-0 box-border"
-                            disabled={layout.sidebar.opened()}
+                            disabled={layout.sidebar.opened() || legacyNewSessionPending()}
                             tabIndex={layout.sidebar.opened() ? -1 : undefined}
                             onClick={() => {
-                              if (!params.dir) return
-                              navigate(`/${params.dir}/session`)
+                              const target = legacyNewSessionTarget()
+                              if (!target) return
+                              void tabs.openLegacyDraft(target)
                             }}
                             aria-label={language.t("command.session.new")}
                             aria-current={creating() ? "page" : undefined}
+                            aria-busy={legacyNewSessionPending()}
                           >
-                            <IconV2 name="edit" size="small" />
+                            <Show
+                              when={!legacyNewSessionPending()}
+                              fallback={<Spinner class="size-3.5" />}
+                            >
+                              <IconV2 name="edit" size="small" />
+                            </Show>
                           </Button>
                         </TooltipKeybind>
                       </div>

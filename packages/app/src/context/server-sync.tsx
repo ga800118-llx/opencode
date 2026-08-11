@@ -104,11 +104,10 @@ export function createWorkspaceReadinessController(input: {
   >()
   const key = (directory: string) => ScopedKey.from(input.scope, directoryKey(directory))
 
-  function ensureReady(directory: string) {
+  function start(directory: string) {
     const scoped = key(directory)
     const current = states.get(scoped)
     if (current?.status === "initializing" && current.promise) return current.promise
-    if (current?.status === "ready" || current?.status === "degraded") return Promise.resolve(current.status)
 
     const promise = input
       .bootstrap(directoryKey(directory))
@@ -124,8 +123,15 @@ export function createWorkspaceReadinessController(input: {
     return promise
   }
 
+  function ensureReady(directory: string) {
+    const current = states.get(key(directory))
+    if (current?.status === "ready" || current?.status === "degraded") return Promise.resolve(current.status)
+    return start(directory)
+  }
+
   return {
     ensureReady,
+    refresh: start,
     readiness: (directory: string) => states.get(key(directory))?.status ?? "initializing",
     clear: (directory: string) => states.delete(key(directory)),
   }
@@ -387,18 +393,18 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
   const paused = () => untrack(() => globalStore.reload) !== undefined
 
+  const workspaceReadiness = createWorkspaceReadinessController({
+    scope: serverSDK.scope,
+    bootstrap: bootstrapInstance,
+  })
+
   const queue = createRefreshQueue({
     paused,
     key: directoryKey,
     bootstrap: () => queryClient.fetchQuery({ queryKey: [serverSDK.scope, "bootstrap"] }),
     bootstrapInstance: async (directory) => {
-      await bootstrapInstance(directory)
+      await workspaceReadiness.refresh(directory)
     },
-  })
-
-  const workspaceReadiness = createWorkspaceReadinessController({
-    scope: serverSDK.scope,
-    bootstrap: bootstrapInstance,
   })
 
   const children = createChildStoreManager({
@@ -535,7 +541,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
     children.pin(key)
     const promise = Promise.resolve().then(async () => {
-      const child = children.ensureChild(directory)
+      const child = children.peek(directory, { bootstrap: false, mcp: true })
       const cache = children.vcsCache.get(key)
       if (!cache) throw new Error("Workspace cache is unavailable")
       const sdk = sdkFor(directory)
@@ -622,7 +628,14 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         eventType === "project.directories.updated"
       )
         bootstrap.refetch()
-      if (eventType === "server.connected" || eventType === "global.disposed") {
+      if (eventType === "server.connected") {
+        if (recent) return
+        for (const directory of Object.keys(children.children)) {
+          if (!children.active(directory)) continue
+          void workspaceReadiness.ensureReady(directory).catch(() => undefined)
+        }
+      }
+      if (eventType === "global.disposed") {
         if (recent) return
         for (const directory of Object.keys(children.children)) {
           if (!children.active(directory)) continue

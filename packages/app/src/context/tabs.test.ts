@@ -5,8 +5,11 @@ import { nextTabAfterClose, pushClosedTab, removeClosedTabs, takeClosedTab, type
 import { createDraftReadinessController, type DraftTab, type SessionTab, type Tab } from "./tabs"
 import { migrateTabs } from "./tab-migration"
 import type { ServerConnection } from "./server"
+import { createWorkspaceReadinessController } from "./server-sync"
+import { ServerScope } from "@/utils/server-scope"
 
 const server = "local\nhttp://localhost:4096" as ServerConnection.Key
+const remoteServer = "remote\nhttps://windows.example" as ServerConnection.Key
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -73,6 +76,7 @@ describe("draft readiness", () => {
         created.push(tab)
         return tab
       },
+      openLegacy: async () => {},
       onError() {},
     })
 
@@ -104,6 +108,7 @@ describe("draft readiness", () => {
         created.push(tab)
         return tab
       },
+      openLegacy: async () => {},
       onError: (error) => errors.push(error),
     })
 
@@ -114,6 +119,104 @@ describe("draft readiness", () => {
 
     expect(await controller.newDraft({ server, directory: "/project" })).toEqual(created[0])
     expect(created).toHaveLength(1)
+    expect(attempts).toBe(2)
+  })
+
+  test("keeps equal directories isolated across servers for Home, titlebar, and legacy entries", async () => {
+    const localBootstrap = deferred<{ status: "ready"; errors: readonly Error[] }>()
+    const remoteBootstrap = deferred<{ status: "degraded"; errors: readonly Error[] }>()
+    const calls = { local: 0, remote: 0 }
+    const readiness = new Map<ServerConnection.Key, ReturnType<typeof createWorkspaceReadinessController>>([
+      [
+        server,
+        createWorkspaceReadinessController({
+          scope: ServerScope.local,
+          bootstrap: () => {
+            calls.local++
+            return localBootstrap.promise
+          },
+        }),
+      ],
+      [
+        remoteServer,
+        createWorkspaceReadinessController({
+          scope: "https://windows.example" as ServerScope,
+          bootstrap: () => {
+            calls.remote++
+            return remoteBootstrap.promise
+          },
+        }),
+      ],
+    ])
+    const drafts: DraftTab[] = []
+    const legacy: Array<{ server: ServerConnection.Key; directory: string }> = []
+    const controller = createDraftReadinessController({
+      ensureReady: (key, directory) => {
+        const target = readiness.get(key)
+        if (!target) throw new Error("server readiness required")
+        return target.ensureReady(directory)
+      },
+      createDraft: async (draft) => {
+        const tab = { type: "draft" as const, draftID: `draft-${drafts.length + 1}`, ...draft }
+        drafts.push(tab)
+        return tab
+      },
+      openLegacy: async (target) => {
+        legacy.push(target)
+      },
+      onError() {},
+    })
+
+    const home = controller.newDraft({ server, directory: "/project/" })
+    const homeAgain = controller.newDraft({ server, directory: "/project" })
+    const oldTitlebar = controller.openLegacy({ server: remoteServer, directory: "/project/" })
+    const legacyHome = controller.openLegacy({ server: remoteServer, directory: "/project" })
+    const sessionCommand = controller.openLegacy({ server: remoteServer, directory: "/project/" })
+    const compatibilityRoute = controller.prepare({ server: remoteServer, directory: "/project" })
+
+    expect(homeAgain).toBe(home)
+    expect(legacyHome).toBe(oldTitlebar)
+    expect(sessionCommand).toBe(oldTitlebar)
+    await Promise.resolve()
+    expect(calls).toEqual({ local: 1, remote: 1 })
+    expect(controller.pending(server, "/project")).toBe(true)
+    expect(controller.pending(remoteServer, "/project")).toBe(true)
+
+    localBootstrap.resolve({ status: "ready", errors: [] })
+    remoteBootstrap.resolve({ status: "degraded", errors: [new Error("provider failed")] })
+    expect(await home).toEqual(drafts[0])
+    expect(await oldTitlebar).toBe(true)
+    expect(await compatibilityRoute).toBe("degraded")
+    expect(drafts).toHaveLength(1)
+    expect(legacy).toEqual([{ server: remoteServer, directory: "/project/" }])
+    expect(controller.pending(server, "/project")).toBe(false)
+    expect(controller.pending(remoteServer, "/project")).toBe(false)
+  })
+
+  test("keeps legacy navigation in place after failure and retries on the next command", async () => {
+    let attempts = 0
+    const errors: unknown[] = []
+    const opened: string[] = []
+    const controller = createDraftReadinessController({
+      ensureReady: async () => {
+        attempts++
+        if (attempts === 1) throw new Error("config failed")
+        return "ready"
+      },
+      createDraft: async (draft) => ({ type: "draft", draftID: "unused", ...draft }),
+      openLegacy: async (target) => {
+        opened.push(target.directory)
+      },
+      onError: (error) => errors.push(error),
+    })
+
+    expect(await controller.openLegacy({ server, directory: "/project" })).toBeUndefined()
+    expect(opened).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(controller.pending(server, "/project")).toBe(false)
+
+    expect(await controller.openLegacy({ server, directory: "/project" })).toBe(true)
+    expect(opened).toEqual(["/project"])
     expect(attempts).toBe(2)
   })
 })

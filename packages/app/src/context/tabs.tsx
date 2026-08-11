@@ -18,6 +18,7 @@ import { useLanguage } from "./language"
 import { directoryKey } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 import { showToast } from "@/utils/toast"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 
 export type SessionTab = {
   type: "session"
@@ -40,6 +41,8 @@ export type TabInfo = {
   directory?: string
 }
 
+export type WorkspaceDraftTarget = Omit<DraftTab, "type" | "draftID">
+
 type RecentTab = {
   key?: string
 }
@@ -52,25 +55,32 @@ function draftReadinessKey(server: ServerConnection.Key, directory: string) {
 
 export function createDraftReadinessController(input: {
   ensureReady: (server: ServerConnection.Key, directory: string) => Promise<"ready" | "degraded">
-  createDraft: (
-    draft: Omit<DraftTab, "type" | "draftID">,
-    prompt?: string,
-    model?: PromptModel,
-  ) => Promise<DraftTab>
+  createDraft: (draft: WorkspaceDraftTarget, prompt?: string, model?: PromptModel) => Promise<DraftTab>
+  openLegacy: (target: WorkspaceDraftTarget) => Promise<void> | void
   onError: (error: unknown) => void
 }) {
-  const inflight = new Map<string, Promise<DraftTab | undefined>>()
-  const [pending, setPending] = createStore<Record<string, boolean>>({})
+  const drafts = new Map<string, Promise<DraftTab | undefined>>()
+  const legacy = new Map<string, Promise<true | undefined>>()
+  const preparations = new Map<string, Promise<"ready" | "degraded" | undefined>>()
+  const [pending, setPending] = createStore<Record<string, number>>({})
 
-  function newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
-    const key = draftReadinessKey(draft.server, draft.directory)
+  function run<T>(
+    inflight: Map<string, Promise<T | undefined>>,
+    target: WorkspaceDraftTarget,
+    complete: (status: "ready" | "degraded") => Promise<T> | T,
+  ) {
+    const key = draftReadinessKey(target.server, target.directory)
     const existing = inflight.get(key)
     if (existing) return existing
 
-    setPending(key, true)
+    setPending(
+      produce((state) => {
+        state[key] = (state[key] ?? 0) + 1
+      }),
+    )
     const promise = Promise.resolve()
-      .then(() => input.ensureReady(draft.server, draft.directory))
-      .then(() => input.createDraft(draft, prompt, model))
+      .then(() => input.ensureReady(target.server, target.directory))
+      .then(complete)
       .catch((error) => {
         input.onError(error)
         return undefined
@@ -79,6 +89,11 @@ export function createDraftReadinessController(input: {
         inflight.delete(key)
         setPending(
           produce((state) => {
+            const next = (state[key] ?? 1) - 1
+            if (next > 0) {
+              state[key] = next
+              return
+            }
             delete state[key]
           }),
         )
@@ -87,9 +102,22 @@ export function createDraftReadinessController(input: {
     return promise
   }
 
+  const newDraft = (draft: WorkspaceDraftTarget, prompt?: string, model?: PromptModel) =>
+    run(drafts, draft, () => input.createDraft(draft, prompt, model))
+
+  const openLegacy = (target: WorkspaceDraftTarget) =>
+    run(legacy, target, async () => {
+      await input.openLegacy(target)
+      return true as const
+    })
+
+  const prepare = (target: WorkspaceDraftTarget) => run(preparations, target, (status) => status)
+
   return {
     newDraft,
-    pending: (server: ServerConnection.Key, directory: string) => pending[draftReadinessKey(server, directory)] === true,
+    openLegacy,
+    prepare,
+    pending: (server: ServerConnection.Key, directory: string) => (pending[draftReadinessKey(server, directory)] ?? 0) > 0,
   }
 }
 
@@ -198,6 +226,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return global.ensureServerCtx(conn).sync.project.ensureReady(directory)
       },
       createDraft,
+      openLegacy: (target) => navigate(`/${base64Encode(target.directory)}/session`),
       onError: (error) => {
         if (error instanceof Error && error.name === "WorkspaceBootstrapError") return
         showToast({
@@ -299,6 +328,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return tab
       },
       newDraft: draftReadiness.newDraft,
+      openLegacyDraft: draftReadiness.openLegacy,
+      prepareDraft: draftReadiness.prepare,
       draftPending: draftReadiness.pending,
       updateDraft(draftID: string, draft: Partial<Omit<DraftTab, "type" | "draftID">>) {
         void startTransition(() => {
