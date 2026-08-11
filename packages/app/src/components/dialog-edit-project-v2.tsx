@@ -141,6 +141,14 @@ export function DialogEditProjectV2(props: { project: LocalProject; server: Serv
               onInput={(event) => model.setStore("startup", event.currentTarget.value)}
             />
           </Field>
+
+          <Show when={model.error(language.t("common.requestFailed"))}>
+            {(error) => (
+              <div role="alert" class="text-[12px] leading-4 text-v2-state-fg-danger">
+                {error()}
+              </div>
+            )}
+          </Show>
         </DialogBody>
         <DialogFooter>
           <ButtonV2 type="button" variant="neutral" disabled={model.save.isPending} onClick={model.close}>

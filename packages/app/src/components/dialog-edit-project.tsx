@@ -154,10 +154,18 @@ export function DialogEditProject(props: { project: LocalProject; server: Server
             spellcheck={false}
             class="max-h-14 w-full overflow-y-auto font-mono text-xs"
           />
+
+          <Show when={model.error(language.t("common.requestFailed"))}>
+            {(error) => (
+              <div role="alert" class="text-12-regular text-text-danger-base">
+                {error()}
+              </div>
+            )}
+          </Show>
         </div>
 
         <div class="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="large" onClick={model.close}>
+          <Button type="button" variant="ghost" size="large" disabled={model.save.isPending} onClick={model.close}>
             {language.t("common.cancel")}
           </Button>
           <Button type="submit" variant="primary" size="large" disabled={model.save.isPending}>

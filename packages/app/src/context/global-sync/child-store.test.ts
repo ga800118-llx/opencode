@@ -273,4 +273,48 @@ describe("createChildStoreManager", () => {
       dispose()
     }
   })
+
+  test("merges project metadata patches immediately and preserves explicit clears", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+
+      manager.projectMeta("/project", {
+        name: "Project",
+        icon: { color: "blue", override: "custom.png" },
+        commands: { start: "bun dev" },
+      })
+      manager.projectMeta("/project", {
+        name: "",
+        icon: { color: "" },
+        commands: { start: "" },
+      })
+
+      expect(store.projectMeta).toEqual({
+        name: "",
+        icon: { color: "", override: "custom.png" },
+        commands: { start: "" },
+      })
+    } finally {
+      dispose()
+    }
+  })
 })

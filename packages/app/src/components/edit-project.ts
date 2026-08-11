@@ -7,6 +7,7 @@ import { createStore } from "solid-js/store"
 import { useGlobal } from "@/context/global"
 import { type LocalProject } from "@/context/layout"
 import { ServerConnection } from "@/context/server"
+import { persistProjectMetadata, projectMetadataErrorMessage } from "@/context/project-metadata"
 
 export function createEditProjectModel(props: { project: LocalProject; server: ServerConnection.Any }) {
   const dialog = useDialog()
@@ -69,40 +70,51 @@ export function createEditProjectModel(props: { project: LocalProject; server: S
     mutationFn: async () => {
       const name = store.name.trim() === folderName() ? "" : store.name.trim()
       const start = store.startup.trim()
-
-      if (props.project.id && props.project.id !== "global") {
-        if ((await serverCtx().sdk.protocol) !== "v1") return
-        const project = await serverCtx()
-          .sdk.client.project.update({
-            projectID: props.project.id,
-            directory: props.project.worktree,
-            name,
-            icon: { color: store.color || "", override: store.iconOverride || "" },
-            commands: { start },
-          })
-          .then((result) => result.data)
-        if (!project) return
-        // const project = await serverCtx().sdk.api.project.update({
-        //   projectID: props.project.id,
-        //   name,
-        //   icon: { color: store.color || "", override: store.iconOverride || "" },
-        //   commands: { start },
-        // })
-        serverCtx().sync.set("project", (items) =>
-          items.map((item) => (item.id === project.id ? normalizeProjectInfo(project) : item)),
-        )
-        serverCtx().sync.project.icon(props.project.worktree, store.iconOverride || undefined)
-        dialog.close()
-        return
+      const patch = {
+        name,
+        icon: { color: store.color ?? "", override: store.iconOverride ?? "" },
+        commands: { start },
       }
 
-      serverCtx().sync.project.meta(props.project.worktree, {
-        name,
-        icon: { color: store.color || undefined, override: store.iconOverride || undefined },
-        commands: { start: start || undefined },
+      return persistProjectMetadata({
+        protocol: await serverCtx().sdk.protocol,
+        project: props.project,
+        patch,
+        updateServer: async (input) => {
+          const project = await serverCtx()
+            .sdk.client.project.update({
+              projectID: input.projectID,
+              directory: input.directory,
+              ...input.patch,
+            })
+            .then((result) => result.data)
+          if (!project) return
+          return { ...props.project, ...normalizeProjectInfo(project), expanded: props.project.expanded }
+        },
+        writeLocal: (next) => {
+          serverCtx().sync.project.meta(props.project.worktree, next)
+          if (next.icon?.override !== undefined) {
+            serverCtx().sync.project.icon(props.project.worktree, next.icon.override)
+          }
+        },
+        updateProjection: (project) => {
+          if (!project.id) return
+          serverCtx().sync.set("project", (items) =>
+            items.map((item) =>
+              item.id === project.id
+                ? {
+                    ...item,
+                    ...project,
+                    icon: { ...item.icon, ...project.icon },
+                    commands: { ...item.commands, ...project.commands },
+                  }
+                : item,
+            ),
+          )
+        },
       })
-      dialog.close()
     },
+    onSuccess: () => dialog.close(),
   }))
 
   function submit(event: SubmitEvent) {
@@ -117,6 +129,10 @@ export function createEditProjectModel(props: { project: LocalProject; server: S
     folderName,
     defaultName,
     save,
+    error(fallback: string) {
+      if (!save.error) return
+      return projectMetadataErrorMessage(save.error, fallback)
+    },
     submit,
     drop,
     dragOver,

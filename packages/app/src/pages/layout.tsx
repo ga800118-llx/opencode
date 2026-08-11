@@ -49,6 +49,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { listAllSessions } from "@/utils/session"
+import { persistProjectMetadata } from "@/context/project-metadata"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1304,21 +1305,48 @@ export default function LegacyLayout(props: ParentProps) {
     if (next === current) return
     const name = next === getFilename(project.worktree) ? "" : next
 
-    if (project.id && project.id !== "global") {
-      const sdk = serverSDK()
-      if ((await sdk.protocol) !== "v1") return
-      const result = await sdk.client.project
-        .update({ projectID: project.id, directory: project.worktree, name })
-        .then((response) => response.data)
-      if (!result) return
-      // const result = await serverSDK().api.project.update({ projectID: project.id, name })
-      serverSync().set("project", (items) =>
-        items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
-      )
-      return
-    }
+    const sdk = serverSDK()
+    await persistProjectMetadata({
+      protocol: await sdk.protocol,
+      project,
+      patch: { name },
+      updateServer: async (input) => {
+        const result = await sdk.client.project
+          .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+          .then((response) => response.data)
+        if (!result) return
+        return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+      },
+      writeLocal: (patch) => {
+        serverSync().project.meta(project.worktree, patch)
+        if (patch.icon?.override !== undefined) serverSync().project.icon(project.worktree, patch.icon.override)
+      },
+      updateProjection: (next) => {
+        if (!next.id) return
+        serverSync().set("project", (items) =>
+          items.map((item) =>
+            item.id === next.id
+              ? {
+                  ...item,
+                  ...next,
+                  icon: { ...item.icon, ...next.icon },
+                  commands: { ...item.commands, ...next.commands },
+                }
+              : item,
+          ),
+        )
+      },
+    })
+  }
 
-    serverSync().project.meta(project.worktree, { name })
+  function saveProjectName(project: LocalProject, next: string) {
+    void renameProject(project, next).catch((error) => {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    })
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
@@ -2024,9 +2052,7 @@ export default function LegacyLayout(props: ParentProps) {
                     <InlineEditor
                       id={`project:${projectId()}`}
                       value={projectName}
-                      onSave={(next) => {
-                        void renameProject(project, next)
-                      }}
+                      onSave={(next) => saveProjectName(project, next)}
                       class="text-14-medium text-text-strong truncate"
                       displayClass="text-14-medium text-text-strong truncate"
                       stopPropagation

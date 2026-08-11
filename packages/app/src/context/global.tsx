@@ -9,6 +9,7 @@ import { createServerSyncContext } from "./server-sync"
 import { getOwner } from "solid-js/web"
 import { QueryClient } from "@tanstack/solid-query"
 import type { ServerScope } from "@/utils/server-scope"
+import { mergeProjectMetadata } from "./project-metadata"
 
 export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext({
   name: "Global",
@@ -117,11 +118,10 @@ function createServerCtx(
       ? sync.data.project.find((x) => x.id === projectID)
       : sync.data.project.find((x) => x.worktree === project.worktree)
 
-    // Preserve local icon override from per-workspace localStorage cache (childStore.icon).
-    // Without this, different subdirectories of the same git repo would share the same
-    // icon from the database instead of using their individual overrides.
-    const base = { ...metadata, ...project }
-    if (childStore.icon) {
+    const base = mergeProjectMetadata({ ...metadata, ...project }, childStore.projectMeta)
+    // Modern metadata wins when it explicitly sets or clears the override. The legacy
+    // cache remains the final image fallback for projects that have not migrated yet.
+    if (childStore.icon !== undefined && childStore.projectMeta?.icon?.override === undefined) {
       return { ...base, icon: { ...base.icon, override: childStore.icon } }
     }
     return base

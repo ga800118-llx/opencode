@@ -21,6 +21,7 @@ import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./la
 import { requireServerKey } from "@/utils/session-route"
 import { type DraftTab, useTabs } from "./tabs"
 import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
+import { mergeProjectMetadata, needsAutomaticProjectColor, persistProjectMetadata } from "./project-metadata"
 
 export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 
@@ -449,11 +450,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         ? serverSync().data.project.find((x) => x.id === projectID)
         : serverSync().data.project.find((x) => x.worktree === project.worktree)
 
-      // Preserve local icon override from per-workspace localStorage cache (childStore.icon).
-      // Without this, different subdirectories of the same git repo would share the same
-      // icon from the database instead of using their individual overrides.
-      const base = { ...metadata, ...project }
-      if (childStore.icon) {
+      const base = mergeProjectMetadata({ ...metadata, ...project }, childStore.projectMeta)
+      // Modern metadata wins when it explicitly sets or clears the override. The legacy
+      // cache remains the final image fallback for projects that have not migrated yet.
+      if (childStore.icon !== undefined && childStore.projectMeta?.icon?.override === undefined) {
         return { ...base, icon: { ...base.icon, override: childStore.icon } }
       }
       return base
@@ -541,7 +541,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       if (projects.length === 0) return
 
       for (const project of projects) {
-        if (project.icon?.color) colorRequested.delete(project.worktree)
+        if (project.icon?.color !== undefined) colorRequested.delete(project.worktree)
       }
 
       const used = new Set<string>()
@@ -551,7 +551,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
 
       for (const project of projects) {
-        if (project.icon?.color || project.icon?.override || project.icon?.url) continue
+        if (!needsAutomaticProjectColor(project)) continue
         const worktree = project.worktree
         const existing = colors[worktree]
         const color = existing ?? pickAvailableColor(used)
@@ -559,33 +559,48 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           used.add(color)
           setColors(worktree, color)
         }
-        if (!project.id) continue
-
         const requested = colorRequested.get(worktree)
         if (requested === color) continue
         colorRequested.set(worktree, color)
 
-        if (project.id === "global") {
-          serverSync().project.meta(worktree, { icon: { color } })
-          continue
-        }
-
-        const projectID = project.id
         void (async () => {
           const sdk = serverSdk()
-          if ((await sdk.protocol) !== "v1") return
-          return sdk.client.project
-            .update({ projectID, directory: worktree, icon: { color } })
-            .then((response) => response.data)
-            .then((result) => {
+          await persistProjectMetadata({
+            protocol: await sdk.protocol,
+            project,
+            patch: { icon: { color } },
+            updateServer: async (input) => {
+              const result = await sdk.client.project
+                .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+                .then((response) => response.data)
               if (!result) return
+              return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+            },
+            writeLocal: (next) => {
+              serverSync().project.meta(worktree, next)
+              if (next.icon?.override !== undefined) serverSync().project.icon(worktree, next.icon.override)
+            },
+            updateProjection: (next) => {
+              if (!next.id) return
               serverSync().set("project", (items) =>
-                items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
+                items.map((item) =>
+                  item.id === next.id
+                    ? {
+                        ...item,
+                        ...next,
+                        icon: { ...item.icon, ...next.icon },
+                        commands: { ...item.commands, ...next.commands },
+                      }
+                    : item,
+                ),
               )
-            })
-        })().catch(() => {
-          if (colorRequested.get(worktree) === color) colorRequested.delete(worktree)
-        })
+            },
+          })
+        })()
+          .catch(() => {})
+          .finally(() => {
+            if (colorRequested.get(worktree) === color) colorRequested.delete(worktree)
+          })
       }
     })
 
