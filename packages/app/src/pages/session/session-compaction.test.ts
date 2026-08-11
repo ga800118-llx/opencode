@@ -68,6 +68,7 @@ describe("createSessionCompaction", () => {
 
     expect(action.pending()).toBe(true)
     expect(action.disabledReason()).toBe("pending")
+    await Promise.resolve()
     expect(requests).toEqual([
       {
         sessionID: "session-1",
@@ -81,6 +82,34 @@ describe("createSessionCompaction", () => {
     expect(action.pending()).toBe(false)
   })
 
+  test("shares one in-flight request across separate controllers", async () => {
+    let resolve: (() => void) | undefined
+    const compacted = new Promise<void>((done) => {
+      resolve = done
+    })
+    let calls = 0
+    const compact = () => {
+      calls += 1
+      return compacted
+    }
+    const first = fixture({ sessionID: "shared-session", compact }).action
+    const second = fixture({ sessionID: "shared-session", compact }).action
+
+    const firstResult = first.run()
+    const secondResult = second.run()
+
+    expect(first.pending()).toBe(true)
+    expect(second.pending()).toBe(true)
+    await Promise.resolve()
+    expect(calls).toBe(1)
+
+    resolve?.()
+    expect(await firstResult).toEqual({ status: "success" })
+    expect(await secondResult).toEqual({ status: "success" })
+    expect(first.pending()).toBe(false)
+    expect(second.pending()).toBe(false)
+  })
+
   test("returns an error and clears pending without changing caller state", async () => {
     const context = { usage: 90 }
     const failure = new Error("compact failed")
@@ -89,5 +118,17 @@ describe("createSessionCompaction", () => {
     expect(await action.run()).toEqual({ status: "error", error: failure })
     expect(action.pending()).toBe(false)
     expect(context).toEqual({ usage: 90 })
+  })
+
+  test("converts synchronous API failures into recoverable results", async () => {
+    const failure = new Error("sync compact failed")
+    const { action } = fixture({
+      compact: () => {
+        throw failure
+      },
+    })
+
+    expect(await action.run()).toEqual({ status: "error", error: failure })
+    expect(action.pending()).toBe(false)
   })
 })

@@ -52,8 +52,8 @@ export function createSessionCompaction(input: {
     if (!model) return { status: "disabled", reason: "no-model" }
     if (input.working()) return { status: "disabled", reason: "working" }
 
-    const request = input
-      .compact({ sessionID, model })
+    const request = Promise.resolve()
+      .then(() => input.compact({ sessionID, model }))
       .then(() => ({ status: "success" }) as const)
       .catch((error: unknown) => ({ status: "error", error }) as const)
       .finally(() => {
