@@ -2,7 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "..",
+    "rootDir": "../..",
     "types": ["node", "bun", "vite/client"]
   },
   "include": [
@@ -19,8 +19,21 @@
     "../src/i18n/model-center-copy.ts",
     "../src/i18n/workflow-copy.ts",
     "../src/pages/session/timeline/observe-element-offset.ts",
+    "../src/product/contracts.ts",
+    "../src/product/errors.ts",
+    "../src/product/model-center/config.ts",
+    "../src/product/model-center/contracts.ts",
+    "../src/product/model-center/controller.ts",
+    "../src/product/model-center/index.ts",
+    "../../desktop/src/main/model-center/credential-proxy.ts",
+    "../../desktop/src/main/model-center/credentials.ts",
+    "../../desktop/src/main/model-center/environment.ts",
+    "../../desktop/src/main/model-center/profiles.ts",
+    "../../desktop/src/product/host.ts",
     "./regression/localized-prompt-menu.spec.ts",
+    "./regression/model-runtime-reliability.spec.ts",
     "./regression/new-session-panel-corner.spec.ts",
+    "./regression/project-edit-persistence.spec.ts",
     "./regression/prompt-input-v2-command-draft.spec.ts",
     "./regression/session-timeline-context-resize.spec.ts",
     "./utils/**/*.ts"
