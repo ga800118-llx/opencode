@@ -1669,24 +1669,52 @@ describe("server session", () => {
     expect(ctx.get).toEqual([])
   })
 
-  test("records V1 part and status activity from event timestamps", () => {
+  test("records V1 part and status activity from event times", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
     ctx.store.apply({
       type: "message.part.updated",
-      timestamp: 100,
-      properties: { sessionID: "child", part: textPart("message") },
+      properties: { sessionID: "child", part: textPart("message"), time: 100 },
     })
 
     expect(ctx.store.data.session_activity.child).toBe(100)
 
     ctx.store.apply({
       type: "session.status",
-      created: 200,
-      properties: { sessionID: "child", status: { type: "busy" } },
+      properties: { sessionID: "child", status: { type: "busy" }, time: 200 },
     })
 
     expect(ctx.store.data.session_activity.child).toBe(200)
+  })
+
+  test("preserves original V2 time across current and legacy double dispatch", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    const dispatch = (current: OpenCodeEvent) => {
+      ctx.store.applyV2(current)
+      ctx.store.apply({ id: current.id, type: current.type, properties: current.data, current })
+    }
+    const older = {
+      id: "evt_double_dispatch_older",
+      created: 500,
+      type: "session.execution.started",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent
+    const newer = {
+      id: "evt_double_dispatch_newer",
+      created: 700,
+      type: "session.execution.started",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent
+
+    dispatch(older)
+    expect(ctx.store.data.session_activity.child).toBe(500)
+
+    dispatch(newer)
+    dispatch(older)
+    expect(ctx.store.data.session_activity.child).toBe(700)
   })
 
   test("records V2 text and tool activity", () => {

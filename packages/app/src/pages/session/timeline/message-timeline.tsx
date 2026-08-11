@@ -276,6 +276,7 @@ export function MessageTimeline(props: {
   const initialMeasurements = cached?.measurements
   const coldBottomMount = !initialMeasurements?.length && props.shouldAnchorBottom()
   const platform = usePlatform()
+  const activityObservedAt = Date.now()
 
   const [listRoot, setListRoot] = createSignal<HTMLDivElement>()
   const sessionID = createMemo(() => params.id)
@@ -985,7 +986,7 @@ export function MessageTimeline(props: {
     return projectActivity({
       working: true,
       now: clock(),
-      lastActivityAt: (id ? sync().data.session_activity?.[id] : undefined) ?? message.time.created,
+      lastActivityAt: (id ? sync().data.session_activity[id] : undefined) ?? activityObservedAt,
       toolRunning,
     })
   }

@@ -27,10 +27,13 @@ import type { ServerApi } from "@/utils/server"
 type MessageApi = ServerApi["message"]
 type ProjectedSession = Session & { readonly permissionMode?: Permission.Mode }
 type LegacySessionEvent = {
+  readonly id?: unknown
   readonly type: string
   readonly properties?: unknown
   readonly timestamp?: number
   readonly created?: number
+  readonly time?: number
+  readonly current?: unknown
 }
 type PermissionModeSwitchedCurrentEvent = {
   readonly id: string
@@ -52,18 +55,22 @@ const emptyIDs: ReadonlySet<string> = new Set()
 
 function activityEventTime(event: unknown) {
   if (!event || typeof event !== "object") return Date.now()
+  const root = event as Record<string, unknown>
+  const current =
+    root.current && typeof root.current === "object" ? (root.current as Record<string, unknown>) : undefined
   const payload =
-    "data" in event && event.data && typeof event.data === "object"
-      ? event.data
-      : "properties" in event && event.properties && typeof event.properties === "object"
-        ? event.properties
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : root.properties && typeof root.properties === "object"
+        ? (root.properties as Record<string, unknown>)
         : undefined
-  const candidates = [
-    "timestamp" in event ? event.timestamp : undefined,
-    payload && "timestamp" in payload ? payload.timestamp : undefined,
-    "created" in event ? event.created : undefined,
-    payload && "created" in payload ? payload.created : undefined,
-  ]
+  const currentPayload = current?.data && typeof current.data === "object" ? current.data : undefined
+  const sources = [root, current, payload, currentPayload].filter(
+    (source): source is Record<string, unknown> => source !== undefined,
+  )
+  const candidates = (["timestamp", "created", "time"] as const).flatMap((field) =>
+    sources.map((source) => source[field]),
+  )
   return candidates.find((value): value is number => typeof value === "number" && Number.isFinite(value)) ?? Date.now()
 }
 
