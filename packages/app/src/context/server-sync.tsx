@@ -24,6 +24,8 @@ import {
   loadProjectsQuery,
   loadProvidersQuery,
   loadReferencesQuery,
+  NotifiedWorkspaceBootstrapError,
+  type WorkspaceBootstrapResult,
 } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent } from "./global-sync/event-reducer"
@@ -44,7 +46,7 @@ import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerConnection, useServer } from "./server"
 import { retry } from "@opencode-ai/core/util/retry"
-import type { ServerScope } from "@/utils/server-scope"
+import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { createHomeSessionIndexCache } from "./global-sync/home-session-index"
 import { persisted } from "@/utils/persist"
 import type { ServerApi } from "@/utils/server"
@@ -88,6 +90,45 @@ type ApiQueryOptions<T, K extends readonly unknown[]> = SolidQueryOptions<T, Err
 
 type SessionActiveApi = {
   readonly active: () => Promise<SessionActiveOutput>
+}
+
+export type WorkspaceReadiness = "initializing" | "ready" | "degraded" | "failed"
+
+export function createWorkspaceReadinessController(input: {
+  scope: ServerScope
+  bootstrap: (directory: string) => Promise<WorkspaceBootstrapResult>
+}) {
+  const states = new Map<
+    string,
+    { status: WorkspaceReadiness; promise?: Promise<WorkspaceBootstrapResult["status"]> }
+  >()
+  const key = (directory: string) => ScopedKey.from(input.scope, directoryKey(directory))
+
+  function ensureReady(directory: string) {
+    const scoped = key(directory)
+    const current = states.get(scoped)
+    if (current?.status === "initializing" && current.promise) return current.promise
+    if (current?.status === "ready" || current?.status === "degraded") return Promise.resolve(current.status)
+
+    const promise = input
+      .bootstrap(directoryKey(directory))
+      .then((result) => {
+        states.set(scoped, { status: result.status })
+        return result.status
+      })
+      .catch((error) => {
+        states.set(scoped, { status: "failed" })
+        throw error
+      })
+    states.set(scoped, { status: "initializing", promise })
+    return promise
+  }
+
+  return {
+    ensureReady,
+    readiness: (directory: string) => states.get(key(directory))?.status ?? "initializing",
+    clear: (directory: string) => states.delete(key(directory)),
+  }
 }
 
 export const loadMcpQuery = (
@@ -208,7 +249,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   if (!owner) throw new Error("ServerSync must be created within owner")
 
   const sdkCache = new Map<string, OpencodeClient>()
-  const booting = new Map<string, Promise<void>>()
+  const booting = new Map<string, Promise<WorkspaceBootstrapResult>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
 
@@ -350,7 +391,14 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     paused,
     key: directoryKey,
     bootstrap: () => queryClient.fetchQuery({ queryKey: [serverSDK.scope, "bootstrap"] }),
-    bootstrapInstance,
+    bootstrapInstance: async (directory) => {
+      await bootstrapInstance(directory)
+    },
+  })
+
+  const workspaceReadiness = createWorkspaceReadinessController({
+    scope: serverSDK.scope,
+    bootstrap: bootstrapInstance,
   })
 
   const children = createChildStoreManager({
@@ -360,7 +408,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     isBooting: (directory) => booting.has(directory),
     isLoadingSessions: (directory) => sessionLoads.has(directory),
     onBootstrap: (directory) => {
-      void bootstrapInstance(directory)
+      void workspaceReadiness.ensureReady(directory).catch(() => undefined)
     },
     onMcp: (directory, setStore) => {
       void loadCommands(directory, serverSDK.api.command, sdkFor(directory), serverSDK.protocol)
@@ -378,6 +426,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       queue.clear(key)
       sessionMeta.delete(key)
       sdkCache.delete(key)
+      workspaceReadiness.clear(key)
       clearProviderRev(serverSDK.scope, key)
     },
     translate: language.t,
@@ -387,7 +436,10 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     },
   })
 
-  async function loadSessions(directory: string, options?: { limit?: number }) {
+  async function loadSessions(
+    directory: string,
+    options?: { limit?: number; rejectOnError?: boolean; toast?: boolean },
+  ) {
     const key = directoryKey(directory)
     const pending = sessionLoads.get(key)
     if (pending) {
@@ -449,28 +501,35 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
             })
             .catch((err) => {
               console.error("Failed to load sessions", err)
-              const project = getFilename(directory)
-              showToast({
-                variant: "error",
-                title: language.t("toast.session.listFailed.title", { project }),
-                description: formatServerError(err, language.t),
-              })
+              if (options?.toast !== false) {
+                const project = getFilename(directory)
+                showToast({
+                  variant: "error",
+                  title: language.t("toast.session.listFailed.title", { project }),
+                  description: formatServerError(err, language.t),
+                })
+              }
+              if (options?.rejectOnError) {
+                if (options.toast === false) throw err
+                throw new NotifiedWorkspaceBootstrapError(err)
+              }
             })
             .then(() => null),
       })
       .then(() => {})
 
     sessionLoads.set(key, promise)
-    void promise.finally(() => {
+    const cleanup = () => {
       sessionLoads.delete(key)
       children.unpin(key)
-    })
+    }
+    void promise.then(cleanup, cleanup)
     return promise
   }
 
   async function bootstrapInstance(directory: string) {
     const key = directoryKey(directory)
-    if (!key) return
+    if (!key) throw new Error("Workspace directory is required")
     const pending = booting.get(key)
     if (pending) return pending
 
@@ -478,9 +537,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     const promise = Promise.resolve().then(async () => {
       const child = children.ensureChild(directory)
       const cache = children.vcsCache.get(key)
-      if (!cache) return
+      if (!cache) throw new Error("Workspace cache is unavailable")
       const sdk = sdkFor(directory)
-      await bootstrapDirectory({
+      return bootstrapDirectory({
         directory,
         scope: serverSDK.scope,
         mcp: children.mcp(key),
@@ -495,7 +554,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         store: child[0],
         setStore: child[1],
         vcsCache: cache,
-        loadSessions,
+        loadSessions: (directory) => loadSessions(directory, { rejectOnError: true }),
         translate: language.t,
         queryClient,
         session,
@@ -504,10 +563,11 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     })
 
     booting.set(key, promise)
-    void promise.finally(() => {
+    const cleanup = () => {
       booting.delete(key)
       children.unpin(key)
-    })
+    }
+    void promise.then(cleanup, cleanup)
     return promise
   }
 
@@ -648,7 +708,11 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   })
 
   const projectApi = {
-    loadSessions,
+    loadSessions(directory: string, options?: { limit?: number }) {
+      return loadSessions(directory, options)
+    },
+    ensureReady: workspaceReadiness.ensureReady,
+    readiness: workspaceReadiness.readiness,
     meta(directory: string, patch: ProjectMeta) {
       return children.projectMeta(directory, patch)
     },

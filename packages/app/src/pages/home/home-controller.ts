@@ -44,6 +44,12 @@ export function createHomeController() {
       projects().find((project) => project.worktree === focusedServerCtx()?.projects.last()) ??
       projects()[0],
   )
+  const newSessionPending = createMemo(() => {
+    const conn = focusedServer()
+    const project = newSessionProject()
+    if (!conn || !project) return false
+    return tabs.draftPending(ServerConnection.key(conn), project.worktree)
+  })
 
   createEffect(() => {
     const list = servers()
@@ -60,7 +66,7 @@ export function createHomeController() {
     const ctx = global.ensureServerCtx(conn)
     ctx.projects.open(directory)
     ctx.projects.touch(directory)
-    void tabs.newDraft({ server: ServerConnection.key(conn), directory })
+    return tabs.newDraft({ server: ServerConnection.key(conn), directory })
   }
 
   return {
@@ -83,6 +89,9 @@ export function createHomeController() {
       homedir,
       selected: selectedProject,
       newSession: newSessionProject,
+      newSessionPending,
+      pending: (conn: ServerConnection.Any, directory: string) =>
+        tabs.draftPending(ServerConnection.key(conn), directory),
       forServer: (conn: ServerConnection.Any) => global.ensureServerCtx(conn).projects.list(),
       select: (conn: ServerConnection.Any, directory: string) => {
         const key = ServerConnection.key(conn)

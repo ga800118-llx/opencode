@@ -28,6 +28,7 @@ import type { PromptSession } from "@/context/prompt"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
 import { normalizeSessionInfo } from "@/utils/session"
+import { Spinner } from "@opencode-ai/ui/spinner"
 
 const legacyTitlebarHeight = 40
 const v2TitlebarHeight = 36
@@ -246,7 +247,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               tabsStoreActions.removeSessions(detail)
             })
 
-            const openNewTab = () => {
+            const newTabTarget = () => {
               const route = layout.route()
               const activeSession = session()
               if (route.type === "session" && activeSession) {
@@ -256,15 +257,13 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   sessionId: activeSession.id,
                 }
                 const model = tabs.stateValue<PromptSession>(sessionTab, "prompt")?.model.current()
-                tabs.newDraft({ server: sessionTab.server, directory: activeSession.directory }, "", model)
-                return
+                return { server: sessionTab.server, directory: activeSession.directory, model }
               }
 
               const activeTab = currentTab()
               if (activeTab?.type === "draft") {
                 const model = tabs.stateValue<PromptSession>(activeTab, "prompt")?.model.current()
-                tabs.newDraft({ server: activeTab.server, directory: activeTab.directory }, "", model)
-                return
+                return { server: activeTab.server, directory: activeTab.directory, model }
               }
 
               if (route.type === "home") {
@@ -277,15 +276,13 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                       .find((item) => item.worktree === selection.directory)
                   : undefined
                 if (conn && project) {
-                  tabs.newDraft({ server: ServerConnection.key(conn), directory: project.worktree }, "")
-                  return
+                  return { server: ServerConnection.key(conn), directory: project.worktree }
                 }
               }
 
               const current = layout.projects.list()[0]
               if (current) {
-                tabs.newDraft({ server: server.key, directory: current.worktree }, "")
-                return
+                return { server: server.key, directory: current.worktree }
               }
 
               const fallback = global.servers.list().flatMap((conn) => {
@@ -294,7 +291,17 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               })[0]
               if (!fallback) return
 
-              tabs.newDraft({ server: fallback.server, directory: fallback.project.worktree }, "")
+              return { server: fallback.server, directory: fallback.project.worktree }
+            }
+            const newTabPending = createMemo(() => {
+              const target = newTabTarget()
+              if (!target) return false
+              return tabs.draftPending(target.server, target.directory)
+            })
+            const openNewTab = () => {
+              const target = newTabTarget()
+              if (!target) return
+              void tabs.newDraft({ server: target.server, directory: target.directory }, "", target.model)
             }
             const toggleHome = () => tabs.toggleHome({ home: layout.route().type === "home", current: currentTab() })
 
@@ -319,6 +326,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   title: language.t("command.session.new"),
                   keybind: "mod+t,mod+n",
                   hidden: true,
+                  disabled: newTabPending(),
                   onSelect: openNewTab,
                 },
                 current && {
@@ -409,7 +417,9 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                     variant="ghost-muted"
                     size="large"
                     class="shrink-0"
-                    icon={<IconV2 name="plus" />}
+                    icon={newTabPending() ? <Spinner class="size-4" /> : <IconV2 name="plus" />}
+                    disabled={newTabPending()}
+                    aria-busy={newTabPending()}
                     onClick={openNewTab}
                     aria-label={language.t("command.session.new")}
                   />

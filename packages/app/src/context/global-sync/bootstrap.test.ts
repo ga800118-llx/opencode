@@ -12,6 +12,7 @@ import {
   loadProjectsQuery,
   loadProvidersQuery,
   loadReferencesQuery,
+  WorkspaceBootstrapError,
 } from "./bootstrap"
 import type { State, VcsCache } from "./types"
 import { ServerScope } from "@/utils/server-scope"
@@ -75,12 +76,51 @@ function directoryState() {
   })
 }
 
+function v2Sdk(config: () => Promise<{ data: Config }> = async () => ({ data: {} })) {
+  return {
+    config: { get: config },
+    lsp: { status: async () => ({ data: [] }) },
+  } as unknown as OpencodeClient
+}
+
+function bootstrapInput(input: {
+  sdk?: OpencodeClient
+  api?: ServerApi
+  project?: Project[]
+  path?: { state: string; config: string; worktree: string; directory: string; home: string }
+  loadSessions?: () => Promise<void> | void
+  protocol?: Promise<"v1" | "v2">
+}) {
+  const [store, setStore] = directoryState()
+  const result = bootstrapDirectory({
+    directory: "/project",
+    scope: ServerScope.local,
+    mcp: false,
+    global: {
+      config: {},
+      path: input.path ?? { state: "", config: "", worktree: "/project", directory: "/project", home: "/home" },
+      project: input.project ?? [{ id: "project", worktree: "/project" } as Project],
+      provider,
+    },
+    sdk: input.sdk ?? v2Sdk(),
+    api: input.api ?? api,
+    store,
+    setStore,
+    vcsCache: { setStore() {} } as unknown as VcsCache,
+    loadSessions: input.loadSessions ?? (() => {}),
+    translate: (key) => key,
+    queryClient: new QueryClient(),
+    protocol: input.protocol,
+  })
+  return { result, store }
+}
+
 describe("bootstrapDirectory", () => {
   test("uses legacy MCP endpoints while refreshing a v1 directory", async () => {
     const mcpReads: string[] = []
     const [store, setStore] = directoryState()
 
-    await bootstrapDirectory({
+    const result = await bootstrapDirectory({
       directory: "/project",
       scope: ServerScope.local,
       mcp: true,
@@ -118,6 +158,7 @@ describe("bootstrapDirectory", () => {
             },
           },
         },
+        lsp: { status: async () => ({ data: [] }) },
         provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
       } as unknown as OpencodeClient,
       api,
@@ -130,12 +171,87 @@ describe("bootstrapDirectory", () => {
       protocol: Promise.resolve("v1"),
     })
 
-    expect(store.status).toBe("partial")
-
-    await new Promise((resolve) => setTimeout(resolve, 80))
-
     expect(store.status).toBe("complete")
+    expect(result).toEqual({ status: "ready", errors: [] })
     expect(mcpReads.sort()).toEqual(["command", "resource", "status"])
+  })
+
+  test("rejects when config initialization fails", async () => {
+    const run = bootstrapInput({
+      sdk: v2Sdk(async () => {
+        throw new Error("config failed")
+      }),
+    })
+
+    await expect(run.result).rejects.toBeInstanceOf(WorkspaceBootstrapError)
+    await expect(run.result).rejects.toThrow("config failed")
+    expect(run.store.status).toBe("partial")
+  })
+
+  test("rejects when project identity initialization fails", async () => {
+    const run = bootstrapInput({
+      project: [],
+      api: {
+        ...api,
+        project: {
+          ...api.project,
+          current: async () => {
+            throw new Error("project identity failed")
+          },
+        },
+      } as unknown as ServerApi,
+    })
+
+    await expect(run.result).rejects.toThrow("project identity failed")
+    expect(run.store.status).toBe("partial")
+  })
+
+  test("rejects when path initialization fails", async () => {
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} }) },
+      path: {
+        get: async () => {
+          throw new Error("path failed")
+        },
+      },
+      session: { status: async () => ({ data: {} }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      v2: { reference: { list: async () => ({ data: { data: [] } }) } },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+      lsp: { status: async () => ({ data: [] }) },
+    } as unknown as OpencodeClient
+    const run = bootstrapInput({
+      sdk,
+      path: { state: "", config: "", worktree: "", directory: "/other", home: "/home" },
+      protocol: Promise.resolve("v1"),
+    })
+
+    await expect(run.result).rejects.toThrow("path failed")
+    expect(run.store.status).toBe("partial")
+  })
+
+  test("returns degraded when provider and session history fail", async () => {
+    const run = bootstrapInput({
+      api: {
+        ...api,
+        provider: {
+          list: async () => {
+            throw new Error("provider failed")
+          },
+        },
+      } as unknown as ServerApi,
+      loadSessions: async () => {
+        throw new Error("history failed")
+      },
+    })
+
+    const result = await run.result
+    expect(result.status).toBe("degraded")
+    expect(result.errors.map((error) => error.message).sort()).toEqual(["history failed", "provider failed"])
+    expect(run.store.status).toBe("complete")
   })
 })
 

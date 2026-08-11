@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   normalizeNewSessionWorktree,
+  readReadyWorkspaceStore,
   resolveNewSessionBranch,
   resolveNewSessionWorktree,
 } from "./new-session-workspace-controller"
@@ -39,5 +40,22 @@ describe("new session workspace selection", () => {
       "feature",
     )
     expect(resolveNewSessionBranch({ worktree: "/missing", local: "dev", worktreeBranch: branch })).toBe("dev")
+  })
+
+  test("reads an already-ready child without starting another bootstrap", () => {
+    const calls: unknown[] = []
+    const store = { vcs: { branch: "dev" } }
+    const result = readReadyWorkspaceStore(
+      {
+        child: (directory: string, options: { bootstrap: false }) => {
+          calls.push([directory, options])
+          return [store]
+        },
+      },
+      "/project/",
+    )
+
+    expect(result).toBe(store)
+    expect(calls).toEqual([["/project/", { bootstrap: false }]])
   })
 })

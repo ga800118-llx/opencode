@@ -2,11 +2,21 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner, onCleanup } from "solid-js"
 import { createTabMemory } from "./tab-memory"
 import { nextTabAfterClose, pushClosedTab, removeClosedTabs, takeClosedTab, type ClosedTab } from "./closed-tabs"
-import type { SessionTab, Tab } from "./tabs"
+import { createDraftReadinessController, type DraftTab, type SessionTab, type Tab } from "./tabs"
 import { migrateTabs } from "./tab-migration"
 import type { ServerConnection } from "./server"
 
 const server = "local\nhttp://localhost:4096" as ServerConnection.Key
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 function sessionTab(sessionId: string): SessionTab {
   return { type: "session", server, sessionId }
@@ -49,6 +59,62 @@ describe("tab memory", () => {
       expect(memory.ensure("tab", "prompt", () => ({ value: "new" }))).not.toBe(first)
       dispose()
     })
+  })
+})
+
+describe("draft readiness", () => {
+  test("waits for readiness and deduplicates double-clicks into one tab", async () => {
+    const ready = deferred<"ready" | "degraded">()
+    const created: DraftTab[] = []
+    const controller = createDraftReadinessController({
+      ensureReady: () => ready.promise,
+      createDraft: async (draft) => {
+        const tab = { type: "draft" as const, draftID: "draft-1", ...draft }
+        created.push(tab)
+        return tab
+      },
+      onError() {},
+    })
+
+    const first = controller.newDraft({ server, directory: "/project/" }, "first")
+    const second = controller.newDraft({ server, directory: "/project" }, "second")
+
+    expect(first).toBe(second)
+    expect(controller.pending(server, "/project")).toBe(true)
+    expect(created).toHaveLength(0)
+
+    ready.resolve("ready")
+    expect(await first).toEqual(created[0])
+    expect(created).toHaveLength(1)
+    expect(controller.pending(server, "/project/")).toBe(false)
+  })
+
+  test("creates no tab after a critical failure and allows retry", async () => {
+    let attempts = 0
+    const errors: unknown[] = []
+    const created: DraftTab[] = []
+    const controller = createDraftReadinessController({
+      ensureReady: async () => {
+        attempts++
+        if (attempts === 1) throw new Error("config failed")
+        return "degraded"
+      },
+      createDraft: async (draft) => {
+        const tab = { type: "draft" as const, draftID: "draft-2", ...draft }
+        created.push(tab)
+        return tab
+      },
+      onError: (error) => errors.push(error),
+    })
+
+    expect(await controller.newDraft({ server, directory: "/project" })).toBeUndefined()
+    expect(created).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(controller.pending(server, "/project")).toBe(false)
+
+    expect(await controller.newDraft({ server, directory: "/project" })).toEqual(created[0])
+    expect(created).toHaveLength(1)
+    expect(attempts).toBe(2)
   })
 })
 

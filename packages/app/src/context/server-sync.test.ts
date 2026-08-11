@@ -10,12 +10,105 @@ import type {
 import { QueryClient } from "@tanstack/solid-query"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"
-import { loadActiveSessionsQuery, loadMcpQuery, loadMcpResourcesQuery, seedActiveSessionStatuses } from "./server-sync"
+import {
+  createWorkspaceReadinessController,
+  loadActiveSessionsQuery,
+  loadMcpQuery,
+  loadMcpResourcesQuery,
+  seedActiveSessionStatuses,
+} from "./server-sync"
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
 
 type McpApi = ServerApi["mcp"]
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+describe("workspace readiness", () => {
+  test("shares one bootstrap for concurrent normalized directory requests", async () => {
+    const bootstrap = deferred<{ status: "ready"; errors: readonly Error[] }>()
+    let calls = 0
+    const controller = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: () => {
+        calls++
+        return bootstrap.promise
+      },
+    })
+
+    const first = controller.ensureReady("/project/")
+    const second = controller.ensureReady("/project")
+
+    expect(first).toBe(second)
+    expect(calls).toBe(1)
+    expect(controller.readiness("/project/")).toBe("initializing")
+
+    bootstrap.resolve({ status: "ready", errors: [] })
+    expect(await first).toBe("ready")
+    expect(controller.readiness("/project")).toBe("ready")
+  })
+
+  test("marks critical failures as failed and retries on the next call", async () => {
+    let calls = 0
+    const controller = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        calls++
+        if (calls === 1) throw new Error("project identity failed")
+        return { status: "ready" as const, errors: [] }
+      },
+    })
+
+    await expect(controller.ensureReady("/project")).rejects.toThrow("project identity failed")
+    expect(controller.readiness("/project")).toBe("failed")
+    expect(await controller.ensureReady("/project")).toBe("ready")
+    expect(controller.readiness("/project")).toBe("ready")
+    expect(calls).toBe(2)
+  })
+
+  test("retains degraded and ready results for the child lifetime", async () => {
+    let degradedCalls = 0
+    const degraded = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        degradedCalls++
+        return { status: "degraded" as const, errors: [new Error("provider failed")] }
+      },
+    })
+
+    expect(await degraded.ensureReady("/project")).toBe("degraded")
+    expect(await degraded.ensureReady("/project/")).toBe("degraded")
+    expect(degraded.readiness("/project")).toBe("degraded")
+    expect(degradedCalls).toBe(1)
+
+    let readyCalls = 0
+    const ready = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        readyCalls++
+        return { status: "ready" as const, errors: [] }
+      },
+    })
+
+    expect(await ready.ensureReady("/project")).toBe("ready")
+    expect(await ready.ensureReady("/project")).toBe("ready")
+    expect(readyCalls).toBe(1)
+
+    ready.clear("/project/")
+    expect(ready.readiness("/project")).toBe("initializing")
+    expect(await ready.ensureReady("/project")).toBe("ready")
+    expect(readyCalls).toBe(2)
+  })
+})
 
 describe("MCP queries", () => {
   test("loads current servers for the requested location", async () => {

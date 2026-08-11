@@ -13,6 +13,11 @@ import { createTabMemory } from "./tab-memory"
 import { nextTabAfterClose, pushClosedTab, removeClosedTabs, takeClosedTab, type ClosedTab } from "./closed-tabs"
 import { createDraftPromptSession, type PromptModel } from "./prompt-state"
 import { migrateTabs } from "./tab-migration"
+import { useGlobal } from "./global"
+import { useLanguage } from "./language"
+import { directoryKey } from "./global-sync/utils"
+import { formatServerError } from "@/utils/server-errors"
+import { showToast } from "@/utils/toast"
 
 export type SessionTab = {
   type: "session"
@@ -41,6 +46,53 @@ type RecentTab = {
 
 export const draftHref = (draftID: string) => `/new-session?draftId=${encodeURIComponent(draftID)}`
 
+function draftReadinessKey(server: ServerConnection.Key, directory: string) {
+  return JSON.stringify([server, directoryKey(directory)])
+}
+
+export function createDraftReadinessController(input: {
+  ensureReady: (server: ServerConnection.Key, directory: string) => Promise<"ready" | "degraded">
+  createDraft: (
+    draft: Omit<DraftTab, "type" | "draftID">,
+    prompt?: string,
+    model?: PromptModel,
+  ) => Promise<DraftTab>
+  onError: (error: unknown) => void
+}) {
+  const inflight = new Map<string, Promise<DraftTab | undefined>>()
+  const [pending, setPending] = createStore<Record<string, boolean>>({})
+
+  function newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
+    const key = draftReadinessKey(draft.server, draft.directory)
+    const existing = inflight.get(key)
+    if (existing) return existing
+
+    setPending(key, true)
+    const promise = Promise.resolve()
+      .then(() => input.ensureReady(draft.server, draft.directory))
+      .then(() => input.createDraft(draft, prompt, model))
+      .catch((error) => {
+        input.onError(error)
+        return undefined
+      })
+      .finally(() => {
+        inflight.delete(key)
+        setPending(
+          produce((state) => {
+            delete state[key]
+          }),
+        )
+      })
+    inflight.set(key, promise)
+    return promise
+  }
+
+  return {
+    newDraft,
+    pending: (server: ServerConnection.Key, directory: string) => pending[draftReadinessKey(server, directory)] === true,
+  }
+}
+
 export const tabHref = (tab: Tab) =>
   tab.type === "draft" ? draftHref(tab.draftID) : sessionHref(tab.server, tab.sessionId)
 
@@ -55,6 +107,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
   gate: false,
   init: () => {
     const server = useServer()
+    const global = useGlobal()
+    const language = useLanguage()
     const platform = usePlatform()
     const fallback = server.key
     const [store, setStore, _, ready] = persisted(
@@ -112,6 +166,47 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         }),
       )
     }
+
+    const createDraft = async (
+      draft: Omit<DraftTab, "type" | "draftID">,
+      prompt?: string,
+      model?: PromptModel,
+    ) => {
+      const draftID = uuid()
+      const tab = { type: "draft" as const, draftID, ...draft }
+      memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { prompt, model }))
+      return startTransition(() => {
+        setStore(
+          produce((tabs) => {
+            tabs.push(tab)
+          }),
+        )
+        navigate(draftHref(draftID))
+      }).then(
+        () => tab,
+        (error) => {
+          memory.remove(tabKey(tab))
+          throw error
+        },
+      )
+    }
+
+    const draftReadiness = createDraftReadinessController({
+      ensureReady: (key, directory) => {
+        const conn = global.servers.list().find((item) => ServerConnection.key(item) === key)
+        if (!conn) throw new Error(language.t("error.serverSDK.noServerAvailable"))
+        return global.ensureServerCtx(conn).sync.project.ensureReady(directory)
+      },
+      createDraft,
+      onError: (error) => {
+        if (error instanceof Error && error.name === "WorkspaceBootstrapError") return
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: formatServerError(error, language.t),
+        })
+      },
+    })
 
     onCleanup(memory.dispose)
 
@@ -203,20 +298,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         if (!tab || tab.type !== "draft") throw new Error(`Draft not found: ${draftID}`)
         return tab
       },
-      async newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
-        const draftID = uuid()
-        const tab = { type: "draft" as const, draftID, ...draft }
-        memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { prompt, model }))
-        await startTransition(() => {
-          setStore(
-            produce((tabs) => {
-              tabs.push(tab)
-            }),
-          )
-          navigate(draftHref(draftID))
-        })
-        return tab
-      },
+      newDraft: draftReadiness.newDraft,
+      draftPending: draftReadiness.pending,
       updateDraft(draftID: string, draft: Partial<Omit<DraftTab, "type" | "draftID">>) {
         void startTransition(() => {
           setStore(

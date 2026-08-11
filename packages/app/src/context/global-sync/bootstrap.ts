@@ -32,6 +32,7 @@ import type { State, VcsCache } from "./types"
 import type { ServerSession } from "../server-session"
 import {
   cmp,
+  directoryKey,
   normalizeAgentList,
   normalizePermissionRequest,
   normalizeProjectInfo,
@@ -39,7 +40,7 @@ import {
 } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
-import { loadMcpQuery, loadMcpResourcesQuery } from "../server-sync"
+import { loadLspQuery, loadMcpQuery, loadMcpResourcesQuery } from "../server-sync"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { normalizeSessionInfo } from "@/utils/session"
@@ -75,8 +76,16 @@ function waitForPaint() {
   })
 }
 
+function toError(error: unknown) {
+  if (error instanceof Error) return error
+  if (typeof error === "string") return new Error(error)
+  return new Error("Workspace initialization failed", { cause: error })
+}
+
 function errors(list: PromiseSettledResult<unknown>[]) {
-  return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
+  return list
+    .filter((item): item is PromiseRejectedResult => item.status === "rejected")
+    .map((item) => toError(item.reason))
 }
 
 const providerRev = new Map<string, number>()
@@ -313,16 +322,43 @@ export const loadReferencesQuery = (
   api: ReferenceListApi,
   legacy?: OpencodeClient,
   protocol?: Promise<ServerProtocol>,
+  options?: { throwOnError?: boolean },
 ) =>
   queryOptions<ReferenceInfo[]>({
     queryKey: [scope, directory, "references"] as const,
-    queryFn: () =>
-      retry(async () => {
+    queryFn: () => {
+      const request = retry(async () => {
         if ((await protocol) === "v1" && legacy) return (await legacy.v2.reference.list()).data?.data ?? []
         return api.list({ location: { directory } }).then((result) => result.data)
-      }).catch(() => []),
+      })
+      if (options?.throwOnError) return request
+      return request.catch(() => [])
+    },
     placeholderData: [],
   })
+
+export type WorkspaceBootstrapResult = {
+  status: "ready" | "degraded"
+  errors: readonly Error[]
+}
+
+export class WorkspaceBootstrapError extends Error {
+  readonly errors: readonly Error[]
+
+  constructor(errors: readonly Error[]) {
+    super(errors[0]?.message ?? "Workspace initialization failed", { cause: errors[0] })
+    this.name = "WorkspaceBootstrapError"
+    this.errors = errors
+  }
+}
+
+export class NotifiedWorkspaceBootstrapError extends Error {
+  constructor(error: unknown) {
+    const cause = toError(error)
+    super(cause.message, { cause })
+    this.name = "NotifiedWorkspaceBootstrapError"
+  }
+}
 
 export async function bootstrapDirectory(input: {
   directory: string
@@ -354,7 +390,7 @@ export async function bootstrapDirectory(input: {
   queryClient: QueryClient
   session?: ServerSession
   protocol?: Promise<ServerProtocol>
-}) {
+}): Promise<WorkspaceBootstrapResult> {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
   const seededPath = input.global.path.directory === input.directory ? input.global.path : undefined
@@ -365,184 +401,193 @@ export async function bootstrapDirectory(input: {
   }
   if (loading) input.setStore("status", "partial")
 
-  const revKey = ScopedKey.from(input.scope, input.directory)
+  const revKey = ScopedKey.from(input.scope, directoryKey(input.directory))
   const rev = (providerRev.get(revKey) ?? 0) + 1
   providerRev.set(revKey, rev)
-  ;(async () => {
-    const slow = [
-      () => Promise.resolve(input.loadSessions(input.directory)),
-      () =>
-        input.queryClient
-          .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
-          .then((data) => input.setStore("agent", data)),
-      () =>
-        retry(() => input.sdk.config.get().then((x) => input.setStore("config", reconcile(x.data!, { merge: false })))),
-      () =>
-        retry(() =>
-          (async () => {
-            if ((await input.protocol) !== "v1") return
-            const x = await input.sdk.session.status()
-            if (!input.session) {
-              input.setStore("session_status", x.data!)
-              return
-            }
-            const statuses = x.data ?? {}
-            input.session.set(
-              "session_status",
-              produce((draft) => {
-                for (const sessionID of Object.keys(draft)) {
-                  if (statuses[sessionID]) continue
-                  if (input.session?.get(sessionID)?.directory === input.directory) delete draft[sessionID]
-                }
-              }),
-            )
-            for (const [sessionID, status] of Object.entries(statuses)) {
-              input.session.set("session_status", sessionID, reconcile(status))
-            }
-            await Promise.all(
-              Object.keys(statuses).map((sessionID) => input.session!.resolve(sessionID).catch(() => undefined)),
-            )
-          })(),
-        ),
-      !seededProject &&
-        (() =>
-          retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
-            input.setStore("project", project.id),
-          )),
-      !seededPath &&
-        (() =>
-          input.queryClient
-            .ensureQueryData(loadPathQuery(input.scope, input.directory, input.sdk, input.protocol))
-            .then((data) => {
-              const next = projectID(data.directory ?? input.directory, input.global.project)
-              if (next) input.setStore("project", next)
-            })),
-      () =>
-        retry(async () => {
-          if ((await input.protocol) !== "v1") return
-          return input.sdk.vcs.get().then((result) => {
-            const next = { branch: result.data?.branch, default_branch: result.data?.default_branch }
-            input.setStore("vcs", next)
-            if (next) input.vcsCache.setStore("value", next)
-          })
+  const critical = [
+    () =>
+      retry(() =>
+        input.sdk.config.get().then((result) => {
+          if (!result.data) throw new Error("Workspace config is unavailable")
+          input.setStore("config", reconcile(result.data, { merge: false }))
         }),
-      input.mcp &&
-        (() =>
-          loadCommands(input.directory, input.api.command, input.sdk, input.protocol).then((commands) =>
-            input.setStore("command", commands),
-          )),
-      () =>
-        input.queryClient.fetchQuery(
-          loadReferencesQuery(input.scope, input.directory, input.api.reference, input.sdk, input.protocol),
-        ),
-      () =>
-        retry(() =>
-          (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
-            return input.api.permission.request
-              .list({ location: { directory: input.directory } })
-              .then((result) => result.data.map(normalizePermissionRequest))
-          })().then((permissions) => {
-            const ids = permissions.map((permission) => permission.sessionID)
-            const grouped = groupBySession(
-              permissions.filter((permission) => !!permission.id && !!permission.sessionID),
-            )
-            const warm = input.session
-              ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
-            return warm.then(() =>
-              batch(() => {
-                const current = input.session?.data.permission ?? input.store.permission
-                for (const sessionID of Object.keys(current)) {
-                  if (grouped[sessionID]) continue
-                  if (input.session?.get(sessionID)?.directory !== input.directory) continue
-                  if (input.session) input.session.set("permission", sessionID, [])
-                  if (!input.session) input.setStore("permission", sessionID, [])
-                }
-                for (const [sessionID, permissions] of Object.entries(grouped)) {
-                  const value = reconcile(
-                    permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
-                    { key: "id" },
-                  )
-                  if (input.session) input.session.set("permission", sessionID, value)
-                  if (!input.session) input.setStore("permission", sessionID, value)
-                }
-              }),
-            )
-          }),
-        ),
-      () =>
-        retry(() =>
-          (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
-            return input.api.question.request
-              .list({ location: { directory: input.directory } })
-              .then((result) => result.data)
-          })().then((questions) => {
-            const ids = questions.map((question) => question.sessionID)
-            const grouped = groupBySession(
-              questions.filter((question) => !!question.id && !!question.sessionID) as QuestionRequest[],
-            )
-            const warm = input.session
-              ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
-            return warm.then(() =>
-              batch(() => {
-                const current = input.session?.data.question ?? input.store.question
-                for (const sessionID of Object.keys(current)) {
-                  if (grouped[sessionID]) continue
-                  if (input.session?.get(sessionID)?.directory !== input.directory) continue
-                  if (input.session) input.session.set("question", sessionID, [])
-                  if (!input.session) input.setStore("question", sessionID, [])
-                }
-                for (const [sessionID, questions] of Object.entries(grouped)) {
-                  const value = reconcile(
-                    questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
-                    { key: "id" },
-                  )
-                  if (input.session) input.session.set("question", sessionID, value)
-                  if (!input.session) input.setStore("question", sessionID, value)
-                }
-              }),
-            )
-          }),
-        ),
-      () => Promise.resolve(input.loadSessions(input.directory)),
-      input.mcp &&
-        (() =>
-          input.queryClient.fetchQuery(
-            loadMcpQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
-          )),
-      input.mcp &&
-        (() =>
-          input.queryClient.fetchQuery(
-            loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
-          )),
-      () =>
+      ),
+    !seededProject &&
+      (() =>
+        retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) => {
+          if (!project.id) throw new Error("Workspace project identity is unavailable")
+          input.setStore("project", project.id)
+        })),
+    !seededPath &&
+      (() =>
         input.queryClient
-          .fetchQuery(loadProvidersQuery(input.scope, input.directory, input.api, input.sdk, input.protocol))
-          .catch((err) => {
-            const project = getFilename(input.directory)
-            showToast({
-              variant: "error",
-              title: input.translate("toast.project.reloadFailed.title", { project }),
-              description: formatServerError(err, input.translate),
-            })
-          }),
-    ].filter(Boolean) as (() => Promise<any>)[]
+          .ensureQueryData(loadPathQuery(input.scope, input.directory, input.sdk, input.protocol))
+          .then((data) => {
+            if (!data.directory) throw new Error("Workspace path is unavailable")
+            const next = projectID(data.directory ?? input.directory, input.global.project)
+            if (next) input.setStore("project", next)
+          })),
+  ].filter(Boolean) as Array<() => Promise<unknown>>
 
-    await waitForPaint()
-    const slowErrs = errors(await runAll(slow))
-    if (slowErrs.length > 0) {
-      console.error("Failed to finish bootstrap instance", slowErrs[0])
-      const project = getFilename(input.directory)
-      showToast({
-        variant: "error",
-        title: input.translate("toast.project.reloadFailed.title", { project }),
-        description: formatServerError(slowErrs[0], input.translate),
-      })
-    }
+  const optional = [
+    () => Promise.resolve(input.loadSessions(input.directory)),
+    () =>
+      input.queryClient
+        .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
+        .then((data) => input.setStore("agent", data)),
+    () =>
+      retry(() =>
+        (async () => {
+          if ((await input.protocol) !== "v1") return
+          const x = await input.sdk.session.status()
+          if (!input.session) {
+            input.setStore("session_status", x.data!)
+            return
+          }
+          const statuses = x.data ?? {}
+          input.session.set(
+            "session_status",
+            produce((draft) => {
+              for (const sessionID of Object.keys(draft)) {
+                if (statuses[sessionID]) continue
+                if (input.session?.get(sessionID)?.directory === input.directory) delete draft[sessionID]
+              }
+            }),
+          )
+          for (const [sessionID, status] of Object.entries(statuses)) {
+            input.session.set("session_status", sessionID, reconcile(status))
+          }
+          await Promise.all(
+            Object.keys(statuses).map((sessionID) => input.session!.resolve(sessionID).catch(() => undefined)),
+          )
+        })(),
+      ),
+    () =>
+      retry(async () => {
+        if ((await input.protocol) !== "v1") return
+        return input.sdk.vcs.get().then((result) => {
+          const next = { branch: result.data?.branch, default_branch: result.data?.default_branch }
+          input.setStore("vcs", next)
+          if (next) input.vcsCache.setStore("value", next)
+        })
+      }),
+    input.mcp &&
+      (() =>
+        loadCommands(input.directory, input.api.command, input.sdk, input.protocol).then((commands) =>
+          input.setStore("command", commands),
+        )),
+    () =>
+      input.queryClient.fetchQuery(
+        loadReferencesQuery(input.scope, input.directory, input.api.reference, input.sdk, input.protocol, {
+          throwOnError: true,
+        }),
+      ),
+    () =>
+      retry(() =>
+        (async () => {
+          if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
+          return input.api.permission.request
+            .list({ location: { directory: input.directory } })
+            .then((result) => result.data.map(normalizePermissionRequest))
+        })().then((permissions) => {
+          const ids = permissions.map((permission) => permission.sessionID)
+          const grouped = groupBySession(permissions.filter((permission) => !!permission.id && !!permission.sessionID))
+          const warm = input.session
+            ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
+            : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
+          return warm.then(() =>
+            batch(() => {
+              const current = input.session?.data.permission ?? input.store.permission
+              for (const sessionID of Object.keys(current)) {
+                if (grouped[sessionID]) continue
+                if (input.session?.get(sessionID)?.directory !== input.directory) continue
+                if (input.session) input.session.set("permission", sessionID, [])
+                if (!input.session) input.setStore("permission", sessionID, [])
+              }
+              for (const [sessionID, permissions] of Object.entries(grouped)) {
+                const value = reconcile(
+                  permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
+                  { key: "id" },
+                )
+                if (input.session) input.session.set("permission", sessionID, value)
+                if (!input.session) input.setStore("permission", sessionID, value)
+              }
+            }),
+          )
+        }),
+      ),
+    () =>
+      retry(() =>
+        (async () => {
+          if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
+          return input.api.question.request
+            .list({ location: { directory: input.directory } })
+            .then((result) => result.data)
+        })().then((questions) => {
+          const ids = questions.map((question) => question.sessionID)
+          const grouped = groupBySession(
+            questions.filter((question) => !!question.id && !!question.sessionID) as QuestionRequest[],
+          )
+          const warm = input.session
+            ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
+            : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
+          return warm.then(() =>
+            batch(() => {
+              const current = input.session?.data.question ?? input.store.question
+              for (const sessionID of Object.keys(current)) {
+                if (grouped[sessionID]) continue
+                if (input.session?.get(sessionID)?.directory !== input.directory) continue
+                if (input.session) input.session.set("question", sessionID, [])
+                if (!input.session) input.setStore("question", sessionID, [])
+              }
+              for (const [sessionID, questions] of Object.entries(grouped)) {
+                const value = reconcile(
+                  questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
+                  { key: "id" },
+                )
+                if (input.session) input.session.set("question", sessionID, value)
+                if (!input.session) input.setStore("question", sessionID, value)
+              }
+            }),
+          )
+        }),
+      ),
+    input.mcp &&
+      (() =>
+        input.queryClient.fetchQuery(
+          loadMcpQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
+        )),
+    input.mcp &&
+      (() =>
+        input.queryClient.fetchQuery(
+          loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
+        )),
+    () => input.queryClient.fetchQuery(loadLspQuery(input.scope, input.directory, input.sdk)),
+    () =>
+      input.queryClient.fetchQuery(
+        loadProvidersQuery(input.scope, input.directory, input.api, input.sdk, input.protocol),
+      ),
+  ].filter(Boolean) as Array<() => Promise<unknown>>
 
-    if (loading && slowErrs.length === 0) input.setStore("status", "complete")
-  })()
+  await waitForPaint()
+  const [criticalResults, optionalResults] = await Promise.all([runAll(critical), runAll(optional)])
+  const criticalErrors = errors(criticalResults)
+  const optionalErrors = errors(optionalResults)
+  const allErrors = [...criticalErrors, ...optionalErrors]
+
+  if (allErrors.length > 0) {
+    console.error("Failed to finish bootstrap instance", allErrors[0])
+    const project = getFilename(input.directory)
+    const visibleErrors = allErrors.filter((error) => !(error instanceof NotifiedWorkspaceBootstrapError))
+    showErrors({
+      errors: visibleErrors,
+      title: input.translate("toast.project.reloadFailed.title", { project }),
+      translate: input.translate,
+      formatMoreCount: (count) => input.translate("common.moreCountSuffix", { count }),
+    })
+  }
+
+  if (criticalErrors.length > 0) throw new WorkspaceBootstrapError(criticalErrors)
+  if (loading) input.setStore("status", "complete")
+  return { status: optionalErrors.length > 0 ? "degraded" : "ready", errors: optionalErrors }
 }

@@ -6,6 +6,7 @@ import { AutoScroller, Feedback, PointerActivationConstraints } from "@dnd-kit/d
 import { RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers"
 import { RestrictToElement } from "@dnd-kit/dom/modifiers"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
@@ -53,6 +54,7 @@ export type HomeProjectsViewProps = {
   onSelectProject: (server: ServerConnection.Any, directory: string) => void
   onAddProjects: (server: ServerConnection.Any, directories: string[]) => void
   onOpenProjectNewSession: (server: ServerConnection.Any, directory: string) => void
+  projectPending: (server: ServerConnection.Any, directory: string) => boolean
   onEditProject: (server: ServerConnection.Any, project: LocalProject) => void
   onRevealProject: (server: ServerConnection.Any, project: LocalProject) => void
   onClearNotifications: (server: ServerConnection.Any, project: LocalProject) => void
@@ -551,7 +553,10 @@ function HomeProjectRow(
           />
           <MenuV2.Portal>
             <MenuV2.Content>
-              <MenuV2.Item onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}>
+              <MenuV2.Item
+                disabled={props.projectPending(props.server, props.project.worktree)}
+                onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}
+              >
                 {props.language.t("command.session.new")}
               </MenuV2.Item>
               <MenuV2.Item onSelect={() => props.onEditProject(props.server, props.project)}>
@@ -582,7 +587,15 @@ function HomeProjectRow(
           data-action="home-project-new-session"
           variant="ghost-muted"
           size="small"
-          icon={<IconV2 name="edit" />}
+          icon={
+            props.projectPending(props.server, props.project.worktree) ? (
+              <Spinner class="size-3" />
+            ) : (
+              <IconV2 name="edit" />
+            )
+          }
+          disabled={props.projectPending(props.server, props.project.worktree)}
+          aria-busy={props.projectPending(props.server, props.project.worktree)}
           aria-label={props.language.t("command.session.new")}
           onClick={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}
         />

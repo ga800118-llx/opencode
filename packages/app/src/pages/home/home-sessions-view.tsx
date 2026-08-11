@@ -42,6 +42,7 @@ export type HomeSessionsViewProps = {
   showProjectName: Accessor<boolean>
   server: Accessor<ServerConnection.Key>
   canCreateSession: Accessor<boolean>
+  createSessionPending: Accessor<boolean>
   searchValue: Accessor<string>
   searchPlaceholder: Accessor<string>
   searchOpen: Accessor<boolean>
@@ -89,10 +90,12 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
             <div class="pointer-events-none absolute right-0 top-[84px] z-20 flex lg:top-[108px]">
               <ButtonV2
                 data-action="home-new-session"
-                variant="ghost-muted"
+                variant={props.createSessionPending() ? "loading" : "ghost-muted"}
                 size="normal"
                 icon="edit"
                 class="pointer-events-auto h-7 px-2 [font-weight:530]"
+                disabled={props.createSessionPending()}
+                aria-busy={props.createSessionPending()}
                 onClick={props.onCreateSession}
               >
                 {props.language.t("command.session.new")}
@@ -121,6 +124,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
             fallback={
               <HomeSessionsEmpty
                 onNewSession={props.canCreateSession() ? props.onCreateSession : undefined}
+                pending={props.createSessionPending()}
                 language={props.language}
               />
             }
@@ -521,7 +525,11 @@ function HomeSessionProjectName(props: { name: string; search?: boolean }) {
   )
 }
 
-function HomeSessionsEmpty(props: { onNewSession?: () => void; language: ReturnType<typeof useLanguage> }) {
+function HomeSessionsEmpty(props: {
+  onNewSession?: () => void
+  pending: boolean
+  language: ReturnType<typeof useLanguage>
+}) {
   return (
     <div
       data-component="home-session-empty"
@@ -545,7 +553,15 @@ function HomeSessionsEmpty(props: { onNewSession?: () => void; language: ReturnT
       </p>
       <Show when={props.onNewSession}>
         {(onNewSession) => (
-          <ButtonV2 data-action="home-new-session" variant="neutral" size="normal" icon="edit" onClick={onNewSession()}>
+          <ButtonV2
+            data-action="home-new-session"
+            variant={props.pending ? "loading" : "neutral"}
+            size="normal"
+            icon="edit"
+            disabled={props.pending}
+            aria-busy={props.pending}
+            onClick={onNewSession()}
+          >
             {props.language.t("command.session.new")}
           </ButtonV2>
         )}

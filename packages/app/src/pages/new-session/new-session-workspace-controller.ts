@@ -31,6 +31,13 @@ export function resolveNewSessionBranch(input: {
   return input.worktreeBranch(input.worktree) ?? input.local
 }
 
+export function readReadyWorkspaceStore<T>(
+  sync: { child: (directory: string, options: { bootstrap: false }) => { readonly 0: T } },
+  directory: string,
+) {
+  return sync.child(directory, { bootstrap: false })[0]
+}
+
 export function createNewSessionWorkspaceController() {
   const sdk = useSDK()
   const sync = useSync()
@@ -46,12 +53,12 @@ export function createNewSessionWorkspaceController() {
     }),
   )
   const projectRoot = createMemo(() => sync().project?.worktree ?? sdk().directory)
-  const localBranch = createMemo(() => serverSync().child(projectRoot())[0].vcs?.branch)
+  const localBranch = createMemo(() => readReadyWorkspaceStore(serverSync(), projectRoot()).vcs?.branch)
   const branch = createMemo(() =>
     resolveNewSessionBranch({
       worktree: value(),
       local: localBranch(),
-      worktreeBranch: (worktree) => serverSync().child(worktree)[0].vcs?.branch,
+      worktreeBranch: (worktree) => readReadyWorkspaceStore(serverSync(), worktree).vcs?.branch,
     }),
   )
 

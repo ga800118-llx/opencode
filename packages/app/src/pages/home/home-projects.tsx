@@ -29,6 +29,7 @@ export function HomeProjects(props: { projects: HomeProjectsController; scroll: 
       onSelectProject={props.projects.project.select}
       onAddProjects={props.projects.project.add}
       onOpenProjectNewSession={props.projects.project.openNewSession}
+      projectPending={props.projects.project.pending}
       onEditProject={props.projects.project.edit}
       onRevealProject={props.projects.project.reveal}
       onClearNotifications={props.projects.project.clearNotifications}
