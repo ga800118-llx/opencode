@@ -30,7 +30,7 @@ const profile = {
   ],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
   defaultModelID: "coder",
-  settings: { timeoutMs: 30_000, contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
+  settings: { contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
   test: agentReport,
   createdAt: 1,
   updatedAt: 2,
@@ -93,6 +93,8 @@ describe("createModelProfileFormController", () => {
     const { form } = fixture()
     expect(form.state.kind).toBe("openai-compatible")
     expect(form.canSave()).toBe(false)
+    expect(form.state.settings).not.toHaveProperty("timeoutMs")
+    expect(form.input().settings).not.toHaveProperty("timeoutMs")
 
     form.setKind("ollama")
     expect(form.state.name).toBe("Ollama")
@@ -463,7 +465,6 @@ describe("createModelProfileFormController", () => {
 
     await expectInvalidation("base-url", () => form.setField("baseURL", "https://other.example.test/v1"))
     await expectInvalidation("api-key", () => form.setApiKey("replacement-key"))
-    await expectInvalidation("timeout", () => form.setSetting("timeoutMs", 45_000))
     await expectInvalidation("added-header", () => form.addHeader({ name: "X-Extra", value: "one" }))
     await expectInvalidation("changed-header", () => form.setHeader(2, { value: "two" }))
     await expectInvalidation("removed-header", () => form.removeHeader(2))

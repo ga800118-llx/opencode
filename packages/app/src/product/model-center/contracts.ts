@@ -25,7 +25,6 @@ export type ProductProviderHeader = {
 }
 
 export type ProductProviderSettings = {
-  readonly timeoutMs: number
   readonly contextLimit: number
   readonly outputLimit: number
   readonly proxyURL?: string
@@ -226,13 +225,15 @@ function normalizeRuntime(input: unknown): ProductProviderRuntime | undefined {
 
 function normalizeSettings(input: unknown): ProductProviderSettings {
   const value = record(input)
-  const timeoutMs = integer(value.timeoutMs, 1_000, 900_000, "Timeout must be between 1000 and 900000 milliseconds.")
+  if (value.timeoutMs !== undefined) {
+    integer(value.timeoutMs, 1_000, 900_000, "Timeout must be between 1000 and 900000 milliseconds.")
+  }
   const contextLimit = integer(value.contextLimit, 1, 10_000_000, "Context limit must be a positive integer.")
   const outputLimit = integer(value.outputLimit, 1, 1_000_000, "Output limit must be a positive integer.")
   if (value.allowInsecureTls === true) throw new Error("Insecure TLS is not supported by this desktop runtime.")
   const proxyURL = optionalString(value.proxyURL, 2_048)
   if (proxyURL) throw new Error("Per-profile proxies are not supported by this desktop runtime.")
-  return Object.freeze({ timeoutMs, contextLimit, outputLimit, allowInsecureTls: false as const })
+  return Object.freeze({ contextLimit, outputLimit, allowInsecureTls: false as const })
 }
 
 function normalizeHeaders(input: unknown): ProductProviderHeader[] {

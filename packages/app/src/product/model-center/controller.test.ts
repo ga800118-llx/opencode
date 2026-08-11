@@ -25,7 +25,7 @@ const profile = {
   headers: [],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
   defaultModelID: "coder",
-  settings: { timeoutMs: 30_000, contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
+  settings: { contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
   runtime: {
     baseURL: "http://127.0.0.1:32123/model-profile/profile-one/v1",
     credentialProxy: true,
@@ -163,7 +163,11 @@ describe("createModelCenterController", () => {
             npm: "@ai-sdk/openai-compatible",
             name: "Private",
             env: ["AGENT_PROFILE_PROFILE_ONE_API_KEY"],
-            options: { baseURL: "{env:AGENT_PROFILE_PROFILE_ONE_PROXY_BASE_URL}", timeout: 30_000 },
+            options: {
+              baseURL: "{env:AGENT_PROFILE_PROFILE_ONE_PROXY_BASE_URL}",
+              timeout: false,
+              headerTimeout: false,
+            },
             models: {
               coder: { name: "Coder", tool_call: true, limit: { context: 128_000, output: 16_000 } },
             },

@@ -151,7 +151,6 @@ function targetFromProfile(profile: ProductProviderProfile, envelope?: ProductCr
     baseURL: profile.baseURL,
     ...(envelope?.apiKey ? { apiKey: envelope.apiKey } : {}),
     headers: Object.freeze(resolveHeaders(profile.headers, envelope)),
-    timeoutMs: profile.settings.timeoutMs,
   })
 }
 
@@ -164,7 +163,6 @@ function targetFromDraft(
     baseURL: profile.baseURL,
     ...(envelope.apiKey ? { apiKey: envelope.apiKey } : {}),
     headers: Object.freeze(resolveHeaders(profile.headers, envelope)),
-    timeoutMs: profile.settings.timeoutMs,
   })
 }
 

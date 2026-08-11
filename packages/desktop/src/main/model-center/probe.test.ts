@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { createModelProbe, type ModelProbeTarget } from "./probe"
 import { startMockModelServer, type MockModelServerMode } from "./mock-openai-server.fixture.test"
 
@@ -8,7 +8,6 @@ function target(baseURL: string, kind: ModelProbeTarget["kind"] = "openai-compat
     baseURL,
     apiKey: "fixture-secret",
     headers: { "X-Private-Token": "fixture-private-header" },
-    timeoutMs: 2_000,
   }
 }
 
@@ -80,14 +79,21 @@ describe("createModelProbe discovery", () => {
       expect(result.diagnostic?.kind).toBe(item.kind)
       expect(JSON.stringify(result)).not.toContain(item.error.message)
     }
+  })
 
-    await withServer("delayed", async (baseURL) => {
-      const result = await createModelProbe({ requestID: () => "req-real-timeout" }).discover({
-        ...target(baseURL),
-        timeoutMs: 5,
-      })
-      expect(result.diagnostic?.kind).toBe("timeout")
-    })
+  test("uses the internal 30 second timeout for probe requests", async () => {
+    const timeout = spyOn(AbortSignal, "timeout")
+    try {
+      const result = await createModelProbe({
+        requestID: () => "req-fixed-timeout",
+        fetch: async () => Response.json({ data: [] }),
+      }).discover(target("https://private.example.test/v1"))
+
+      expect(result.models).toEqual([])
+      expect(timeout).toHaveBeenCalledWith(30_000)
+    } finally {
+      timeout.mockRestore()
+    }
   })
 })
 

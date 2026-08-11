@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { ProductProviderProfile } from "@opencode-ai/app/product/model-center"
+import { sanitizeProviderProfile, type ProductProviderProfile } from "@opencode-ai/app/product/model-center"
 import type { ProductCredentialService } from "./credentials"
 import { createSensitiveHeaderCredentialProxy } from "./credential-proxy"
 import type { ProfileRepository } from "./profiles"
@@ -14,7 +14,7 @@ const profile = {
   hasApiKey: true,
   headers: [{ name: "X-Private-Token", sensitive: true, hasValue: true }],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
-  settings: { timeoutMs: 2_000, contextLimit: 64_000, outputLimit: 8_000, allowInsecureTls: false },
+  settings: { contextLimit: 64_000, outputLimit: 8_000, allowInsecureTls: false },
   createdAt: 1,
   updatedAt: 2,
 } satisfies ProductProviderProfile
@@ -120,6 +120,40 @@ describe("model credential proxy", () => {
       expect(requests).toEqual([{ authorization: "Bearer api-canary", privateHeader: "header-canary" }])
       expect(JSON.stringify({ presented, result, store: Object.fromEntries(values) })).not.toContain("api-canary")
       expect(JSON.stringify({ presented, result, store: Object.fromEntries(values) })).not.toContain("header-canary")
+    } finally {
+      await proxy.stop()
+      upstream.stop(true)
+    }
+  })
+
+  test("does not disconnect a silent upstream using a legacy profile timeout", async () => {
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch() {
+        await Bun.sleep(1_200)
+        return Response.json({ ok: true })
+      },
+    })
+    const current = sanitizeProviderProfile({
+      ...profile,
+      baseURL: `http://${upstream.hostname}:${upstream.port}/v1`,
+      settings: { ...profile.settings, timeoutMs: 1_000 },
+    })
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: credentials(),
+      store: { get: () => undefined, set: () => undefined },
+      token: () => "silent-upstream-token",
+    })
+    try {
+      await proxy.start()
+      const presented = proxy.presentProfile(current)
+      const result = await fetch(`${presented.runtime?.baseURL}/models`, {
+        headers: { Authorization: `Bearer ${proxy.runtimeCredential(current)}` },
+      }).then((response) => response.json())
+
+      expect(result).toEqual({ ok: true })
     } finally {
       await proxy.stop()
       upstream.stop(true)

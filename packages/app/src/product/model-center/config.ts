@@ -8,7 +8,8 @@ export type ProductOpenCodeProviderConfig = {
   readonly env: readonly string[]
   readonly options: {
     readonly baseURL: string
-    readonly timeout: number
+    readonly timeout: false
+    readonly headerTimeout: false
     readonly headers?: Readonly<Record<string, string>>
   }
   readonly models: Readonly<
@@ -53,7 +54,8 @@ export function serializeProviderProfile(profile: ProductProviderProfile): Produ
     env: Object.freeze(profile.runtime?.credentialProxy ? [profileCredentialEnvironment(profile.id)] : []),
     options: Object.freeze({
       baseURL: providerBaseURL(profile),
-      timeout: profile.settings.timeoutMs,
+      timeout: false,
+      headerTimeout: false,
       ...(Object.keys(headers).length ? { headers: Object.freeze(headers) } : {}),
     }),
     models: Object.freeze(

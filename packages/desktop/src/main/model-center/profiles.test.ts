@@ -12,7 +12,7 @@ const base = {
   ],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
   defaultModelID: "coder",
-  settings: { timeoutMs: 30_000, contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
+  settings: { contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
 } satisfies ProductProviderProfileInput
 
 function fixture(initial?: unknown) {
@@ -170,6 +170,7 @@ describe("createProfileRepository", () => {
       id: "legacy-one",
       providerID: "agent-profile-legacy-one",
       hasApiKey: false,
+      settings: { ...base.settings, timeoutMs: 30_000 },
       createdAt: 10,
       updatedAt: 20,
     }
@@ -182,6 +183,8 @@ describe("createProfileRepository", () => {
     expect(fake.repository.defaultSelection()).toEqual({ profileID: "legacy-one", modelID: "coder" })
     expect(fake.writes).toHaveLength(1)
     expect(fake.values.get("state")).toMatchObject({ version: 1 })
+    expect(fake.repository.list()[0]?.settings).not.toHaveProperty("timeoutMs")
+    expect(JSON.stringify(fake.values.get("state"))).not.toContain("timeoutMs")
     expect(JSON.stringify(fake.values.get("state"))).not.toContain("sk-test-secret")
   })
 

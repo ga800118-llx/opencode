@@ -256,6 +256,7 @@ function openCodeConfigPatch(patch: ProductModelCenterConfigPatch): Config {
           options: {
             baseURL: provider.options.baseURL,
             timeout: provider.options.timeout,
+            headerTimeout: provider.options.headerTimeout,
             ...(provider.options.headers ? { headers: { ...provider.options.headers } } : {}),
           },
           models: Object.fromEntries(

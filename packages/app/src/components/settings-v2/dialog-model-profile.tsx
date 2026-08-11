@@ -428,15 +428,6 @@ export const DialogModelProfile: Component<{
 
                 <div class="model-profile-number-grid">
                   <label class="model-profile-field">
-                    <span>{language.t("settings.modelCenter.advanced.timeout")}</span>
-                    <TextInputV2
-                      type="number"
-                      numeric
-                      value={String(form.state.settings.timeoutMs)}
-                      onInput={(event) => form.setSetting("timeoutMs", Number(event.currentTarget.value))}
-                    />
-                  </label>
-                  <label class="model-profile-field">
                     <span>{language.t("settings.modelCenter.advanced.context")}</span>
                     <TextInputV2
                       type="number"

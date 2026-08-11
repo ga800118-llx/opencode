@@ -20,7 +20,7 @@ const draft = {
   ],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
   defaultModelID: "coder",
-  settings: { timeoutMs: 30_000, contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
+  settings: { contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
   credentials: { apiKey: "sk-test-secret", headers: { "X-Secret": "Bearer secret-header" } },
 } satisfies ProductProviderProfileInput
 
@@ -154,14 +154,12 @@ describe("createModelCenterService", () => {
         baseURL: "https://models.example.test/v1",
         apiKey: "sk-test-secret",
         headers: { "X-Tenant": "alpha", "X-Secret": "Bearer secret-header" },
-        timeoutMs: 30_000,
       },
       {
         kind: "openai-compatible",
         baseURL: "https://models.example.test/v1",
         apiKey: "sk-test-secret",
         headers: { "X-Tenant": "alpha", "X-Secret": "Bearer secret-header" },
-        timeoutMs: 30_000,
       },
     ])
     expect(fake.profiles.get(profile.id)?.test).toEqual(tested)

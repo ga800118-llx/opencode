@@ -43,7 +43,6 @@ type FormState = {
   modelQuery: string
   selectedModelID?: string
   settings: {
-    timeoutMs: number
     contextLimit: number
     outputLimit: number
     proxyURL: string
@@ -71,7 +70,6 @@ const KIND_DEFAULTS: Record<ProductProviderKind, { name: string; baseURL: string
 }
 
 const DEFAULT_SETTINGS = {
-  timeoutMs: 30_000,
   contextLimit: 128_000,
   outputLimit: 16_000,
   proxyURL: "",
@@ -126,7 +124,6 @@ export function createModelProfileFormController(options: {
     modelQuery: "",
     ...(initial?.defaultModelID ? { selectedModelID: initial.defaultModelID } : {}),
     settings: {
-      timeoutMs: initial?.settings.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs,
       contextLimit: initial?.settings.contextLimit ?? DEFAULT_SETTINGS.contextLimit,
       outputLimit: initial?.settings.outputLimit ?? DEFAULT_SETTINGS.outputLimit,
       proxyURL: "",
@@ -199,7 +196,6 @@ export function createModelProfileFormController(options: {
       models: state.models,
       ...(state.selectedModelID ? { defaultModelID: state.selectedModelID } : {}),
       settings: {
-        timeoutMs: state.settings.timeoutMs,
         contextLimit: state.settings.contextLimit,
         outputLimit: state.settings.outputLimit,
         ...(state.settings.proxyURL ? { proxyURL: state.settings.proxyURL } : {}),
@@ -248,8 +244,7 @@ export function createModelProfileFormController(options: {
       setState(field, value)
       clearLegacyFeedback()
     },
-    setSetting(field: "timeoutMs" | "contextLimit" | "outputLimit", value: number) {
-      if (field === "timeoutMs") invalidateDiscovery()
+    setSetting(field: "contextLimit" | "outputLimit", value: number) {
       invalidateTest()
       setState("settings", field, value)
       clearLegacyFeedback()

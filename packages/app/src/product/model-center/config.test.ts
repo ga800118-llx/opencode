@@ -27,7 +27,6 @@ const profile = {
   ],
   defaultModelID: "qwen-coder",
   settings: {
-    timeoutMs: 45_000,
     contextLimit: 64_000,
     outputLimit: 8_000,
     allowInsecureTls: false,
@@ -54,7 +53,8 @@ describe("model profile config serialization", () => {
       env: [],
       options: {
         baseURL: "http://127.0.0.1:11434/v1",
-        timeout: 45_000,
+        timeout: false,
+        headerTimeout: false,
         headers: {
           "X-Tenant": "alpha",
         },
@@ -74,6 +74,7 @@ describe("model profile config serialization", () => {
     expect(raw).not.toContain("model-profile:01ab-cd")
     expect(raw).not.toContain("Authorization-Extra")
     expect(raw).not.toContain("req-safe")
+    expect(config.options).not.toHaveProperty("chunkTimeout")
   })
 
   test("builds deterministic environment names and config patches", () => {
@@ -105,7 +106,8 @@ describe("model profile config serialization", () => {
     expect(config.env).toEqual(["AGENT_PROFILE_01AB_CD_API_KEY"])
     expect(config.options).toEqual({
       baseURL: "{env:AGENT_PROFILE_01AB_CD_PROXY_BASE_URL}",
-      timeout: 45_000,
+      timeout: false,
+      headerTimeout: false,
       headers: { "X-Tenant": "alpha" },
     })
     expect(JSON.stringify(config)).not.toContain("Authorization-Extra")

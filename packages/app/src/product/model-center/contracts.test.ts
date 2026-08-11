@@ -15,7 +15,6 @@ const input = {
   ],
   defaultModelID: "coder-large",
   settings: {
-    timeoutMs: 30_000,
     contextLimit: 128_000,
     outputLimit: 16_000,
     allowInsecureTls: false,
@@ -69,12 +68,22 @@ describe("normalizeProviderProfileInput", () => {
   })
 
   test("requires positive bounded numeric settings and a selected known model", () => {
-    expect(() =>
-      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, timeoutMs: 0 } }),
-    ).toThrow("Timeout must be between 1000 and 900000 milliseconds.")
     expect(() => normalizeProviderProfileInput({ ...input, defaultModelID: "missing" })).toThrow(
       "The default model must belong to this profile.",
     )
+  })
+
+  test("validates and drops legacy timeout settings", () => {
+    const migrated = normalizeProviderProfileInput({
+      ...input,
+      settings: { ...input.settings, timeoutMs: 30_000 },
+    })
+
+    expect(migrated.settings).toEqual(input.settings)
+    expect(migrated.settings).not.toHaveProperty("timeoutMs")
+    expect(() =>
+      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, timeoutMs: 0 } }),
+    ).toThrow("Timeout must be between 1000 and 900000 milliseconds.")
   })
 })
 
@@ -100,5 +109,20 @@ describe("sanitizeProviderProfile", () => {
     })
     expect(Object.isFrozen(profile)).toBe(true)
     expect(Object.isFrozen(profile.models)).toBe(true)
+  })
+
+  test("drops legacy timeout settings from sanitized profiles", () => {
+    const profile = sanitizeProviderProfile({
+      ...input,
+      settings: { ...input.settings, timeoutMs: 30_000 },
+      id: "profile-1",
+      providerID: "agent-profile-profile-1",
+      hasApiKey: false,
+      createdAt: 1,
+      updatedAt: 2,
+    })
+
+    expect(profile.settings).toEqual(input.settings)
+    expect(profile.settings).not.toHaveProperty("timeoutMs")
   })
 })

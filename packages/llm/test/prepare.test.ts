@@ -156,6 +156,26 @@ describe("request option precedence", () => {
     }),
   )
 
+  it.effect("rejects transport timeout controls in raw body overlays", () =>
+    Effect.gen(function* () {
+      const model = OpenAIChat.route
+        .with({ endpoint: { baseURL: "https://api.openai.test/v1/" }, auth: Auth.bearer("test") })
+        .model({ id: "gpt-4o-mini" })
+      const error = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          prompt: "Say hello.",
+          http: { body: { timeout: 1_000, timeoutMs: 2_000 } },
+        }),
+      ).pipe(Effect.flip)
+
+      expect(error.reason).toMatchObject({
+        _tag: "InvalidRequest",
+        message: "http.body cannot overlay protocol-owned field(s): timeout, timeoutMs",
+      })
+    }),
+  )
+
   it.effect("uses model output limits after route limits and before call maxTokens", () =>
     Effect.gen(function* () {
       const route = AnthropicMessages.route.with({

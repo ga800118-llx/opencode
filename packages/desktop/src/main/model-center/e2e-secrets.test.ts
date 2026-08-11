@@ -26,7 +26,7 @@ const draft = {
     { name: "X-Private-Token", sensitive: true, hasValue: true },
   ],
   models: [{ id: "canary-coder", name: "Canary Coder", source: "manual" }],
-  settings: { timeoutMs: 10_000, contextLimit: 64_000, outputLimit: 8_000, allowInsecureTls: false },
+  settings: { contextLimit: 64_000, outputLimit: 8_000, allowInsecureTls: false },
   credentials: { apiKey: API_CANARY, headers: { "X-Private-Token": HEADER_CANARY } },
 } satisfies ProductProviderProfileInput
 

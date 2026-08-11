@@ -17,7 +17,7 @@ const profile = {
     { name: "X-Tenant", value: "alpha", sensitive: false, hasValue: true },
   ],
   models: [{ id: "coder", name: "Coder", source: "manual" }],
-  settings: { timeoutMs: 30_000, contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
+  settings: { contextLimit: 128_000, outputLimit: 16_000, allowInsecureTls: false },
   createdAt: 1,
   updatedAt: 2,
 } satisfies ProductProviderProfile

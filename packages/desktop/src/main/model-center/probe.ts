@@ -14,7 +14,7 @@ export type ModelProbeTarget = {
   readonly baseURL: string
   readonly apiKey?: string
   readonly headers?: Readonly<Record<string, string>>
-  readonly timeoutMs: number
+  readonly timeoutMs?: number
 }
 
 export type ModelProbe = {
@@ -27,6 +27,8 @@ type ModelProbeOptions = {
   readonly now?: () => number
   readonly requestID?: () => string
 }
+
+const MODEL_PROBE_TIMEOUT_MS = 30_000
 
 export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
   const fetcher = options.fetch ?? fetch
@@ -42,7 +44,7 @@ export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
           fetch: fetcher,
           url: discoveryURL(target),
           headers: requestHeaders(target),
-          timeoutMs: target.timeoutMs,
+          timeoutMs: target.timeoutMs ?? MODEL_PROBE_TIMEOUT_MS,
           notFoundCode: "INCOMPATIBLE_API",
         })
         return Object.freeze({ models: Object.freeze(discoveredModels(target.kind, result)), requestID })
@@ -67,7 +69,7 @@ export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
           fetch: fetcher,
           url: chatURL(target),
           headers: requestHeaders(target),
-          timeoutMs: target.timeoutMs,
+          timeoutMs: target.timeoutMs ?? MODEL_PROBE_TIMEOUT_MS,
           body: chatBody(modelID),
           notFoundCode: "MODEL_NOT_FOUND",
         })
@@ -83,7 +85,7 @@ export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
           fetch: fetcher,
           url: chatURL(target),
           headers: requestHeaders(target),
-          timeoutMs: target.timeoutMs,
+          timeoutMs: target.timeoutMs ?? MODEL_PROBE_TIMEOUT_MS,
           body: { ...chatBody(modelID), stream: true },
           notFoundCode: "MODEL_NOT_FOUND",
         })
@@ -100,7 +102,7 @@ export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
           fetch: fetcher,
           url: chatURL(target),
           headers: requestHeaders(target),
-          timeoutMs: target.timeoutMs,
+          timeoutMs: target.timeoutMs ?? MODEL_PROBE_TIMEOUT_MS,
           body: toolBody(modelID),
           notFoundCode: "MODEL_NOT_FOUND",
         })
@@ -163,7 +165,9 @@ function normalizeTarget(input: ModelProbeTarget): ModelProbeTarget {
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
     throw new ModelProbeHttpError("INCOMPATIBLE_API")
   }
-  if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0) throw new ModelProbeHttpError("TIMEOUT")
+  if (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0)) {
+    throw new ModelProbeHttpError("TIMEOUT")
+  }
   return input
 }
 

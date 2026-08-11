@@ -141,7 +141,6 @@ async function forward(
     response.writeHead(result.statusCode ?? 502, responseHeaders(result.headers))
     result.pipe(response)
   })
-  upstream.setTimeout(profile.settings.timeoutMs, () => upstream.destroy(new Error("timeout")))
   upstream.on("error", () => {
     if (!response.headersSent) fixed(response, 502, "Model service unavailable.")
     else response.destroy()
