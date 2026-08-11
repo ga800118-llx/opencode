@@ -85,7 +85,7 @@ export interface Interface extends State.Transformable<Draft> {
   readonly sources: () => Effect.Effect<Source[]>
   readonly list: () => Effect.Effect<Info[]>
   readonly management: {
-    readonly list: () => Effect.Effect<ManagementInfo[]>
+    readonly list: (refresh?: boolean) => Effect.Effect<ManagementInfo[]>
     readonly setEnabled: (
       id: ManagementID,
       enabled: boolean,
@@ -105,6 +105,7 @@ const layer = Layer.effect(
     const location = yield* Location.Service
     const flock = yield* EffectFlock.Service
     const safeMove = yield* SkillSafeMove.Service
+    const cache = new Map<string, Info[]>()
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -120,6 +121,13 @@ const layer = Layer.effect(
         },
         list: () => draft.sources as Source[],
       }),
+      finalize: (draft) =>
+        Effect.sync(() => {
+          const active = new Set(draft.list().map(Source.key))
+          cache.keys().forEach((key) => {
+            if (!active.has(key)) cache.delete(key)
+          })
+        }),
     })
 
     const load = Effect.fn("SkillV2.load")(function* (source: Source) {
@@ -158,7 +166,6 @@ const layer = Layer.effect(
 
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
-    const cache = new Map<string, Info[]>()
     const installed = Effect.fn("SkillV2.installed")(function* () {
       const skills: Installed[] = []
       for (const source of state.get().sources) {
@@ -177,7 +184,8 @@ const layer = Layer.effect(
     const list = Effect.fn("SkillV2.list")(function* () {
       return effective(yield* installed(), yield* disabled())
     })
-    const managementList = Effect.fn("SkillV2.management.list")(function* () {
+    const managementList = Effect.fn("SkillV2.management.list")(function* (refresh = false) {
+      if (refresh) yield* state.reload()
       return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
     })
 

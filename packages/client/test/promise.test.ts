@@ -207,7 +207,7 @@ test("skill management methods use the public HTTP contract", async () => {
   })
   const location = { directory: "/tmp/project", workspace: "wrk_test" }
 
-  await client.skills.managementList({ location })
+  await client.skills.managementList({ location, refresh: true })
   await client.skills.managementSetEnabled({ id, location, enabled: false })
   try {
     await client.skills.managementRemove({ id, location })
@@ -224,9 +224,17 @@ test("skill management methods use the public HTTP contract", async () => {
   expect(
     requests.map((request) => {
       const url = new URL(request.url)
-      return [url.searchParams.get("location[directory]"), url.searchParams.get("location[workspace]")]
+      return [
+        url.searchParams.get("location[directory]"),
+        url.searchParams.get("location[workspace]"),
+        url.searchParams.get("refresh"),
+      ]
     }),
-  ).toEqual(Array.from({ length: 3 }, () => [location.directory, location.workspace]))
+  ).toEqual([
+    [location.directory, location.workspace, "true"],
+    [location.directory, location.workspace, null],
+    [location.directory, location.workspace, null],
+  ])
   const body = requests.find((request) => request.init?.method === "PATCH")?.init?.body
   if (typeof body !== "string") throw new Error("Expected JSON request body")
   expect(JSON.parse(body)).toEqual({ enabled: false })

@@ -3,6 +3,8 @@ import { Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import {
   blockedKey,
+  createSkillManagementLoader,
+  createSkillRefreshLifecycle,
   createSkillRefreshQueue,
   filterSkills,
   isPending,
@@ -145,6 +147,120 @@ describe("Skill settings controller", () => {
     expect(calls).toBe(1)
   })
 
+  test("limits empty-list backoff to the first successful snapshot for each query", async () => {
+    const delays: number[] = []
+    const calls = { value: 0 }
+    const load = createSkillManagementLoader(async (milliseconds) => {
+      delays.push(milliseconds)
+    })
+    const empty = async () => {
+      calls.value++
+      return []
+    }
+
+    expect(await load("scope:/repo", empty)).toEqual([])
+    expect(calls.value).toBe(3)
+    expect(await load("scope:/repo", empty)).toEqual([])
+    expect(calls.value).toBe(4)
+    expect(await load("scope:/other", empty)).toEqual([])
+    expect(calls.value).toBe(7)
+    expect(delays).toEqual([100, 200, 100, 200])
+  })
+
+  test("keeps cold-start backoff available until a request succeeds", async () => {
+    const failure = new Error("offline")
+    const calls = { value: 0 }
+    const load = createSkillManagementLoader(async () => undefined)
+
+    await expect(
+      load("scope:/repo", async () => {
+        calls.value++
+        throw failure
+      }),
+    ).rejects.toBe(failure)
+    expect(await load("scope:/repo", async () => (++calls.value === 3 ? [items[0]!] : []))).toEqual([items[0]!])
+    expect(calls.value).toBe(3)
+  })
+
+  test("refreshes on mount, focus, visibility, and each visible interval, then disposes", async () => {
+    const clock = fakeRefreshClock()
+    const calls: string[] = []
+    const lifecycle = createSkillRefreshLifecycle({
+      refresh: () => calls.push("refresh"),
+      visible: () => clock.visible.value,
+      onFocus: clock.onFocus,
+      onVisibilityChange: clock.onVisibilityChange,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    })
+
+    await settle()
+    expect(calls).toHaveLength(1)
+    clock.advance(1_999)
+    await settle()
+    expect(calls).toHaveLength(1)
+    clock.advance(1)
+    await settle()
+    expect(calls).toHaveLength(2)
+    clock.focus()
+    await settle()
+    expect(calls).toHaveLength(3)
+
+    clock.visible.value = false
+    clock.visibilityChange()
+    clock.advance(4_000)
+    clock.focus()
+    await settle()
+    expect(calls).toHaveLength(3)
+    expect(clock.pending()).toBe(0)
+
+    clock.visible.value = true
+    clock.visibilityChange()
+    await settle()
+    expect(calls).toHaveLength(4)
+    expect(clock.pending()).toBe(1)
+    lifecycle.dispose()
+    lifecycle.dispose()
+    clock.advance(4_000)
+    clock.focus()
+    clock.visibilityChange()
+    await settle()
+    expect(calls).toHaveLength(4)
+    expect(clock.pending()).toBe(0)
+  })
+
+  test("coalesces overlapping lifecycle triggers and continues after refresh failure", async () => {
+    const clock = fakeRefreshClock()
+    const first = Promise.withResolvers<void>()
+    const calls = { value: 0 }
+    const lifecycle = createSkillRefreshLifecycle({
+      refresh: () => {
+        calls.value++
+        if (calls.value === 1) return first.promise
+        if (calls.value === 2) return Promise.reject(new Error("background failure"))
+        return Promise.resolve()
+      },
+      visible: () => clock.visible.value,
+      onFocus: clock.onFocus,
+      onVisibilityChange: clock.onVisibilityChange,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    })
+
+    await settle()
+    clock.focus()
+    clock.advance(2_000)
+    await settle()
+    expect(calls.value).toBe(1)
+    first.resolve()
+    await settle()
+    expect(calls.value).toBe(2)
+    clock.advance(2_000)
+    await settle()
+    expect(calls.value).toBe(3)
+    lifecycle.dispose()
+  })
+
   test("filters by searchable fields and normalized status", () => {
     expect(filterSkills(items, { query: " deploy ", status: "all" }).map((item) => item.name)).toEqual(["deploy"])
     expect(filterSkills(items, { query: "/REPO/.OPENCODE", status: "all" }).map((item) => item.name)).toEqual([
@@ -215,3 +331,46 @@ describe("Skill settings controller", () => {
     expect(calls).toEqual(["first", "second"])
   })
 })
+
+function fakeRefreshClock() {
+  const state = { now: 0, sequence: 0 }
+  const visible = { value: true }
+  const timers = new Map<number, { at: number; listener: () => void }>()
+  const focusListeners = new Set<() => void>()
+  const visibilityListeners = new Set<() => void>()
+  const listen = (listeners: Set<() => void>) => (listener: () => void) => {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  }
+  return {
+    visible,
+    onFocus: listen(focusListeners),
+    onVisibilityChange: listen(visibilityListeners),
+    setTimer: (listener: () => void, milliseconds: number) => {
+      const id = ++state.sequence
+      timers.set(id, { at: state.now + milliseconds, listener })
+      return id
+    },
+    clearTimer: (id: number) => timers.delete(id),
+    focus: () => focusListeners.forEach((listener) => listener()),
+    visibilityChange: () => visibilityListeners.forEach((listener) => listener()),
+    pending: () => timers.size,
+    advance: (milliseconds: number) => {
+      state.now += milliseconds
+      Array.from(timers.entries())
+        .filter(([, timer]) => timer.at <= state.now)
+        .toSorted((left, right) => left[1].at - right[1].at)
+        .forEach(([id, timer]) => {
+          if (!timers.delete(id)) return
+          timer.listener()
+        })
+    },
+  }
+}
+
+async function settle() {
+  await Array.from({ length: 8 }, () => undefined).reduce<Promise<void>>(
+    (promise) => promise.then(() => undefined),
+    Promise.resolve(),
+  )
+}

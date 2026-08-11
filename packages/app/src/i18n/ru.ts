@@ -35,6 +35,8 @@ export const dict = {
   "settings.skills.empty": "No Skills installed.",
   "settings.skills.noMatches": "No Skills match the current search and filter.",
   "settings.skills.load.failure": "Skills could not be loaded.",
+  "settings.skills.refresh": "Refresh Skills",
+  "settings.skills.refresh.failure": "Skills could not be refreshed. Showing the last successful results.",
   "settings.skills.enable.label": "Enable {{name}}",
   "settings.skills.disable.label": "Disable {{name}}",
   "settings.skills.delete.title": "Delete Skill",

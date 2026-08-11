@@ -42,22 +42,24 @@ describe("Skill management API", () => {
     })
 
     expect((await api.list("/repo with space"))[0]?.name).toBe("deploy")
+    expect((await api.list("/repo with space", { refresh: true }))[0]?.name).toBe("deploy")
     await api.setEnabled("/repo with space", id, false)
     await api.remove("/repo with space", id)
 
     expect(requests.map((item) => item.url)).toEqual([
       "https://server.example/api/skill/management?location%5Bdirectory%5D=%2Frepo+with+space",
+      "https://server.example/api/skill/management?location%5Bdirectory%5D=%2Frepo+with+space&refresh=true",
       "https://server.example/api/skill/management/skill%2Fid%20with%20spaces?location%5Bdirectory%5D=%2Frepo+with+space",
       "https://server.example/api/skill/management/skill%2Fid%20with%20spaces?location%5Bdirectory%5D=%2Frepo+with+space",
     ])
-    expect(requests.map((item) => item.init?.method)).toEqual(["GET", "PATCH", "DELETE"])
-    expect(requests[1]?.init?.body).toBe('{"enabled":false}')
+    expect(requests.map((item) => item.init?.method)).toEqual(["GET", "GET", "PATCH", "DELETE"])
+    expect(requests[2]?.init?.body).toBe('{"enabled":false}')
     requests.forEach((item) => {
       const headers = new Headers(item.init?.headers)
       expect(headers.get("Authorization")).toBe("Basic dXNlcjpwYXNz")
       expect(headers.get("X-Client")).toBe("desktop")
     })
-    expect(new Headers(requests[1]?.init?.headers).get("Content-Type")).toBe("application/json")
+    expect(new Headers(requests[2]?.init?.headers).get("Content-Type")).toBe("application/json")
   })
 
   test("throws a stable safe error for non-success responses", async () => {

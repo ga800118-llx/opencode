@@ -16,6 +16,92 @@ export async function loadSkillManagement(
   return load(0)
 }
 
+export function createSkillManagementLoader(
+  wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+) {
+  const initialized = new Set<string>()
+  return async (key: string, list: () => Promise<Skill.ManagementInfo[]>) => {
+    if (initialized.has(key)) return list()
+    const result = await loadSkillManagement(list, wait)
+    initialized.add(key)
+    return result
+  }
+}
+
+export function createSkillRefreshLifecycle<Timer>(input: {
+  refresh: () => unknown
+  visible: () => boolean
+  onFocus: (listener: () => void) => () => void
+  onVisibilityChange: (listener: () => void) => () => void
+  setTimer: (listener: () => void, milliseconds: number) => Timer
+  clearTimer: (timer: Timer) => void
+  interval?: number
+}) {
+  const state: {
+    disposed: boolean
+    queued: boolean
+    timer?: Timer
+    active?: Promise<void>
+  } = { disposed: false, queued: false }
+
+  const cancelTimer = () => {
+    if (state.timer === undefined) return
+    input.clearTimer(state.timer)
+    state.timer = undefined
+  }
+  const run = () => {
+    if (state.disposed || !input.visible()) return
+    if (state.active) {
+      state.queued = true
+      return
+    }
+    state.active = Promise.resolve()
+      .then(input.refresh)
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        state.active = undefined
+        if (state.disposed || !input.visible() || !state.queued) return
+        state.queued = false
+        run()
+      })
+  }
+  const schedule = () => {
+    if (state.disposed || !input.visible() || state.timer !== undefined) return
+    state.timer = input.setTimer(() => {
+      state.timer = undefined
+      run()
+      schedule()
+    }, input.interval ?? 2_000)
+  }
+  const visibilityChanged = () => {
+    if (!input.visible()) {
+      state.queued = false
+      cancelTimer()
+      return
+    }
+    run()
+    schedule()
+  }
+  const removeFocus = input.onFocus(run)
+  const removeVisibility = input.onVisibilityChange(visibilityChanged)
+  run()
+  schedule()
+
+  return {
+    dispose: () => {
+      if (state.disposed) return
+      state.disposed = true
+      state.queued = false
+      cancelTimer()
+      removeFocus()
+      removeVisibility()
+    },
+  }
+}
+
 export function filterSkills(
   items: readonly Skill.ManagementInfo[],
   input: { query: string; status: SkillStatusFilter },

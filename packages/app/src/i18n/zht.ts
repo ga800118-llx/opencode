@@ -38,6 +38,8 @@ export const dict = {
   "settings.skills.empty": "尚未安裝 Skill。",
   "settings.skills.noMatches": "沒有符合目前搜尋與篩選條件的 Skill。",
   "settings.skills.load.failure": "無法載入 Skill。",
+  "settings.skills.refresh": "重新整理 Skill",
+  "settings.skills.refresh.failure": "無法重新整理 Skill，目前顯示的是上次成功載入的結果。",
   "settings.skills.enable.label": "啟用 {{name}}",
   "settings.skills.disable.label": "停用 {{name}}",
   "settings.skills.delete.title": "刪除 Skill",

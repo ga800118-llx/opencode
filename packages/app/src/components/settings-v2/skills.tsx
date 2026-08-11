@@ -8,6 +8,7 @@ import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { SegmentedControlItemV2, SegmentedControlV2 } from "@opencode-ai/ui/v2/segmented-control-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type Component, createEffect, createMemo, For, onCleanup, Show } from "solid-js"
@@ -18,10 +19,11 @@ import { isSkillManagementNotFound, type SkillManagementApi } from "@/utils/skil
 import { showToast } from "@/utils/toast"
 import {
   blockedKey,
+  createSkillManagementLoader,
+  createSkillRefreshLifecycle,
   createSkillRefreshQueue,
   filterSkills,
   isPending,
-  loadSkillManagement,
   skillPendingKey,
   scopeKey,
   sourceKey,
@@ -56,11 +58,13 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     query: string
     status: SkillStatusFilter
     pendingKeys: ReadonlySet<string>
+    refreshing: boolean
     confirmation?: DeleteSnapshot
   }>({
     query: "",
     status: "all",
     pendingKeys: new Set<string>(),
+    refreshing: false,
   })
   let mounted = true
   let confirmationToken = 0
@@ -68,14 +72,15 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     mounted = false
   })
   const queryKey = () => [serverSDK().scope, props.directory, "skill-management"] as const
+  const loadSkills = createSkillManagementLoader()
   const skills = useQuery(() => ({
     queryKey: queryKey(),
-    enabled: !!props.directory,
+    enabled: false,
     retry: false,
     queryFn: () => {
       const sdk = serverSDK()
       const directory = props.directory!
-      return loadSkillManagement(() => sdk.skillManagement.list(directory))
+      return loadSkills(JSON.stringify([sdk.scope, directory]), () => sdk.skillManagement.list(directory))
     },
   }))
   const items = createMemo(() => skills.data ?? [])
@@ -94,6 +99,27 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     setState("pendingKeys", new Set([...state.pendingKeys].filter((value) => value !== key)))
   }
 
+  createEffect(() => {
+    serverSDK()
+    const directory = props.directory
+    if (!directory) return
+    const lifecycle = createSkillRefreshLifecycle({
+      refresh: () => skills.refetch({ cancelRefetch: false }),
+      visible: () => document.visibilityState === "visible",
+      onFocus: (listener) => {
+        window.addEventListener("focus", listener)
+        return () => window.removeEventListener("focus", listener)
+      },
+      onVisibilityChange: (listener) => {
+        document.addEventListener("visibilitychange", listener)
+        return () => document.removeEventListener("visibilitychange", listener)
+      },
+      setTimer: (listener, milliseconds) => window.setTimeout(listener, milliseconds),
+      clearTimer: (timer) => window.clearTimeout(timer),
+    })
+    onCleanup(lifecycle.dispose)
+  })
+
   const mutationContext = () => {
     const directory = props.directory
     if (!directory) return
@@ -104,6 +130,20 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       api: sdk.skillManagement,
       queryKey: [sdk.scope, directory, "skill-management"] as const,
     }
+  }
+
+  const refreshAll = async () => {
+    const context = mutationContext()
+    if (!context || skills.isFetching) return
+    setState("refreshing", true)
+    await queryClient
+      .fetchQuery({
+        queryKey: context.queryKey,
+        queryFn: () => context.api.list(context.directory, { refresh: true }),
+        staleTime: 0,
+      })
+      .catch(() => undefined)
+    if (mounted) setState("refreshing", false)
   }
 
   const setEnabled = async (item: Skill.ManagementInfo, enabled: boolean) => {
@@ -216,12 +256,27 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     <>
       <div class="settings-v2-tab-header settings-v2-tab-header--stacked settings-v2-skills-header">
         <div class="settings-v2-tab-header-row settings-v2-skills-heading">
-          <h2 class="settings-v2-tab-title">{language.t("settings.skills.title")}</h2>
-          <Show when={!skills.isPending}>
-            <span class="settings-v2-skills-count">
-              {language.t("settings.skills.count", { count: items().length })}
-            </span>
-          </Show>
+          <div class="settings-v2-skills-heading-copy">
+            <h2 class="settings-v2-tab-title">{language.t("settings.skills.title")}</h2>
+            <Show when={!skills.isPending}>
+              <span class="settings-v2-skills-count">
+                {language.t("settings.skills.count", { count: items().length })}
+              </span>
+            </Show>
+          </div>
+          <TooltipV2 value={language.t("settings.skills.refresh")}>
+            <IconButtonV2
+              type="button"
+              class="settings-v2-skills-refresh"
+              size="small"
+              variant="ghost-muted"
+              disabled={!props.directory || skills.isFetching}
+              aria-label={language.t("settings.skills.refresh")}
+              icon={<Icon name="reset" size="small" />}
+              data-refreshing={state.refreshing ? "" : undefined}
+              onClick={() => void refreshAll()}
+            />
+          </TooltipV2>
         </div>
         <div class="settings-v2-tab-search settings-v2-skills-search">
           <Show
@@ -267,6 +322,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       </div>
 
       <div class="settings-v2-tab-body settings-v2-skills">
+        <Show when={skills.isError && items().length > 0}>
+          <div class="settings-v2-skills-refresh-error" role="alert">
+            {language.t("settings.skills.refresh.failure")}
+          </div>
+        </Show>
         <SettingsListV2>
           <Show when={props.directory} fallback={<SkillState text={language.t("settings.skills.locationRequired")} />}>
             <Show when={!skills.isPending} fallback={<SkillState text={language.t("settings.skills.loading")} />}>

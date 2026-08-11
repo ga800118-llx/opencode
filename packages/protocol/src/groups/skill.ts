@@ -4,6 +4,11 @@ import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { LocationQuery, locationQueryOpenApi } from "./location"
 
+const SkillManagementListQuery = Schema.Struct({
+  ...LocationQuery.fields,
+  refresh: Schema.Boolean.pipe(Schema.optional),
+})
+
 export class SkillManagementNotFoundError extends Schema.TaggedErrorClass<SkillManagementNotFoundError>()(
   "SkillManagementNotFoundError",
   { id: Skill.ManagementID, message: Schema.String },
@@ -39,7 +44,7 @@ export const SkillGroup = HttpApiGroup.make("server.skill")
   )
   .add(
     HttpApiEndpoint.get("skill.management.list", "/api/skill/management", {
-      query: LocationQuery,
+      query: SkillManagementListQuery,
       success: Location.response(Schema.Array(Skill.ManagementInfo)),
     })
       .annotateMerge(locationQueryOpenApi)
@@ -47,7 +52,7 @@ export const SkillGroup = HttpApiGroup.make("server.skill")
         OpenApi.annotations({
           identifier: "v2.skill.management.list",
           summary: "List Skill installations",
-          description: "Retrieve all discovered Skill installations and their management state.",
+          description: "Retrieve discovered Skill installations, optionally rebuilding the source topology.",
         }),
       ),
   )

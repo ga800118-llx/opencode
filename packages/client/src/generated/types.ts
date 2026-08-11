@@ -2624,7 +2624,12 @@ export type SkillsListOutput = {
 export type SkillsManagementListInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly refresh?: boolean | undefined
   }["location"]
+  readonly refresh?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly refresh?: boolean | undefined
+  }["refresh"]
 }
 
 export type SkillsManagementListOutput = {

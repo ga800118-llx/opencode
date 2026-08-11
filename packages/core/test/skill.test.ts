@@ -2191,6 +2191,107 @@ describe("SkillV2", () => {
     ),
   )
 
+  it.live("rescans local Skills and reloads changed source topology only for a full management refresh", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("refresh-topology-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const first = path.join(tmp.path, "first")
+          const second = path.join(tmp.path, "second")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(first, "alpha"), { recursive: true })
+            await fs.mkdir(path.join(second, "gamma"), { recursive: true })
+            await write(first, "alpha", "Alpha")
+            await write(second, "gamma", "Gamma")
+          })
+          const firstSource = SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make(first),
+            origin: { type: "config-directory", scope: "project", value: first },
+          })
+          const secondSource = SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make(second),
+            origin: { type: "config-directory", scope: "project", value: second },
+          })
+          const selected = { sources: [firstSource] as SkillV2.Source[] }
+          const skill = yield* buildSkill(input)
+          yield* skill.transform((editor) => selected.sources.forEach(editor.source))
+
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha"])
+          yield* Effect.promise(() => fs.mkdir(path.join(first, "beta"), { recursive: true }))
+          yield* Effect.promise(() => write(first, "beta", "Beta"))
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
+
+          selected.sources = [secondSource]
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["gamma"])
+          expect(yield* skill.sources()).toEqual([secondSource])
+        }),
+      ),
+    ),
+  )
+
+  it.live("retains active remote caches across reload and evicts removed source keys", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          pulls = 0
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("refresh-cache-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const firstRoot = path.join(tmp.path, "remote-first")
+          const secondRoot = path.join(tmp.path, "remote-second")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(firstRoot, "first"), { recursive: true })
+            await fs.mkdir(path.join(secondRoot, "second"), { recursive: true })
+            await write(firstRoot, "first", "First")
+            await write(secondRoot, "second", "Second")
+          })
+          const firstUrl = "https://example.test/first/"
+          const secondUrl = "https://example.test/second/"
+          urls.set(firstUrl, [AbsolutePath.make(firstRoot)])
+          urls.set(secondUrl, [AbsolutePath.make(secondRoot)])
+          const source = (url: string) =>
+            SkillV2.UrlSource.make({
+              type: "url",
+              url,
+              origin: { type: "config-file", scope: "project", value: path.join(tmp.path, "opencode.json") },
+            })
+          const selected = { sources: [source(firstUrl)] as SkillV2.Source[] }
+          const skill = yield* buildSkill(input)
+          yield* skill.transform((editor) => selected.sources.forEach(editor.source))
+
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["first"])
+          expect(pulls).toBe(1)
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["first"])
+          expect(pulls).toBe(1)
+
+          selected.sources = [source(secondUrl)]
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["second"])
+          expect(pulls).toBe(2)
+          selected.sources = [source(firstUrl)]
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["first"])
+          expect(pulls).toBe(3)
+        }),
+      ),
+    ),
+  )
+
   it.live("projects built-in, configured, and plugin-owned management sources", () =>
     Effect.sync(() => {
       const builtin = SkillV2.Info.make({

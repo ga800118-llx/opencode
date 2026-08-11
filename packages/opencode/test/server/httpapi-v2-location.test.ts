@@ -109,7 +109,7 @@ describe("v2 location HttpApi", () => {
   test("returns command and skill snapshots with resolved locations", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    for (const route of ["/api/command", "/api/skill", "/api/skill/management"]) {
+    for (const route of ["/api/command", "/api/skill", "/api/skill/management?refresh=true"]) {
       const response = await request(route, tmp.path)
       expect(response.status).toBe(200)
       const body = (await response.json()) as {

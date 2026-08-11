@@ -6,7 +6,7 @@ const ManagementResponse = Location.response(Schema.Array(Skill.ManagementInfo))
 const decodeManagementResponse = Schema.decodeUnknownPromise(ManagementResponse)
 
 export type SkillManagementApi = {
-  list: (directory: string) => Promise<Skill.ManagementInfo[]>
+  list: (directory: string, options?: { refresh?: boolean }) => Promise<Skill.ManagementInfo[]>
   setEnabled: (directory: string, id: Skill.ManagementID, enabled: boolean) => Promise<Skill.ManagementInfo[]>
   remove: (directory: string, id: Skill.ManagementID) => Promise<Skill.ManagementInfo[]>
 }
@@ -35,11 +35,13 @@ export function createSkillManagementApi(input: {
     directory: string,
     id?: Skill.ManagementID,
     enabled?: boolean,
+    refresh?: boolean,
   ) => {
     const url = new URL(
       `${input.baseUrl.replace(/\/+$/, "")}/api/skill/management${id ? `/${encodeURIComponent(id)}` : ""}`,
     )
     url.searchParams.set("location[directory]", directory)
+    if (refresh) url.searchParams.set("refresh", "true")
     const headers = new Headers(typeof input.headers === "function" ? input.headers() : input.headers)
     if (method === "PATCH") headers.set("Content-Type", "application/json")
     const response = await input.fetch(url, {
@@ -52,7 +54,7 @@ export function createSkillManagementApi(input: {
   }
 
   return {
-    list: (directory) => request("GET", directory),
+    list: (directory, options) => request("GET", directory, undefined, undefined, options?.refresh),
     setEnabled: (directory, id, enabled) => request("PATCH", directory, id, enabled),
     remove: (directory, id) => request("DELETE", directory, id),
   }

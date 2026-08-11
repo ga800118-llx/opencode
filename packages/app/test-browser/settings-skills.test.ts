@@ -48,6 +48,7 @@ beforeAll(async () => {
   }))
   mock.module("@opencode-ai/ui/v2/switch-v2", () => ({ Switch: testSwitch }))
   mock.module("@opencode-ai/ui/v2/text-input-v2", () => ({ TextInputV2: testInput }))
+  mock.module("@opencode-ai/ui/v2/tooltip-v2", () => ({ TooltipV2: container("div") }))
   mock.module("@opencode-ai/ui/icon", () => ({ Icon: () => document.createElement("span") }))
   const runtime = await loadComponent()
   SettingsSkillsV2 = runtime.SettingsSkillsV2
@@ -80,6 +81,78 @@ describe("SettingsSkillsV2", () => {
     request.resolve([item])
     await waitFor(() => view.host.textContent?.includes("cold-start") === true)
     expect(view.host.textContent).toContain("1 installed")
+  })
+
+  test("shows an externally installed Skill while the page remains mounted", async () => {
+    const first = fixture({ id: "first", name: "first" })
+    const installed = fixture({ id: "installed", name: "installed" })
+    const current = server("scope", [first])
+    current.behavior.list = async () => (current.listCalls === 1 ? [first] : [first, installed])
+    const view = mount(
+      () => "/repo",
+      () => current.sdk,
+    )
+    await waitFor(() => view.host.textContent?.includes("first") === true)
+    const host = view.host
+
+    window.dispatchEvent(new Event("focus"))
+    await waitFor(() => view.host.textContent?.includes("installed description") === true)
+
+    expect(view.host).toBe(host)
+    expect(view.host.textContent).toContain("2 installed")
+    expect(current.listOptions).toEqual([undefined, undefined])
+  })
+
+  test("retains the last successful list on background failure and clears the alert after recovery", async () => {
+    const first = fixture({ id: "first", name: "first" })
+    const recovered = fixture({ id: "recovered", name: "recovered" })
+    const current = server("scope", [first])
+    current.behavior.list = async () => {
+      if (current.listCalls === 1) return [first]
+      if (current.listCalls === 2) throw new Error("background refresh failed")
+      return [first, recovered]
+    }
+    const view = mount(
+      () => "/repo",
+      () => current.sdk,
+    )
+    await waitFor(() => view.host.textContent?.includes("first") === true)
+
+    window.dispatchEvent(new Event("focus"))
+    await waitFor(() => view.host.querySelector('[role="alert"]') !== null)
+    expect(view.host.textContent).toContain("first")
+    expect(view.host.textContent).toContain("Showing the last successful results")
+
+    window.dispatchEvent(new Event("focus"))
+    await waitFor(() => view.host.textContent?.includes("recovered") === true)
+    expect(view.host.querySelector('[role="alert"]')).toBeNull()
+    expect(view.host.textContent).toContain("first")
+  })
+
+  test("uses a full refresh only for the manual refresh button", async () => {
+    const cached = fixture({ id: "cached", name: "cached" })
+    const rebuilt = fixture({ id: "rebuilt", name: "rebuilt" })
+    const current = server("scope", [cached])
+    const refreshed = { value: false }
+    current.behavior.list = async (_directory, options) => {
+      if (!options?.refresh) return refreshed.value ? [rebuilt] : [cached]
+      refreshed.value = true
+      return [rebuilt]
+    }
+    const view = mount(
+      () => "/repo",
+      () => current.sdk,
+    )
+    await waitFor(() => view.host.textContent?.includes("cached") === true)
+
+    click(view.host.querySelector('button[aria-label="Refresh Skills"]'))
+    await waitFor(() => view.host.textContent?.includes("rebuilt") === true)
+
+    window.dispatchEvent(new Event("focus"))
+    await waitFor(() => current.listOptions.length === 3)
+
+    expect(current.listOptions).toEqual([undefined, { refresh: true }, undefined])
+    expect(view.host.textContent).not.toContain("cached description")
   })
 
   test("closes an invalid covered confirmation only after it becomes active again", async () => {
@@ -429,22 +502,25 @@ function escape() {
 function server(scope: string, initial: Skill.ManagementInfo[]) {
   const setEnabledCalls: Array<{ directory: string; id: Skill.ManagementID; enabled: boolean }> = []
   const removeCalls: Array<{ directory: string; id: Skill.ManagementID }> = []
+  const listOptions: Array<{ refresh?: boolean } | undefined> = []
   const behavior = {
-    list: async (_directory: string) => initial,
+    list: async (_directory: string, _options?: { refresh?: boolean }) => initial,
     setEnabled: async (_directory: string, _id: Skill.ManagementID, _enabled: boolean) => initial,
     remove: async (_directory: string, _id: Skill.ManagementID) => initial,
   }
   const result = {
     behavior,
     listCalls: 0,
+    listOptions,
     setEnabledCalls,
     removeCalls,
     sdk: undefined as unknown as ServerSDK,
   }
   const skillManagement: SkillManagementApi = {
-    list: (directory) => {
+    list: (directory, options) => {
       result.listCalls++
-      return behavior.list(directory)
+      listOptions.push(options)
+      return behavior.list(directory, options)
     },
     setEnabled: (directory, id, enabled) => {
       setEnabledCalls.push({ directory, id, enabled })

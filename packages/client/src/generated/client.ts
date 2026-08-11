@@ -834,7 +834,7 @@ export function make(options: ClientOptions) {
           {
             method: "GET",
             path: `/api/skill/management`,
-            query: { location: input?.["location"] },
+            query: { location: input?.["location"], refresh: input?.["refresh"] },
             successStatus: 200,
             declaredStatuses: [401, 400],
             empty: false,

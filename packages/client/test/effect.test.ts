@@ -224,7 +224,7 @@ test("skill management methods retain the Effect HTTP contract", async () => {
   const error = await Effect.gen(function* () {
     const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
     const location = { directory: "/tmp/project", workspace: "wrk_test" }
-    yield* client.skills.managementList({ location })
+    yield* client.skills.managementList({ location, refresh: true })
     yield* client.skills.managementSetEnabled({ id, location, enabled: false })
     return yield* client.skills.managementRemove({ id, location }).pipe(Effect.flip)
   }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
@@ -235,12 +235,21 @@ test("skill management methods retain the Effect HTTP contract", async () => {
     ["PATCH", "http://localhost:3000/api/skill/management/skill%20%2F%3F%23"],
     ["DELETE", "http://localhost:3000/api/skill/management/skill%20%2F%3F%23"],
   ])
-  expect(requests.map((request) => request.query)).toEqual(
-    Array.from({ length: 3 }, () => ({
+  expect(requests.map((request) => request.query)).toEqual([
+    {
       "location[directory]": "/tmp/project",
       "location[workspace]": "wrk_test",
-    })),
-  )
+      refresh: "true",
+    },
+    {
+      "location[directory]": "/tmp/project",
+      "location[workspace]": "wrk_test",
+    },
+    {
+      "location[directory]": "/tmp/project",
+      "location[workspace]": "wrk_test",
+    },
+  ])
   expect(requests[1].body).toEqual({ enabled: false })
 })
 

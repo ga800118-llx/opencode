@@ -528,9 +528,14 @@ const Endpoint12_0 = (raw: RawClient["server.skill"]) => (input?: Endpoint12_0In
   raw["skill.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError))
 
 type Endpoint12_1Request = Parameters<RawClient["server.skill"]["skill.management.list"]>[0]
-type Endpoint12_1Input = { readonly location?: Endpoint12_1Request["query"]["location"] }
+type Endpoint12_1Input = {
+  readonly location?: Endpoint12_1Request["query"]["location"]
+  readonly refresh?: Endpoint12_1Request["query"]["refresh"]
+}
 const Endpoint12_1 = (raw: RawClient["server.skill"]) => (input?: Endpoint12_1Input) =>
-  raw["skill.management.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError))
+  raw["skill.management.list"]({ query: { location: input?.["location"], refresh: input?.["refresh"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
 
 type Endpoint12_2Request = Parameters<RawClient["server.skill"]["skill.management.setEnabled"]>[0]
 type Endpoint12_2Input = {

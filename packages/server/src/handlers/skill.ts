@@ -13,8 +13,8 @@ import { response } from "../location"
 export const SkillHandler = HttpApiBuilder.group(Api, "server.skill", (handlers) =>
   handlers
     .handle("skill.list", () => response(ready.pipe(Effect.andThen(SkillV2.Service.use((skill) => skill.list())))))
-    .handle("skill.management.list", () =>
-      response(ready.pipe(Effect.andThen(SkillV2.Service.use((skill) => skill.management.list())))),
+    .handle("skill.management.list", (ctx) =>
+      response(ready.pipe(Effect.andThen(SkillV2.Service.use((skill) => skill.management.list(ctx.query.refresh))))),
     )
     .handle("skill.management.setEnabled", (ctx) =>
       response(
