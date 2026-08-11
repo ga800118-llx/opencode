@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionCompaction, type SessionCompactionRequest } from "./session-compaction"
+import {
+  createSessionCompaction,
+  sessionCompactionDescriptionKey,
+  type SessionCompactionRequest,
+} from "./session-compaction"
 
 function fixture(overrides?: {
   sessionID?: string
@@ -24,6 +28,15 @@ function fixture(overrides?: {
 }
 
 describe("createSessionCompaction", () => {
+  test("maps every disabled reason to specific feedback copy", () => {
+    expect(sessionCompactionDescriptionKey(undefined)).toBe("command.session.compact.description")
+    expect(sessionCompactionDescriptionKey("no-session")).toBe("context.compact.disabled.noSession")
+    expect(sessionCompactionDescriptionKey("no-user-message")).toBe("context.compact.disabled.noUserMessage")
+    expect(sessionCompactionDescriptionKey("no-model")).toBe("toast.model.none.description")
+    expect(sessionCompactionDescriptionKey("working")).toBe("context.compact.disabled.working")
+    expect(sessionCompactionDescriptionKey("pending")).toBe("context.compact.disabled.pending")
+  })
+
   test("disables without a session and sends no request", async () => {
     const { action, requests } = fixture({ sessionID: "" })
 

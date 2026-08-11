@@ -5,9 +5,6 @@ import { checksum } from "@opencode-ai/core/util/encode"
 import { findLast } from "@opencode-ai/core/util/array"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { File } from "@opencode-ai/session-ui/file"
@@ -21,7 +18,8 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { useLocal } from "@/context/local"
 import { showToast } from "@/utils/toast"
 import { formatServerError } from "@/utils/server-errors"
-import { createSessionCompaction } from "@/pages/session/session-compaction"
+import { createSessionCompaction, sessionCompactionDescriptionKey } from "@/pages/session/session-compaction"
+import { SessionCompactionControl } from "./session-compaction-control"
 import { getSessionContext } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
@@ -232,6 +230,9 @@ export function SessionContextTab() {
       variant: "success",
     })
   }
+  const compactionDescription = createMemo(() =>
+    language.t(sessionCompactionDescriptionKey(compaction.disabledReason())),
+  )
 
   const stats = [
     { label: "context.stats.session", value: () => info()?.title ?? params.id ?? "—" },
@@ -315,22 +316,13 @@ export function SessionContextTab() {
     >
       <div class="px-6 pt-4 pb-10 flex flex-col gap-10">
         <div class="flex justify-end">
-          <TooltipV2 value={language.t("command.session.compact.description")} placement="bottom">
-            <ButtonV2
-              type="button"
-              size="small"
-              variant={compaction.pending() ? "loading" : "neutral"}
-              icon={compaction.pending() ? undefined : "collapse"}
-              disabled={compaction.disabledReason() !== undefined}
-              aria-busy={compaction.pending()}
-              onClick={() => void compact()}
-            >
-              <Show when={compaction.pending()}>
-                <Spinner class="size-3.5" />
-              </Show>
-              {language.t("command.session.compact")}
-            </ButtonV2>
-          </TooltipV2>
+          <SessionCompactionControl
+            label={language.t("command.session.compact")}
+            description={compactionDescription()}
+            disabled={compaction.disabledReason() !== undefined}
+            pending={compaction.pending()}
+            onRun={() => void compact()}
+          />
         </div>
 
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">

@@ -15,6 +15,15 @@ export type SessionCompactionResult =
   | { status: "disabled"; reason: Exclude<SessionCompactionDisabledReason, "pending"> }
   | { status: "error"; error: unknown }
 
+export function sessionCompactionDescriptionKey(reason: SessionCompactionDisabledReason | undefined) {
+  if (reason === "no-session") return "context.compact.disabled.noSession" as const
+  if (reason === "no-user-message") return "context.compact.disabled.noUserMessage" as const
+  if (reason === "no-model") return "toast.model.none.description" as const
+  if (reason === "working") return "context.compact.disabled.working" as const
+  if (reason === "pending") return "context.compact.disabled.pending" as const
+  return "command.session.compact.description" as const
+}
+
 const inflight = new Map<string, Promise<SessionCompactionResult>>()
 const [inflightVersion, setInflightVersion] = createSignal(0)
 
