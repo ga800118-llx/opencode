@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test"
+import { afterEach, beforeAll, describe, expect, mock, test, vi } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
@@ -83,24 +83,41 @@ describe("SettingsSkillsV2", () => {
     expect(view.host.textContent).toContain("1 installed")
   })
 
-  test("shows an externally installed Skill while the page remains mounted", async () => {
-    const first = fixture({ id: "first", name: "first" })
-    const installed = fixture({ id: "installed", name: "installed" })
-    const current = server("scope", [first])
-    current.behavior.list = async () => (current.listCalls === 1 ? [first] : [first, installed])
-    const view = mount(
-      () => "/repo",
-      () => current.sdk,
-    )
-    await waitFor(() => view.host.textContent?.includes("first") === true)
-    const host = view.host
+  test("polls an externally installed Skill at 2 seconds and stops after unmount", async () => {
+    vi.useFakeTimers()
+    try {
+      const first = fixture({ id: "first", name: "first" })
+      const installed = fixture({ id: "installed", name: "installed" })
+      const current = server("scope", [first])
+      current.behavior.list = async () => (current.listCalls === 1 ? [first] : [first, installed])
+      const view = mount(
+        () => "/repo",
+        () => current.sdk,
+      )
+      await settleFakeTimers()
 
-    window.dispatchEvent(new Event("focus"))
-    await waitFor(() => view.host.textContent?.includes("installed description") === true)
+      expect(view.host.textContent).toContain("first description")
+      expect(current.listCalls).toBe(1)
+      vi.advanceTimersByTime(1_999)
+      await settleFakeTimers()
+      expect(current.listCalls).toBe(1)
+      expect(view.host.textContent).not.toContain("installed description")
 
-    expect(view.host).toBe(host)
-    expect(view.host.textContent).toContain("2 installed")
-    expect(current.listOptions).toEqual([undefined, undefined])
+      vi.advanceTimersByTime(1)
+      await settleFakeTimers()
+      expect(current.listCalls).toBe(2)
+      expect(view.host.textContent).toContain("installed description")
+      expect(view.host.textContent).toContain("2 installed")
+      expect(current.listOptions).toEqual([undefined, undefined])
+
+      view.unmountSkills()
+      await settleFakeTimers()
+      vi.advanceTimersByTime(4_000)
+      await settleFakeTimers()
+      expect(current.listCalls).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test("retains the last successful list on background failure and clears the alert after recovery", async () => {
@@ -733,4 +750,11 @@ async function waitFor(condition: () => boolean) {
 async function tick() {
   await Promise.resolve()
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+async function settleFakeTimers() {
+  await Array.from({ length: 8 }, () => undefined).reduce<Promise<void>>(
+    (promise) => promise.then(() => undefined),
+    Promise.resolve(),
+  )
 }

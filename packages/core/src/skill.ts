@@ -185,7 +185,8 @@ const layer = Layer.effect(
       return effective(yield* installed(), yield* disabled())
     })
     const managementList = Effect.fn("SkillV2.management.list")(function* (refresh = false) {
-      if (refresh) yield* state.reload()
+      yield* state.reload()
+      if (refresh) cache.clear()
       return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
     })
 

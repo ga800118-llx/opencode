@@ -2191,7 +2191,7 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("rescans local Skills and reloads changed source topology only for a full management refresh", () =>
+  it.live("rescans local Skills and reloads changed source topology for every management snapshot", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -2232,15 +2232,18 @@ describe("SkillV2", () => {
           expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
 
           selected.sources = [secondSource]
-          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
-          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["gamma"])
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["gamma"])
           expect(yield* skill.sources()).toEqual([secondSource])
+
+          selected.sources = [firstSource]
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["alpha", "beta"])
+          expect(yield* skill.sources()).toEqual([firstSource])
         }),
       ),
     ),
   )
 
-  it.live("retains active remote caches across reload and evicts removed source keys", () =>
+  it.live("retains remote caches during light reloads, refreshes them on demand, and evicts removed sources", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -2278,15 +2281,17 @@ describe("SkillV2", () => {
 
           expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["first"])
           expect(pulls).toBe(1)
-          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["first"])
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["first"])
           expect(pulls).toBe(1)
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["first"])
+          expect(pulls).toBe(2)
 
           selected.sources = [source(secondUrl)]
-          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["second"])
-          expect(pulls).toBe(2)
-          selected.sources = [source(firstUrl)]
-          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["first"])
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["second"])
           expect(pulls).toBe(3)
+          selected.sources = [source(firstUrl)]
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["first"])
+          expect(pulls).toBe(4)
         }),
       ),
     ),
