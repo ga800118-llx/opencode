@@ -34,6 +34,7 @@ const valid = (): MacRuntimeSoakServerEvidence => ({
   activityAt: ["2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.010Z", "2026-08-11T00:00:00.020Z"],
   terminalAt: "2026-08-11T00:00:00.040Z",
   maxActivityGapMs: 20,
+  clientAcknowledged: true,
   clientAbort: false,
   completed: true,
   disconnectReason: "completed",
@@ -84,7 +85,47 @@ describe("Mac runtime soak evidence", () => {
         ),
       ).toThrow("runID")
     } finally {
-      artifacts.stop()
+      await artifacts.stop()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("completes server evidence only after the packaged session is captured and acknowledged", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-ack-flow-"))
+    const fixture = await createMacRuntimeSoakFixture({
+      durationMs: 40,
+      intervalMs: 5,
+      connectionTimeoutMs: 500,
+      acknowledgmentTimeoutMs: 500,
+    })
+    const response = await stream(fixture.endpoint, fixture.token, fixture.model)
+    expect(await response.text()).toContain(fixture.terminalMarker)
+    const artifacts = await createEvidenceArtifacts(directory, [
+      assistantMessage(`response\n${fixture.terminalMarker}`, Date.now()),
+    ])
+    try {
+      const evidence = await combineMacRuntimeSoakEvidence(
+        fixture.observation,
+        {
+          ...artifacts,
+          fixture: {
+            runID: fixture.runID,
+            terminalMarker: fixture.terminalMarker,
+            acknowledgmentEndpoint: fixture.acknowledgmentEndpoint,
+            token: fixture.token,
+          },
+        },
+        { ...shortPolicy, minimumRequestedDurationMs: 40, maximumActivityGapMs: 5_000 },
+      )
+      expect(evidence).toMatchObject({
+        clientAcknowledged: true,
+        completed: true,
+        disconnectReason: "completed",
+        packagedClientAcknowledgment: { runID: fixture.runID, terminalMarker: fixture.terminalMarker },
+      })
+    } finally {
+      await artifacts.stop()
+      await fixture.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
@@ -129,7 +170,33 @@ describe("Mac runtime soak evidence", () => {
       )
       await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("ZIP")
     } finally {
-      artifacts.stop()
+      await artifacts.stop()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects an arbitrary loopback responder that is not owned by the packaged runtime", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-fake-listener-"))
+    const artifacts = await createEvidenceArtifacts(directory)
+    const fake = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json([assistantMessage(`response\n${valid().terminalMarker}`)]),
+    })
+    try {
+      await expect(
+        combineMacRuntimeSoakEvidence(
+          valid(),
+          {
+            ...artifacts,
+            session: { ...artifacts.session, endpoint: `http://127.0.0.1:${fake.port}/session/ses_soak/message` },
+          },
+          shortPolicy,
+        ),
+      ).rejects.toThrow("not running from the packaged app")
+    } finally {
+      fake.stop(true)
+      await artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
@@ -144,7 +211,15 @@ describe("Mac runtime soak evidence", () => {
       )
       await expectInvalidSession(
         path.join(directory, "duplicate-marker"),
-        [assistantMessage(valid().terminalMarker), assistantMessage(valid().terminalMarker)],
+        [
+          assistantMessage(valid().terminalMarker, Date.parse(valid().completedAt), "msg_assistant_one"),
+          assistantMessage(valid().terminalMarker, Date.parse(valid().completedAt), "msg_assistant_two"),
+        ],
+        "exactly one completed assistant marker",
+      )
+      await expectInvalidSession(
+        path.join(directory, "duplicate-marker-line"),
+        [assistantMessage(`${valid().terminalMarker}\n${valid().terminalMarker}`)],
         "exactly one completed assistant marker",
       )
       await expectInvalidSession(
@@ -161,10 +236,10 @@ describe("Mac runtime soak evidence", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-empty-dmg-"))
     const artifacts = await createEvidenceArtifacts(path.join(directory, "session"))
     try {
-      const dmg = await createEmptyDmgArtifacts(path.join(directory, "dmg"), artifacts.session)
+      const dmg = await createEmptyDmgArtifacts(path.join(directory, "dmg"), artifacts.session, artifacts.fixture)
       await expect(combineMacRuntimeSoakEvidence(valid(), dmg, shortPolicy)).rejects.toThrow("missing a valid")
     } finally {
-      artifacts.stop()
+      await artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   }, 20_000)
@@ -191,7 +266,7 @@ describe("Mac runtime soak evidence", () => {
       )
       await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow("package hash")
     } finally {
-      artifacts.stop()
+      await artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
@@ -224,6 +299,9 @@ describe("Mac runtime soak evidence", () => {
       assertMacRuntimeSoakServerEvidence({ ...valid(), completedAt: "2026-08-11T00:00:00.001Z" }, shortPolicy),
     ).toThrow()
     expect(() => assertMacRuntimeSoakServerEvidence({ ...valid(), clientAbort: true }, shortPolicy)).toThrow("aborted")
+    expect(() => assertMacRuntimeSoakServerEvidence({ ...valid(), clientAcknowledged: false }, shortPolicy)).toThrow(
+      "acknowledge",
+    )
     expect(() => assertMacRuntimeSoakServerEvidence({ ...valid(), completed: false }, shortPolicy)).toThrow(
       "did not complete",
     )
@@ -240,6 +318,16 @@ describe("Mac runtime soak fixture", () => {
         headers: { authorization: `Bearer ${fixture.token}` },
       }).then((response) => response.json())
       expect(models).toMatchObject({ data: [{ id: fixture.model }] })
+      expect(
+        await acknowledgment(fixture.acknowledgmentEndpoint, "wrong-token", fixture.runID, fixture.terminalMarker).then(
+          (response) => response.status,
+        ),
+      ).toBe(401)
+      expect(
+        await acknowledgment(fixture.acknowledgmentEndpoint, fixture.token, fixture.runID, fixture.terminalMarker).then(
+          (response) => response.status,
+        ),
+      ).toBe(409)
 
       const response = await stream(fixture.endpoint, fixture.token, fixture.model)
       expect(response.status).toBe(200)
@@ -247,6 +335,12 @@ describe("Mac runtime soak fixture", () => {
       const body = await response.text()
       expect(body).toContain(fixture.terminalMarker)
       expect(body).toContain("data: [DONE]")
+      expect(
+        await acknowledgment(fixture.acknowledgmentEndpoint, fixture.token, fixture.runID, "wrong-marker").then(
+          (response) => response.status,
+        ),
+      ).toBe(400)
+      await fixture.acknowledgeClient()
       const evidence = assertMacRuntimeSoakServerEvidence(await fixture.observation, {
         minimumRequestedDurationMs: 45,
         minimumChunks: 4,
@@ -297,6 +391,7 @@ describe("Mac runtime soak fixture", () => {
       ).toBe(413)
       const response = await stream(fixture.endpoint, fixture.token, fixture.model)
       expect(await response.text()).toContain("[DONE]")
+      await fixture.acknowledgeClient()
       expect((await fixture.observation).disconnectReason).toBe("completed")
     } finally {
       await fixture.stop()
@@ -354,6 +449,7 @@ describe("Mac runtime soak fixture", () => {
       ])
       expect(response.status).toBe(200)
       expect(await response.text()).toContain("[DONE]")
+      await fixture.acknowledgeClient()
       expect((await fixture.observation).disconnectReason).toBe("completed")
     } finally {
       await fixture.stop()
@@ -385,25 +481,31 @@ describe("Mac runtime soak fixture", () => {
       const second = await stream(fixture.endpoint, fixture.token, fixture.model)
       expect(second.status).toBe(409)
       expect(await first.text()).toContain("[DONE]")
+      await fixture.acknowledgeClient()
       expect((await fixture.observation).disconnectReason).toBe("completed")
     } finally {
       await fixture.stop()
     }
   })
 
-  test("does not treat server completion as packaged-client proof while the client is paused", async () => {
+  test("requires an application acknowledgment after a low-volume client stops reading", async () => {
     const fixture = await createMacRuntimeSoakFixture({
       durationMs: 80,
       intervalMs: 1,
       connectionTimeoutMs: 100,
+      acknowledgmentTimeoutMs: 30,
       initialSilenceMs: 10,
-      chunkContent: "x".repeat(64 * 1024),
+      chunkContent: ".",
     })
     try {
       const response = await rawStream(fixture.endpoint, fixture.token, fixture.model)
       response.pause()
       const serverEvidence = await fixture.observation
-      expect(serverEvidence.disconnectReason).toBe("completed")
+      expect(serverEvidence).toMatchObject({
+        disconnectReason: "client-unresponsive",
+        clientAcknowledged: false,
+        completed: false,
+      })
       expect(() =>
         assertMacRuntimeSoakEvidence(serverEvidence, {
           minimumRequestedDurationMs: 80,
@@ -429,6 +531,7 @@ describe("Mac runtime soak fixture", () => {
     try {
       const response = await stream(fixture.endpoint, fixture.token, fixture.model)
       expect(await response.text()).toContain("[DONE]")
+      await fixture.acknowledgeClient()
       const evidence = assertMacRuntimeSoakServerEvidence(await fixture.observation, {
         minimumRequestedDurationMs: 110,
         minimumChunks: 3,
@@ -512,6 +615,14 @@ function post(endpoint: string, token: string, body: string) {
 
 function completion(endpoint: string, token: string, model: string, messages: unknown[]) {
   return post(endpoint, token, JSON.stringify({ model, messages, stream: true }))
+}
+
+function acknowledgment(endpoint: string, token: string, runID: string, terminalMarker: string) {
+  return fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ runID, terminalMarker }),
+  })
 }
 
 function stream(endpoint: string, token: string, model: string) {
@@ -627,7 +738,71 @@ async function createEvidenceArtifacts(
   )
   const source = path.join(directory, "main.c")
   const executable = path.join(contents, "MacOS", "Guai Code Beta")
-  await Bun.write(source, "int main(void) { return 0; }\n")
+  const responsePath = path.join(directory, "session-response.json")
+  await Bun.write(responsePath, JSON.stringify(sessionResponse))
+  await Bun.write(
+    source,
+    `#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+static void send_all(int socket, const char *value, size_t length) {
+  size_t sent = 0;
+  while (sent < length) {
+    ssize_t next = send(socket, value + sent, length - sent, 0);
+    if (next <= 0) return;
+    sent += (size_t)next;
+  }
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2) return 2;
+  FILE *file = fopen(argv[1], "rb");
+  if (!file) return 3;
+  fseek(file, 0, SEEK_END);
+  long length = ftell(file);
+  rewind(file);
+  char *body = malloc((size_t)length + 1);
+  if (!body || fread(body, 1, (size_t)length, file) != (size_t)length) return 4;
+  fclose(file);
+  body[length] = '\\0';
+
+  int listener = socket(AF_INET, SOCK_STREAM, 0);
+  int enabled = 1;
+  setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+  struct sockaddr_in address = {0};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = 0;
+  if (bind(listener, (struct sockaddr *)&address, sizeof(address)) != 0 || listen(listener, 16) != 0) return 5;
+  socklen_t address_length = sizeof(address);
+  if (getsockname(listener, (struct sockaddr *)&address, &address_length) != 0) return 6;
+  printf("%u\\n", ntohs(address.sin_port));
+  fflush(stdout);
+
+  for (;;) {
+    int client = accept(listener, NULL, NULL);
+    if (client < 0) continue;
+    char request[8192];
+    recv(client, request, sizeof(request), 0);
+    char header[256];
+    int header_length = snprintf(
+      header,
+      sizeof(header),
+      "HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\nContent-Length: %ld\\r\\nConnection: close\\r\\n\\r\\n",
+      length
+    );
+    send_all(client, header, (size_t)header_length);
+    send_all(client, body, (size_t)length);
+    close(client);
+  }
+}
+`,
+  )
   await run(["/usr/bin/clang", "-arch", "arm64", source, "-o", executable])
   await run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", path.join(directory, "Guai Code Beta.app")])
   const zip = Bun.spawn(["/usr/bin/zip", "-qry", packagePath, "Guai Code Beta.app"], {
@@ -638,13 +813,22 @@ async function createEvidenceArtifacts(
   if ((await zip.exited) !== 0) throw new Error(await new Response(zip.stderr).text())
   const packageSha256 = await sha256(packagePath)
   await Bun.write(manifestPath, formatChecksumManifest([{ file: packagePath, sha256: packageSha256 }]))
-  const server = Bun.serve({
+  const runtime = Bun.spawn([executable, responsePath], { stdout: "pipe", stderr: "pipe" })
+  const port = await readPort(runtime.stdout)
+  const acknowledgment = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname !== "/session/ses_soak/message") return new Response(null, { status: 404 })
-      if (request.headers.get("x-opencode-directory") !== directory) return new Response(null, { status: 400 })
-      return Response.json(sessionResponse)
+    async fetch(request) {
+      if (new URL(request.url).pathname !== `/v1/runs/${valid().runID}/acknowledgment`) {
+        return new Response(null, { status: 404 })
+      }
+      if (request.headers.get("authorization") !== "Bearer soak-test-token") {
+        return new Response(null, { status: 401 })
+      }
+      if ((await request.json<{ runID: string; terminalMarker: string }>()).terminalMarker !== valid().terminalMarker) {
+        return new Response(null, { status: 400 })
+      }
+      return new Response(null, { status: 204 })
     },
   })
   return {
@@ -652,18 +836,58 @@ async function createEvidenceArtifacts(
     manifestPath,
     packagePath,
     session: {
-      endpoint: `http://127.0.0.1:${server.port}/session/ses_soak/message`,
+      endpoint: `http://127.0.0.1:${port}/session/ses_soak/message`,
       sessionID: "ses_soak",
       directory,
+      runtimeAppPath: path.join(directory, "Guai Code Beta.app"),
     },
-    stop: () => server.stop(true),
+    fixture: {
+      runID: valid().runID,
+      terminalMarker: valid().terminalMarker,
+      acknowledgmentEndpoint: `http://127.0.0.1:${acknowledgment.port}/v1/runs/${valid().runID}/acknowledgment`,
+      token: "soak-test-token",
+    },
+    stop: async () => {
+      acknowledgment.stop(true)
+      runtime.kill()
+      await runtime.exited
+    },
   }
 }
 
-function assistantMessage(text: string, completed = Date.parse(valid().completedAt)) {
+function assistantMessage(text: string, completed = Date.parse(valid().completedAt), messageID = "msg_assistant_soak") {
   return {
-    info: { role: "assistant", time: { created: completed - 1, completed } },
-    parts: [{ type: "text", text }],
+    info: {
+      id: messageID,
+      sessionID: "ses_soak",
+      role: "assistant",
+      time: { created: completed - 1, completed },
+      parentID: "msg_user_soak",
+      modelID: "mac-runtime-soak",
+      providerID: "private-openai",
+      mode: "build",
+      agent: "build",
+      path: { cwd: "/tmp/guai-code-soak", root: "/tmp/guai-code-soak" },
+      cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      finish: "stop",
+    },
+    parts: [{ id: `prt_${messageID}`, sessionID: "ses_soak", messageID, type: "text", text }],
+  }
+}
+
+async function readPort(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  while (true) {
+    const item = await reader.read()
+    if (item.done) throw new Error("Packaged runtime listener exited before publishing its port")
+    chunks.push(item.value)
+    const value = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8")
+    const match = /^(\d+)\n/.exec(value)
+    if (!match) continue
+    reader.releaseLock()
+    return Number(match[1])
   }
 }
 
@@ -672,13 +896,19 @@ async function expectInvalidSession(directory: string, response: unknown, messag
   try {
     await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow(message)
   } finally {
-    artifacts.stop()
+    await artifacts.stop()
   }
 }
 
 async function createEmptyDmgArtifacts(
   directory: string,
-  session: { endpoint: string; sessionID: string; directory: string },
+  session: { endpoint: string; sessionID: string; directory: string; runtimeAppPath: string },
+  fixture: {
+    runID: string
+    terminalMarker: string
+    acknowledgmentEndpoint: string
+    token: string
+  },
 ) {
   const empty = path.join(directory, "empty")
   const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.dmg")
@@ -687,7 +917,7 @@ async function createEmptyDmgArtifacts(
   await mkdir(empty, { recursive: true })
   await run(["/usr/bin/hdiutil", "create", "-quiet", "-srcfolder", empty, "-format", "UDZO", packagePath])
   await Bun.write(manifestPath, formatChecksumManifest([{ file: packagePath, sha256: await sha256(packagePath) }]))
-  return { sourcePath, manifestPath, packagePath, session }
+  return { sourcePath, manifestPath, packagePath, session, fixture }
 }
 
 async function run(command: string[]) {

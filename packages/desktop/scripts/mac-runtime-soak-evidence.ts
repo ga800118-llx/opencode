@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -30,6 +30,7 @@ export type MacRuntimeSoakObservation = {
   activityAt: string[]
   terminalAt: string | null
   maxActivityGapMs: number
+  clientAcknowledged: boolean
   clientAbort: boolean
   completed: boolean
   disconnectReason: MacRuntimeSoakDisconnectReason
@@ -37,9 +38,10 @@ export type MacRuntimeSoakObservation = {
 
 export type MacRuntimeSoakServerEvidence = Omit<
   MacRuntimeSoakObservation,
-  "terminalAt" | "clientAbort" | "completed" | "disconnectReason"
+  "terminalAt" | "clientAcknowledged" | "clientAbort" | "completed" | "disconnectReason"
 > & {
   terminalAt: string
+  clientAcknowledged: true
   clientAbort: false
   completed: true
   disconnectReason: "completed"
@@ -64,14 +66,23 @@ export type MacRuntimeSoakSessionExport = {
     directory: string
     endpoint: string
     responseSha256: string
+    runtimeAppPath: string
+    runtimeCDHash: string
+    listenerPID: number
+    listenerExecutable: string
+    appPID: number
   }
   session: {
     runID: string
     completedAt: string
     assistant: {
       role: "assistant"
+      messageID: string
+      sessionID: string
+      providerID: string
+      modelID: string
       output: string
-      parts: { type: "text"; text: string }[]
+      parts: { id: string; sessionID: string; messageID: string; type: "text"; text: string }[]
     }
   }
 }
@@ -110,7 +121,14 @@ export type MacRuntimeSoakCaptureInput = {
     endpoint: string
     sessionID: string
     directory: string
+    runtimeAppPath: string
     headers?: Readonly<Record<string, string>>
+  }
+  fixture: {
+    runID: string
+    terminalMarker: string
+    acknowledgmentEndpoint: string
+    token: string
   }
 }
 
@@ -125,6 +143,7 @@ const observationKeys = [
   "activityAt",
   "terminalAt",
   "maxActivityGapMs",
+  "clientAcknowledged",
   "clientAbort",
   "completed",
   "disconnectReason",
@@ -183,6 +202,7 @@ export function assertMacRuntimeSoakServerEvidence(
   const activityAt = evidence.activityAt.map((item, index) => requireTimestamp(item, `activityAt[${index}]`))
   const terminalAt = requireTimestamp(evidence.terminalAt, "terminalAt")
 
+  if (evidence.clientAcknowledged !== true) throw new Error("Soak client did not acknowledge the completed response")
   if (evidence.clientAbort !== false) throw new Error("Soak client aborted the response")
   if (evidence.completed !== true) throw new Error("Soak response did not complete")
   if (evidence.disconnectReason !== "completed") throw new Error("Soak response did not finish normally")
@@ -219,6 +239,7 @@ export function assertMacRuntimeSoakServerEvidence(
     activityAt: activityAt.map((item) => item.value),
     terminalAt: terminalAt.value,
     maxActivityGapMs: evidence.maxActivityGapMs,
+    clientAcknowledged: true,
     clientAbort: false,
     completed: true,
     disconnectReason: "completed",
@@ -226,12 +247,17 @@ export function assertMacRuntimeSoakServerEvidence(
 }
 
 export async function combineMacRuntimeSoakEvidence(
-  server: unknown,
+  server: unknown | PromiseLike<unknown>,
   input: MacRuntimeSoakCaptureInput,
   policy: MacRuntimeSoakEvidencePolicy = {},
 ): Promise<MacRuntimeSoakEvidence> {
-  const verifiedServer = assertMacRuntimeSoakServerEvidence(server, policy)
-  await capturePackagedClientSession(verifiedServer, input)
+  const expected = requireExpectedFixture(input.fixture)
+  await capturePackagedClientSession(expected, input)
+  await acknowledgeFixture(expected, input.fixture)
+  const verifiedServer = assertMacRuntimeSoakServerEvidence(await server, policy)
+  if (verifiedServer.runID !== expected.runID || verifiedServer.terminalMarker !== expected.terminalMarker) {
+    throw new Error("Soak server evidence does not match the acknowledged fixture")
+  }
   const packagedClientAcknowledgment = await loadPackagedClientAcknowledgment(verifiedServer, input)
   return assertMacRuntimeSoakEvidence({ ...verifiedServer, packagedClientAcknowledgment }, policy)
 }
@@ -306,7 +332,10 @@ export function assertMacRuntimeSoakEvidence(
   }
 }
 
-async function capturePackagedClientSession(server: MacRuntimeSoakServerEvidence, input: MacRuntimeSoakCaptureInput) {
+async function capturePackagedClientSession(
+  expected: { runID: string; terminalMarker: string },
+  input: MacRuntimeSoakCaptureInput,
+) {
   const packagePath = path.resolve(input.packagePath)
   const packageArtifact = Bun.file(packagePath)
   if (!(await packageArtifact.exists())) throw new Error("Packaged client package artifact does not exist")
@@ -316,6 +345,7 @@ async function capturePackagedClientSession(server: MacRuntimeSoakServerEvidence
   if (!path.isAbsolute(input.session.directory)) {
     throw new Error("Packaged client session directory is invalid")
   }
+  const runtime = await attestRuntimeListener(endpoint, input.session.runtimeAppPath, packageIdentity.version)
   const response = await fetch(endpoint, {
     headers: {
       ...input.session.headers,
@@ -326,7 +356,11 @@ async function capturePackagedClientSession(server: MacRuntimeSoakServerEvidence
   })
   if (!response.ok) throw new Error(`Packaged client session export request failed with ${response.status}`)
   const responseBody = await readBoundedResponse(response, sessionExportMaximumBytes)
-  const assistant = extractAssistantOutput(parseJson(responseBody, "Packaged client session response"), server)
+  const assistant = extractAssistantOutput(
+    parseJson(responseBody, "Packaged client session response"),
+    expected,
+    input.session.sessionID,
+  )
   const sessionExport = {
     schemaVersion: 1,
     producer: {
@@ -343,16 +377,56 @@ async function capturePackagedClientSession(server: MacRuntimeSoakServerEvidence
       directory: input.session.directory,
       endpoint,
       responseSha256: sha256Text(responseBody),
+      runtimeAppPath: runtime.appPath,
+      runtimeCDHash: runtime.cdHash,
+      listenerPID: runtime.listenerPID,
+      listenerExecutable: runtime.listenerExecutable,
+      appPID: runtime.appPID,
     },
     session: {
-      runID: server.runID,
+      runID: expected.runID,
       completedAt: assistant.completedAt,
-      assistant: { role: "assistant", output: assistant.output, parts: assistant.parts },
+      assistant: {
+        role: "assistant",
+        messageID: assistant.messageID,
+        sessionID: assistant.sessionID,
+        providerID: assistant.providerID,
+        modelID: assistant.modelID,
+        output: assistant.output,
+        parts: assistant.parts,
+      },
     },
   } satisfies MacRuntimeSoakSessionExport
   const sourcePath = path.resolve(input.sourcePath)
   await mkdir(path.dirname(sourcePath), { recursive: true })
   await Bun.write(sourcePath, `${JSON.stringify(sessionExport, null, 2)}\n`)
+}
+
+function requireExpectedFixture(value: MacRuntimeSoakCaptureInput["fixture"]) {
+  if (typeof value.runID !== "string" || !/^[a-zA-Z0-9-]{1,128}$/.test(value.runID)) {
+    throw new Error("Soak fixture runID is invalid")
+  }
+  if (value.terminalMarker !== macRuntimeSoakTerminalMarker(value.runID)) {
+    throw new Error("Soak fixture terminal marker is invalid")
+  }
+  return { runID: value.runID, terminalMarker: value.terminalMarker }
+}
+
+async function acknowledgeFixture(
+  expected: { runID: string; terminalMarker: string },
+  fixture: MacRuntimeSoakCaptureInput["fixture"],
+) {
+  const endpoint = requireAcknowledgmentEndpoint(fixture.acknowledgmentEndpoint, expected.runID)
+  if (!fixture.token || Buffer.byteLength(fixture.token) > 4_096) throw new Error("Soak fixture token is invalid")
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `Bearer ${fixture.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ runID: expected.runID, terminalMarker: expected.terminalMarker }),
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!response.ok) throw new Error(`Soak fixture acknowledgment failed with ${response.status}`)
+  await response.body?.cancel()
 }
 
 function requireSessionEndpoint(value: string, sessionID: string) {
@@ -369,6 +443,74 @@ function requireSessionEndpoint(value: string, sessionID: string) {
     throw new Error("Packaged client session endpoint path is invalid")
   }
   return endpoint.toString()
+}
+
+function requireAcknowledgmentEndpoint(value: string, runID: string) {
+  const endpoint = new URL(value)
+  if (endpoint.protocol !== "http:" || !new Set(["127.0.0.1", "::1", "localhost"]).has(endpoint.hostname)) {
+    throw new Error("Soak fixture acknowledgment endpoint must use loopback HTTP")
+  }
+  if (endpoint.username || endpoint.password || endpoint.hash || endpoint.search) {
+    throw new Error("Soak fixture acknowledgment endpoint is invalid")
+  }
+  if (endpoint.pathname !== `/v1/runs/${encodeURIComponent(runID)}/acknowledgment`) {
+    throw new Error("Soak fixture acknowledgment endpoint path is invalid")
+  }
+  return endpoint.toString()
+}
+
+async function attestRuntimeListener(endpoint: string, runtimeAppPath: string, version: string) {
+  const appPath = await realpath(path.resolve(runtimeAppPath))
+  const runtime = await validateAppBundle(appPath, version)
+  const port = new URL(endpoint).port
+  if (!port) throw new Error("Packaged client session endpoint port is missing")
+  const listeners = await runCommand(
+    "/usr/sbin/lsof",
+    ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"],
+    "Session listener inspection",
+  )
+  const listenerPIDs = [...new Set([...listeners.matchAll(/^p(\d+)$/gm)].map((match) => Number(match[1])))]
+  if (listenerPIDs.length !== 1) throw new Error("Packaged client session endpoint must have one listener process")
+  const listenerPID = listenerPIDs[0]
+  const listenerExecutable = await processExecutable(listenerPID)
+  if (!isInsideApp(listenerExecutable, appPath)) {
+    throw new Error("Packaged client session listener is not running from the packaged app")
+  }
+  const mainExecutable = await realpath(path.join(appPath, "Contents", "MacOS", packagedClientProduct))
+  const appPID = await findAncestorProcess(listenerPID, mainExecutable, 8)
+  if (appPID === undefined) throw new Error("Packaged client session listener is not owned by the packaged app")
+  return { appPath, cdHash: runtime.cdHash, listenerPID, listenerExecutable, appPID }
+}
+
+async function processExecutable(pid: number) {
+  const listing = await runCommand(
+    "/usr/sbin/lsof",
+    ["-a", "-p", String(pid), "-d", "txt", "-Fn"],
+    "Process executable inspection",
+  )
+  const executable = listing
+    .split("\n")
+    .find((line) => line.startsWith("n/"))
+    ?.slice(1)
+  if (!executable) throw new Error("Packaged client listener executable is unavailable")
+  return realpath(executable)
+}
+
+async function findAncestorProcess(
+  pid: number,
+  mainExecutable: string,
+  remaining: number,
+): Promise<number | undefined> {
+  if (remaining < 0 || pid <= 1) return undefined
+  if ((await processExecutable(pid)) === mainExecutable) return pid
+  const parent = Number((await runCommand("/bin/ps", ["-p", String(pid), "-o", "ppid="], "Process ancestry")).trim())
+  if (!Number.isSafeInteger(parent) || parent <= 0 || parent === pid) return undefined
+  return findAncestorProcess(parent, mainExecutable, remaining - 1)
+}
+
+function isInsideApp(file: string, appPath: string) {
+  const relative = path.relative(appPath, file)
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative)
 }
 
 async function readBoundedResponse(response: Response, maximumBytes: number) {
@@ -393,7 +535,11 @@ async function readBoundedResponse(response: Response, maximumBytes: number) {
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8")
 }
 
-function extractAssistantOutput(value: unknown, server: MacRuntimeSoakServerEvidence) {
+function extractAssistantOutput(
+  value: unknown,
+  expected: { runID: string; terminalMarker: string },
+  sessionID: string,
+) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 100_000) {
     throw new Error("Packaged client session response must contain a bounded message array")
   }
@@ -401,25 +547,90 @@ function extractAssistantOutput(value: unknown, server: MacRuntimeSoakServerEvid
     if (!isRecord(item) || !isRecord(item.info) || item.info.role !== "assistant" || !Array.isArray(item.parts)) {
       return []
     }
-    const completed = isRecord(item.info.time) ? item.info.time.completed : undefined
+    const info = item.info
+    if (
+      !validOpenCodeID(info.id, "msg_") ||
+      info.sessionID !== sessionID ||
+      !validOpenCodeID(info.parentID, "msg_") ||
+      !validIdentifier(info.modelID) ||
+      !validIdentifier(info.providerID) ||
+      !validIdentifier(info.mode) ||
+      !validIdentifier(info.agent) ||
+      !isRecord(info.path) ||
+      typeof info.path.cwd !== "string" ||
+      typeof info.path.root !== "string" ||
+      !path.isAbsolute(info.path.cwd) ||
+      !path.isAbsolute(info.path.root) ||
+      !validUsage(info.cost, info.tokens) ||
+      info.error !== undefined
+    ) {
+      return []
+    }
+    const completed = isRecord(info.time) ? info.time.completed : undefined
     if (typeof completed !== "number" || !Number.isSafeInteger(completed) || completed < 0) return []
-    const parts = item.parts.flatMap((part) => {
-      if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return []
-      return [{ type: "text" as const, text: requireText(part.text, "Packaged client session text part") }]
+    const textParts = item.parts.filter((part) => isRecord(part) && part.type === "text" && part.ignored !== true)
+    if (
+      textParts.some(
+        (part) =>
+          !validOpenCodeID(part.id, "prt_") ||
+          part.sessionID !== sessionID ||
+          part.messageID !== info.id ||
+          typeof part.text !== "string",
+      )
+    ) {
+      return []
+    }
+    const parts = textParts.flatMap((part) => {
+      if (typeof part.text !== "string" || !part.text.trim()) return []
+      return [
+        {
+          id: part.id,
+          sessionID,
+          messageID: info.id,
+          type: "text" as const,
+          text: requireText(part.text, "Packaged client session text part"),
+        },
+      ]
     })
     if (parts.length === 0 || parts.length > 4_096) return []
     const output = parts.map((part) => part.text).join("")
-    if (!containsExactLine(output, server.terminalMarker)) return []
-    return [{ completedAt: new Date(completed).toISOString(), output, parts }]
+    if (exactLineCount(output, expected.terminalMarker) !== 1) return []
+    return [
+      {
+        completedAt: new Date(completed).toISOString(),
+        messageID: info.id,
+        sessionID,
+        providerID: info.providerID,
+        modelID: info.modelID,
+        output,
+        parts,
+      },
+    ]
   })
   if (matches.length !== 1) {
     throw new Error("Packaged client session response must contain exactly one completed assistant marker")
   }
   const completedAt = requireTimestamp(matches[0].completedAt, "captured session completedAt")
-  if (completedAt.millis < Date.parse(server.terminalAt)) {
-    throw new Error("Packaged client session response predates the terminal marker")
-  }
   return matches[0]
+}
+
+function validOpenCodeID(value: unknown, prefix: string) {
+  return typeof value === "string" && value.startsWith(prefix) && /^[a-zA-Z0-9_-]{4,256}$/.test(value)
+}
+
+function validIdentifier(value: unknown) {
+  return typeof value === "string" && Boolean(value.trim()) && Buffer.byteLength(value) <= 256
+}
+
+function validUsage(cost: unknown, tokens: unknown) {
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0 || !isRecord(tokens)) return false
+  if (!["input", "output", "reasoning"].every((key) => validFinite(tokens[key]))) return false
+  if (!isRecord(tokens.cache)) return false
+  return validFinite(tokens.cache.read) && validFinite(tokens.cache.write)
+}
+
+function validFinite(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
 async function loadPackagedClientAcknowledgment(
@@ -463,7 +674,14 @@ async function loadPackagedClientAcknowledgment(
   if (manifestEntry.sha256 !== packageSha256) {
     throw new Error("Packaged client checksum manifest package hash does not match")
   }
-  await validatePackageArtifact(packagePath, packageIdentity)
+  const packagedApp = await validatePackageArtifact(packagePath, packageIdentity)
+  const runtimeApp = await validateAppBundle(sessionExport.capture.runtimeAppPath, packageIdentity.version)
+  if (
+    packagedApp.cdHash !== sessionExport.capture.runtimeCDHash ||
+    runtimeApp.cdHash !== sessionExport.capture.runtimeCDHash
+  ) {
+    throw new Error("Packaged client runtime does not match the package artifact")
+  }
 
   return {
     runID: server.runID,
@@ -520,7 +738,18 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
   const capture = requireRecord(sessionExport.capture, "Packaged client session export capture")
   requireExactKeys(
     capture,
-    ["transport", "sessionID", "directory", "endpoint", "responseSha256"],
+    [
+      "transport",
+      "sessionID",
+      "directory",
+      "endpoint",
+      "responseSha256",
+      "runtimeAppPath",
+      "runtimeCDHash",
+      "listenerPID",
+      "listenerExecutable",
+      "appPID",
+    ],
     "Packaged client session export capture",
   )
   if (capture.transport !== "opencode-session-http") {
@@ -534,6 +763,25 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
     throw new Error("Packaged client session export capture directory is invalid")
   }
   requireSha256(capture.responseSha256, "session response")
+  if (
+    typeof capture.runtimeAppPath !== "string" ||
+    !path.isAbsolute(capture.runtimeAppPath) ||
+    typeof capture.listenerExecutable !== "string" ||
+    !path.isAbsolute(capture.listenerExecutable) ||
+    typeof capture.runtimeCDHash !== "string" ||
+    !/^[a-f0-9]{40}$/.test(capture.runtimeCDHash) ||
+    typeof capture.listenerPID !== "number" ||
+    !Number.isSafeInteger(capture.listenerPID) ||
+    capture.listenerPID <= 1 ||
+    typeof capture.appPID !== "number" ||
+    !Number.isSafeInteger(capture.appPID) ||
+    capture.appPID <= 1
+  ) {
+    throw new Error("Packaged client session export runtime capture is invalid")
+  }
+  if (!isInsideApp(capture.listenerExecutable, capture.runtimeAppPath)) {
+    throw new Error("Packaged client session export listener is not inside the runtime app")
+  }
 
   const session = requireRecord(sessionExport.session, "Packaged client session export session")
   requireExactKeys(session, ["runID", "completedAt", "assistant"], "Packaged client session export session")
@@ -544,25 +792,51 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
   }
 
   const assistant = requireRecord(session.assistant, "Packaged client session export assistant")
-  requireExactKeys(assistant, ["role", "output", "parts"], "Packaged client session export assistant")
+  requireExactKeys(
+    assistant,
+    ["role", "messageID", "sessionID", "providerID", "modelID", "output", "parts"],
+    "Packaged client session export assistant",
+  )
   if (assistant.role !== "assistant") throw new Error("Packaged client session export assistant role is invalid")
+  if (
+    !validOpenCodeID(assistant.messageID, "msg_") ||
+    assistant.sessionID !== capture.sessionID ||
+    !validIdentifier(assistant.providerID) ||
+    !validIdentifier(assistant.modelID)
+  ) {
+    throw new Error("Packaged client session export assistant identity is invalid")
+  }
   const output = requireText(assistant.output, "Packaged client session export assistant output", 16 * 1024 * 1024)
   if (!Array.isArray(assistant.parts) || assistant.parts.length === 0 || assistant.parts.length > 4_096) {
     throw new Error("Packaged client session export assistant parts are invalid")
   }
   const parts = assistant.parts.map((value, index) => {
     const part = requireRecord(value, `Packaged client session export assistant part ${index}`)
-    requireExactKeys(part, ["type", "text"], `Packaged client session export assistant part ${index}`)
-    if (part.type !== "text") throw new Error("Packaged client session export assistant part type is invalid")
-    return { type: "text" as const, text: requireText(part.text, "Packaged client session export assistant part text") }
+    requireExactKeys(
+      part,
+      ["id", "sessionID", "messageID", "type", "text"],
+      `Packaged client session export assistant part ${index}`,
+    )
+    if (
+      part.type !== "text" ||
+      !validOpenCodeID(part.id, "prt_") ||
+      part.sessionID !== capture.sessionID ||
+      part.messageID !== assistant.messageID
+    ) {
+      throw new Error("Packaged client session export assistant part identity is invalid")
+    }
+    return {
+      id: part.id,
+      sessionID: capture.sessionID,
+      messageID: assistant.messageID,
+      type: "text" as const,
+      text: requireText(part.text, "Packaged client session export assistant part text"),
+    }
   })
   if (parts.map((part) => part.text).join("") !== output) {
     throw new Error("Packaged client session export assistant output does not match its parts")
   }
-  if (
-    !containsExactLine(output, server.terminalMarker) ||
-    !parts.some((part) => containsExactLine(part.text, server.terminalMarker))
-  ) {
+  if (exactLineCount(output, server.terminalMarker) !== 1) {
     throw new Error("Packaged client session export assistant terminal marker is not an exact output line")
   }
 
@@ -582,11 +856,24 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
       directory: capture.directory,
       endpoint: capture.endpoint,
       responseSha256: capture.responseSha256,
+      runtimeAppPath: capture.runtimeAppPath,
+      runtimeCDHash: capture.runtimeCDHash,
+      listenerPID: capture.listenerPID,
+      listenerExecutable: capture.listenerExecutable,
+      appPID: capture.appPID,
     },
     session: {
       runID: server.runID,
       completedAt: completedAt.value,
-      assistant: { role: "assistant", output, parts },
+      assistant: {
+        role: "assistant",
+        messageID: assistant.messageID,
+        sessionID: capture.sessionID,
+        providerID: assistant.providerID,
+        modelID: assistant.modelID,
+        output,
+        parts,
+      },
     },
   }
 }
@@ -631,8 +918,7 @@ async function validatePackageArtifact(packagePath: string, identity: { version:
         "DMG mount",
       )
       mounted = true
-      await validateAppBundle(path.join(mount, "Guai Code Beta.app"), identity.version)
-      return
+      return await validateAppBundle(path.join(mount, "Guai Code Beta.app"), identity.version)
     }
 
     const signature = Buffer.from(await Bun.file(packagePath).slice(0, 4).arrayBuffer()).toString("hex")
@@ -655,7 +941,7 @@ async function validatePackageArtifact(packagePath: string, identity: { version:
     }
     await mkdir(extracted)
     await runCommand("/usr/bin/ditto", ["-x", "-k", packagePath, extracted], "ZIP extraction")
-    await validateAppBundle(path.join(extracted, "Guai Code Beta.app"), identity.version)
+    return await validateAppBundle(path.join(extracted, "Guai Code Beta.app"), identity.version)
   } finally {
     if (mounted) await runCommand("/usr/bin/hdiutil", ["detach", mount, "-force"], "DMG detach").catch(() => undefined)
     await rm(directory, { recursive: true, force: true })
@@ -687,6 +973,10 @@ async function validateAppBundle(appPath: string, version: string) {
     throw new Error("Packaged client app executable is not an arm64 Mach-O")
   }
   await runCommand("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], "App signature")
+  const signature = await runCommand("/usr/bin/codesign", ["-d", "--verbose=4", appPath], "App signature identity")
+  const cdHash = /^CDHash=([a-f0-9]{40})$/m.exec(signature)?.[1]
+  if (!cdHash) throw new Error("Packaged client app CDHash is unavailable")
+  return { appPath: await realpath(appPath), executable: await realpath(executable), cdHash }
 }
 
 async function plistValue(info: string, key: string) {
@@ -701,7 +991,7 @@ async function runCommand(command: string, args: string[], name: string) {
     new Response(child.stderr).text(),
   ])
   if (exitCode !== 0) throw new Error(`${name} failed: ${stderr.trim() || stdout.trim() || `exit ${exitCode}`}`)
-  return stdout
+  return stdout || stderr
 }
 
 function requirePackageIdentity(fileName: string) {
@@ -764,8 +1054,8 @@ function requireText(value: unknown, name: string, maximumBytes = 1024 * 1024) {
   return value
 }
 
-function containsExactLine(value: string, expected: string) {
-  return value.split(/\r?\n/).includes(expected)
+function exactLineCount(value: string, expected: string) {
+  return value.split(/\r?\n/).filter((line) => line === expected).length
 }
 
 function requireTimestamp(value: unknown, name: string) {

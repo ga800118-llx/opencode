@@ -31,12 +31,14 @@ export type {
 
 export const DEFAULT_MAC_RUNTIME_SOAK_CONNECTION_TIMEOUT_MS = 60_000
 export const DEFAULT_MAC_RUNTIME_SOAK_BACKPRESSURE_TIMEOUT_MS = 30_000
+export const DEFAULT_MAC_RUNTIME_SOAK_ACKNOWLEDGMENT_TIMEOUT_MS = 5 * 60_000
 
 export async function createMacRuntimeSoakFixture(input?: {
   durationMs?: number
   intervalMs?: number
   connectionTimeoutMs?: number
   backpressureTimeoutMs?: number
+  acknowledgmentTimeoutMs?: number
   initialSilenceMs?: number
   midSilence?: { afterChunks: number; durationMs: number }
   maxRequestBodyBytes?: number
@@ -50,6 +52,7 @@ export async function createMacRuntimeSoakFixture(input?: {
   const intervalMs = input?.intervalMs ?? DEFAULT_MAC_RUNTIME_SOAK_INTERVAL_MS
   const connectionTimeoutMs = input?.connectionTimeoutMs ?? DEFAULT_MAC_RUNTIME_SOAK_CONNECTION_TIMEOUT_MS
   const backpressureTimeoutMs = input?.backpressureTimeoutMs ?? DEFAULT_MAC_RUNTIME_SOAK_BACKPRESSURE_TIMEOUT_MS
+  const acknowledgmentTimeoutMs = input?.acknowledgmentTimeoutMs ?? DEFAULT_MAC_RUNTIME_SOAK_ACKNOWLEDGMENT_TIMEOUT_MS
   const initialSilenceMs = input?.initialSilenceMs ?? 0
   const maxRequestBodyBytes = input?.maxRequestBodyBytes ?? 1024 * 1024
   const chunkContent = input?.chunkContent ?? "."
@@ -61,6 +64,7 @@ export async function createMacRuntimeSoakFixture(input?: {
   requirePositiveInteger(intervalMs, "Soak interval")
   requirePositiveInteger(connectionTimeoutMs, "Soak connection timeout")
   requirePositiveInteger(backpressureTimeoutMs, "Soak backpressure timeout")
+  requirePositiveInteger(acknowledgmentTimeoutMs, "Soak acknowledgment timeout")
   requireNonNegativeInteger(initialSilenceMs, "Soak initial silence")
   requirePositiveInteger(maxRequestBodyBytes, "Soak maximum request body size")
   if (!/^[a-zA-Z0-9-]{1,128}$/.test(runID)) throw new Error("Soak runID is invalid")
@@ -90,7 +94,9 @@ export async function createMacRuntimeSoakFixture(input?: {
         startedMonotonic: number
         activityElapsedMs: number[]
         terminalElapsedMs?: number
+        finishElapsedMs?: number
         finishObserved: boolean
+        clientAcknowledged: boolean
         peerDisconnected: boolean
         cancellers: Set<() => void>
       }
@@ -99,7 +105,10 @@ export async function createMacRuntimeSoakFixture(input?: {
   const observation = (reason: MacRuntimeSoakDisconnectReason) => {
     const startedAt = active?.startedAt ?? fixtureStartedAt
     const startedMonotonic = active?.startedMonotonic ?? fixtureStartedMonotonic
-    const observedDurationMs = Math.max(0, Math.round(performance.now() - startedMonotonic))
+    const observedDurationMs =
+      reason === "completed" && active?.finishElapsedMs !== undefined
+        ? active.finishElapsedMs
+        : Math.max(0, Math.round(performance.now() - startedMonotonic))
     const activityElapsedMs = active?.activityElapsedMs ?? []
     const terminalElapsedMs = active?.terminalElapsedMs
     const timeline = [
@@ -119,6 +128,7 @@ export async function createMacRuntimeSoakFixture(input?: {
       activityAt: activityElapsedMs.map((elapsed) => timestamp(startedAt, elapsed)),
       terminalAt: terminalElapsedMs === undefined ? null : timestamp(startedAt, terminalElapsedMs),
       maxActivityGapMs: Math.max(...timeline.slice(1).map((item, index) => item - timeline[index])),
+      clientAcknowledged: active?.clientAcknowledged ?? false,
       clientAbort: reason === "client-abort" || reason === "client-unresponsive",
       completed: reason === "completed",
       disconnectReason: reason,
@@ -169,6 +179,29 @@ export async function createMacRuntimeSoakFixture(input?: {
     }
     if (request.method === "GET" && url.pathname === "/v1/models") {
       sendJson(response, 200, { object: "list", data: [{ id: model, object: "model", owned_by: "mac-runtime-soak" }] })
+      return
+    }
+    if (request.method === "POST" && url.pathname === `/v1/runs/${encodeURIComponent(runID)}/acknowledgment`) {
+      const body = await readRequestBody(request, 4_096)
+      if (!body.ok) {
+        sendJson(response, body.status, { error: { message: body.message } })
+        return
+      }
+      const parsed = parseAcknowledgment(body.value, runID, marker)
+      if (!parsed.ok) {
+        sendJson(response, 400, { error: { message: parsed.message } })
+        return
+      }
+      if (settled || !active || active.terminalElapsedMs === undefined) {
+        sendJson(response, settled ? 410 : 409, {
+          error: { message: settled ? "Soak run already settled" : "Soak terminal marker has not been sent" },
+        })
+        return
+      }
+      active.clientAcknowledged = true
+      if (active.finishObserved) settle("completed")
+      response.writeHead(204)
+      response.end()
       return
     }
     if (request.method !== "POST" || url.pathname !== "/v1/chat/completions") {
@@ -227,7 +260,9 @@ export async function createMacRuntimeSoakFixture(input?: {
       startedMonotonic: performance.now(),
       activityElapsedMs: [],
       terminalElapsedMs: undefined,
+      finishElapsedMs: undefined,
       finishObserved: false,
+      clientAcknowledged: false,
       peerDisconnected: false,
       cancellers: new Set<() => void>(),
     }
@@ -272,7 +307,13 @@ export async function createMacRuntimeSoakFixture(input?: {
     state.cancellers.add(() => clearInterval(disconnectPoll))
     response.once("finish", () => {
       state.finishObserved = true
-      settle("completed")
+      state.finishElapsedMs = Math.max(0, Math.round(performance.now() - state.startedMonotonic))
+      if (state.clientAcknowledged) {
+        settle("completed")
+        return
+      }
+      const acknowledgmentTimer = setTimeout(() => settle("client-unresponsive"), acknowledgmentTimeoutMs)
+      state.cancellers.add(() => clearTimeout(acknowledgmentTimer))
     })
     response.once("close", () => {
       if (state.finishObserved) return
@@ -455,6 +496,19 @@ export async function createMacRuntimeSoakFixture(input?: {
     token,
     runID,
     terminalMarker: marker,
+    acknowledgmentEndpoint: `http://${hostname}:${address.port}/v1/runs/${encodeURIComponent(runID)}/acknowledgment`,
+    acknowledgeClient: async () => {
+      const response = await fetch(
+        `http://${hostname}:${address.port}/v1/runs/${encodeURIComponent(runID)}/acknowledgment`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({ runID, terminalMarker: marker }),
+        },
+      )
+      if (!response.ok) throw new Error(`Soak client acknowledgment failed with ${response.status}`)
+      await response.body?.cancel()
+    },
     observation: deferred.promise,
     stop: () => {
       if (stopPromise) return stopPromise
@@ -599,6 +653,18 @@ function parseRequest(value: string) {
   }
 }
 
+function parseAcknowledgment(value: string, runID: string, terminalMarker: string) {
+  const parsed = parseRequest(value)
+  if (!parsed.ok) return parsed
+  if (Object.keys(parsed.value).sort().join() !== "runID,terminalMarker") {
+    return { ok: false as const, message: "Soak acknowledgment fields are invalid" }
+  }
+  if (parsed.value.runID !== runID || parsed.value.terminalMarker !== terminalMarker) {
+    return { ok: false as const, message: "Soak acknowledgment identity is invalid" }
+  }
+  return { ok: true as const }
+}
+
 function sendJson(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { "content-type": "application/json" })
   response.end(JSON.stringify(value))
@@ -643,6 +709,9 @@ async function main() {
   const backpressureTimeoutMs = Number(
     option("--backpressure-timeout-ms") ?? DEFAULT_MAC_RUNTIME_SOAK_BACKPRESSURE_TIMEOUT_MS,
   )
+  const acknowledgmentTimeoutMs = Number(
+    option("--acknowledgment-timeout-ms") ?? DEFAULT_MAC_RUNTIME_SOAK_ACKNOWLEDGMENT_TIMEOUT_MS,
+  )
   const initialSilenceMs = Number(option("--initial-silence-ms") ?? 0)
   const midSilenceMs = Number(option("--mid-silence-ms") ?? 0)
   const midSilenceAfterChunks = Number(option("--mid-silence-after-chunks") ?? 1)
@@ -653,6 +722,7 @@ async function main() {
     intervalMs,
     connectionTimeoutMs,
     backpressureTimeoutMs,
+    acknowledgmentTimeoutMs,
     initialSilenceMs,
     midSilence: midSilenceMs > 0 ? { afterChunks: midSilenceAfterChunks, durationMs: midSilenceMs } : undefined,
     port,
@@ -666,6 +736,7 @@ async function main() {
       token: fixture.token,
       runID: fixture.runID,
       terminalMarker: fixture.terminalMarker,
+      acknowledgmentEndpoint: fixture.acknowledgmentEndpoint,
       evidencePath,
     })}`,
   )
