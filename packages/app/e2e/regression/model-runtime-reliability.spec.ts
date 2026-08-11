@@ -131,20 +131,35 @@ test("keeps a delayed model request running beyond the former short deadline", a
       })
       try {
         await expectRuntimeReady(runtime.url, directory, profile.providerID)
-        const sessionResponse = await fetch(`${runtime.url}/session`, {
+        const resolvedDirectory = await realpath(directory)
+        const sessionResponse = await fetch(`${runtime.url}/api/session`, {
           method: "POST",
-          headers: { "content-type": "application/json", "x-opencode-directory": directory },
-          body: JSON.stringify({}),
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ location: { directory: resolvedDirectory } }),
         })
         expect(sessionResponse.ok).toBe(true)
-        const session = (await sessionResponse.json()) as { id: string; title: string }
-        const persistedSession = await fetch(`${runtime.url}/session/${session.id}`, {
-          headers: { "x-opencode-directory": directory },
-        })
+        const session = ((await sessionResponse.json()) as { data: { id: string; title: string } }).data
+        const persistedSession = await fetch(`${runtime.url}/api/session/${session.id}`)
         expect(persistedSession.ok).toBe(true)
-        expect(await persistedSession.json()).toMatchObject({ id: session.id, directory: await realpath(directory) })
+        expect(await persistedSession.json()).toMatchObject({
+          data: { id: session.id, location: { directory: resolvedDirectory } },
+        })
 
-        await isolateAppStorage(page, { projects: [{ worktree: directory, expanded: true }] })
+        await page.addInitScript(
+          ({ server, directory }) => {
+            localStorage.clear()
+            sessionStorage.clear()
+            localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+            localStorage.setItem(
+              "opencode.global.dat:server",
+              JSON.stringify({
+                list: [server],
+                projects: { [server]: [{ worktree: directory, expanded: true }] },
+              }),
+            )
+          },
+          { server: runtime.url, directory: resolvedDirectory },
+        )
         const eventSubscription = page.waitForResponse(
           (response) => {
             const url = new URL(response.url())
@@ -241,6 +256,7 @@ test("keeps a delayed model request running beyond the former short deadline", a
           providerRequestDiagnostics(requests),
         ).toBe(true)
       } finally {
+        if (!page.isClosed()) await page.close()
         runtime.process.kill()
         await runtime.exited
         await runtime.stderr
@@ -531,6 +547,7 @@ async function startOpenCodeServer(input: {
         XDG_STATE_HOME: path.join(input.home, ".local/state"),
         XDG_CACHE_HOME: path.join(input.home, ".cache"),
         OPENCODE_TEST_HOME: input.home,
+        OPENCODE_DB: path.join(input.home, "opencode.db"),
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           formatter: false,
           lsp: false,

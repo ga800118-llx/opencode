@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 import { expectAppVisible } from "../utils/waits"
-import { fulfillJson, persistedDraftTabs, projectFixture, setupMockApp } from "../utils/mac-stability"
+import { fulfillJson, mockServer, persistedDraftTabs, projectFixture, setupMockApp } from "../utils/mac-stability"
+import { installSseTransport } from "../utils/sse-transport"
 
 const directory = "C:/OpenCode/ImmediateTask"
 const project = projectFixture(directory, { id: "proj_immediate_task", name: "ImmediateTask", color: "green" })
@@ -9,23 +10,21 @@ test.use({ viewport: { width: 1440, height: 900 } })
 
 test("adds a project and deduplicates an immediate double New Task click", async ({ page }) => {
   await setup(page)
+  const transport = await installSseTransport(page, { server: mockServer })
+  await page.clock.install({ time: Date.now() })
   const gate = Promise.withResolvers<void>()
-  const pendingBootstrapRequests: string[] = []
-  const allBootstrapRequests: string[] = []
-  let initialBootstrapSettled = false
+  const bootstrapRequests: string[] = []
   await page.route("**/config**", async (route) => {
     if (!isWorkspaceConfigRequest(route.request())) return route.fallback()
     const url = new URL(route.request().url())
     const request = `${page.url()} -> ${url.pathname}${url.search}`
-    const pending = !initialBootstrapSettled
-    allBootstrapRequests.push(request)
-    if (pending) pendingBootstrapRequests.push(request)
-    await gate.promise
+    bootstrapRequests.push(request)
+    if (bootstrapRequests.length === 1) await gate.promise
     await fulfillJson(route, {})
-    if (pending) initialBootstrapSettled = true
   })
 
   await page.goto("/")
+  await transport.waitForConnection()
   const row = await addProject(page)
   const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
   await newTask.evaluate((button) => {
@@ -33,18 +32,33 @@ test("adds a project and deduplicates an immediate double New Task click", async
     ;(button as HTMLButtonElement).click()
   })
 
-  await expect.poll(() => pendingBootstrapRequests.length).toBe(1)
+  await expect.poll(() => bootstrapRequests.length).toBe(1)
   await expect(newTask).toHaveAttribute("aria-busy", "true")
   expect(await persistedDraftTabs(page)).toHaveLength(0)
   gate.resolve()
 
   await expect(page).toHaveURL(/\/new-session\?draftId=/)
   await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
-  expect(
-    pendingBootstrapRequests,
-    `workspace bootstrap requests before readiness settled:\n${allBootstrapRequests.join("\n")}`,
-  ).toHaveLength(1)
   expect(await persistedDraftTabs(page)).toHaveLength(1)
+  expect(
+    bootstrapRequests,
+    `workspace bootstrap requests after double click:\n${bootstrapRequests.join("\n")}`,
+  ).toHaveLength(1)
+
+  await page.clock.fastForward(1_501)
+  expect(
+    bootstrapRequests,
+    `workspace bootstrap requests before reconnect:\n${bootstrapRequests.join("\n")}`,
+  ).toHaveLength(1)
+  await transport.send({
+    directory: "global",
+    payload: { id: "evt_immediate_task_reconnected", type: "server.connected", properties: {} },
+  })
+  await expect.poll(() => bootstrapRequests.length).toBe(2)
+  expect(
+    bootstrapRequests,
+    `workspace bootstrap requests after explicit reconnect:\n${bootstrapRequests.join("\n")}`,
+  ).toHaveLength(2)
 })
 
 test("allows New Task to retry after the first critical bootstrap failure", async ({ page }) => {

@@ -30,12 +30,15 @@
     "../../desktop/src/main/model-center/environment.ts",
     "../../desktop/src/main/model-center/profiles.ts",
     "../../desktop/src/product/host.ts",
+    "./regression/context-compact.spec.ts",
     "./regression/localized-prompt-menu.spec.ts",
     "./regression/model-runtime-reliability.spec.ts",
+    "./regression/new-project-immediate-task.spec.ts",
     "./regression/new-session-panel-corner.spec.ts",
     "./regression/project-edit-persistence.spec.ts",
     "./regression/prompt-input-v2-command-draft.spec.ts",
     "./regression/session-timeline-context-resize.spec.ts",
+    "./regression/skill-refresh.spec.ts",
     "./utils/**/*.ts"
   ]
 }
