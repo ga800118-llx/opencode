@@ -29,6 +29,7 @@ import {
   needsAutomaticProjectColor,
 } from "./project-metadata"
 import { createProjectColorRetryController } from "./project-color-retry"
+import { useGlobal } from "./global"
 
 export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 
@@ -171,6 +172,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const serverSdk = useServerSDK()
     const serverSync = useServerSync()
     const server = useServer()
+    const global = useGlobal()
     const tabs = useTabs()
     const platform = usePlatform()
     const location = useLocation()
@@ -448,40 +450,39 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       retry: () => setColorRetryRevision((revision) => revision + 1),
     })
     const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
-      scope: () => serverSdk().scope,
-      protocol: () => serverSdk().protocol,
-      readProject: (worktree) => {
-        const project = server.projects
-          .list()
-          .find((item) => pathKey(item.worktree) === pathKey(worktree))
-        if (!project) return
-        return enrich(project)
-      },
-      updateServer: async (project, input) => {
-        const sdk = serverSdk()
-        const result = await sdk.client.project
-          .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
-          .then((response) => response.data)
-        if (!result) return
-        return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
-      },
-      writeLocal: createProjectMetadataLocalWriter({
-        meta: (directory, patch) => serverSync().project.meta(directory, patch),
-      }),
-      updateProjection: (project) => {
-        if (!project.id) return
-        serverSync().set("project", (items) =>
-          items.map((item) =>
-            item.id === project.id
-              ? {
-                  ...item,
-                  ...project,
-                  icon: { ...item.icon, ...project.icon },
-                  commands: { ...item.commands, ...project.commands },
-                }
-              : item,
-          ),
-        )
+      target: () => {
+        const context = global.ensureServerCtx(serverSdk().server)
+        return {
+          scope: context.sdk.scope,
+          protocol: context.sdk.protocol,
+          readProject: (worktree) =>
+            context.projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
+          updateServer: async (project, input) => {
+            const result = await context.sdk.client.project
+              .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+              .then((response) => response.data)
+            if (!result) return
+            return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+          },
+          writeLocal: createProjectMetadataLocalWriter({
+            meta: (directory, patch) => context.sync.project.meta(directory, patch),
+          }),
+          updateProjection: (project) => {
+            if (!project.id) return
+            context.sync.set("project", (items) =>
+              items.map((item) =>
+                item.id === project.id
+                  ? {
+                      ...item,
+                      ...project,
+                      icon: { ...item.icon, ...project.icon },
+                      commands: { ...item.commands, ...project.commands },
+                    }
+                  : item,
+              ),
+            )
+          },
+        }
       },
     })
     onCleanup(() => colorRetry.dispose())

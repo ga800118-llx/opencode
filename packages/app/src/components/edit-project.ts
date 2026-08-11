@@ -18,40 +18,44 @@ import { pathKey } from "@/utils/path-key"
 export function createEditProjectModel(props: { project: LocalProject; server: ServerConnection.Any }) {
   const dialog = useDialog()
   const global = useGlobal()
-  const serverCtx = createMemo(() => global.ensureServerCtx(props.server))
   const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
-    scope: () => serverCtx().sdk.scope,
-    protocol: () => serverCtx().sdk.protocol,
-    readProject: (worktree) =>
-      serverCtx().projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
-    updateServer: async (project, input) => {
-      const result = await serverCtx()
-        .sdk.client.project.update({
-          projectID: input.projectID,
-          directory: input.directory,
-          ...input.patch,
-        })
-        .then((response) => response.data)
-      if (!result) return
-      return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
-    },
-    writeLocal: createProjectMetadataLocalWriter({
-      meta: (directory, patch) => serverCtx().sync.project.meta(directory, patch),
-    }),
-    updateProjection: (project) => {
-      if (!project.id) return
-      serverCtx().sync.set("project", (items) =>
-        items.map((item) =>
-          item.id === project.id
-            ? {
-                ...item,
-                ...project,
-                icon: { ...item.icon, ...project.icon },
-                commands: { ...item.commands, ...project.commands },
-              }
-            : item,
-        ),
-      )
+    target: () => {
+      const context = global.ensureServerCtx(props.server)
+      return {
+        scope: context.sdk.scope,
+        protocol: context.sdk.protocol,
+        readProject: (worktree) =>
+          context.projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
+        updateServer: async (project, input) => {
+          const result = await context.sdk.client.project
+            .update({
+              projectID: input.projectID,
+              directory: input.directory,
+              ...input.patch,
+            })
+            .then((response) => response.data)
+          if (!result) return
+          return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+        },
+        writeLocal: createProjectMetadataLocalWriter({
+          meta: (directory, patch) => context.sync.project.meta(directory, patch),
+        }),
+        updateProjection: (project) => {
+          if (!project.id) return
+          context.sync.set("project", (items) =>
+            items.map((item) =>
+              item.id === project.id
+                ? {
+                    ...item,
+                    ...project,
+                    icon: { ...item.icon, ...project.icon },
+                    commands: { ...item.commands, ...project.commands },
+                  }
+                : item,
+            ),
+          )
+        },
+      }
     },
   })
   const folderName = createMemo(() => getFilename(props.project.worktree))

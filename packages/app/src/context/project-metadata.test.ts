@@ -248,19 +248,21 @@ describe("createProjectMetadataWriter", () => {
     const projected: unknown[] = []
     let serverCalls = 0
     const writer = createProjectMetadataWriter({
-      scope: () => ServerScope.local,
-      protocol: () => "v2",
-      readProject: () => project,
-      updateServer: async () => {
-        serverCalls += 1
-        return project
-      },
-      writeLocal: async (_project, patch) => {
-        local.push(patch)
-      },
-      updateProjection: async (next) => {
-        projected.push(next)
-      },
+      target: () => ({
+        scope: ServerScope.local,
+        protocol: "v2",
+        readProject: () => project,
+        updateServer: async () => {
+          serverCalls += 1
+          return project
+        },
+        writeLocal: async (_project, patch) => {
+          local.push(patch)
+        },
+        updateProjection: async (next) => {
+          projected.push(next)
+        },
+      }),
     })
     const patches = [
       editProjectMetadataPatch({ name: "Edited", color: undefined, override: undefined, start: "bun dev" }),
@@ -294,19 +296,21 @@ describe("createProjectMetadataWriter", () => {
     const calls: string[] = []
     const createWriter = () =>
       createProjectMetadataWriter({
-        scope: () => ServerScope.local,
-        protocol: () => "v1",
-        readProject: () => current,
-        updateServer: async (project, update) => {
-          const color = update.patch.icon?.color
-          calls.push(color ?? "missing")
-          if (color === "mint") return automaticResult
-          return { ...project, icon: { ...project.icon, ...update.patch.icon } }
-        },
-        writeLocal: async () => {},
-        updateProjection: (project) => {
-          current = project
-        },
+        target: () => ({
+          scope: ServerScope.local,
+          protocol: "v1",
+          readProject: () => current,
+          updateServer: async (project, update) => {
+            const color = update.patch.icon?.color
+            calls.push(color ?? "missing")
+            if (color === "mint") return automaticResult
+            return { ...project, icon: { ...project.icon, ...update.patch.icon } }
+          },
+          writeLocal: async () => {},
+          updateProjection: (project) => {
+            current = project
+          },
+        }),
       })
     const automaticWriter = createWriter()
     const userWriter = createWriter()
@@ -340,19 +344,21 @@ describe("createProjectMetadataWriter", () => {
     const calls: string[] = []
     const createWriter = () =>
       createProjectMetadataWriter({
-        scope: () => ServerScope.local,
-        protocol: () => "v1",
-        readProject: () => current,
-        updateServer: async (project, update) => {
-          const color = update.patch.icon?.color
-          calls.push(color ?? "missing")
-          if (color === "purple") return userResult
-          return { ...project, icon: { ...project.icon, ...update.patch.icon } }
-        },
-        writeLocal: async () => {},
-        updateProjection: (project) => {
-          current = project
-        },
+        target: () => ({
+          scope: ServerScope.local,
+          protocol: "v1",
+          readProject: () => current,
+          updateServer: async (project, update) => {
+            const color = update.patch.icon?.color
+            calls.push(color ?? "missing")
+            if (color === "purple") return userResult
+            return { ...project, icon: { ...project.icon, ...update.patch.icon } }
+          },
+          writeLocal: async () => {},
+          updateProjection: (project) => {
+            current = project
+          },
+        }),
       })
     const userWriter = createWriter()
     const automaticWriter = createWriter()
@@ -374,6 +380,105 @@ describe("createProjectMetadataWriter", () => {
 
     expect(calls).toEqual(["purple"])
     expect(current.icon?.color).toBe("purple")
+  })
+
+  test("keeps a delayed write bound to the server captured at invocation", async () => {
+    const protocol = Promise.withResolvers<"v1">()
+    const contexts = {
+      a: {
+        scope: "server-a" as ReturnType<typeof ServerScope.fromServerKey>,
+        protocol: protocol.promise,
+        project: { id: "project-a", worktree: "/shared" },
+        calls: [] as string[],
+      },
+      b: {
+        scope: "server-b" as ReturnType<typeof ServerScope.fromServerKey>,
+        protocol: Promise.resolve("v1" as const),
+        project: { id: "project-b", worktree: "/shared" },
+        calls: [] as string[],
+      },
+    }
+    let active = contexts.a
+    const writer = createProjectMetadataWriter({
+      target: () => {
+        const context = active
+        return {
+          scope: context.scope,
+          protocol: context.protocol,
+          readProject: () => context.project,
+          updateServer: async (project) => {
+            context.calls.push("server")
+            return project
+          },
+          updateProjection: () => {
+            context.calls.push("projection")
+          },
+          writeLocal: () => {
+            context.calls.push("local")
+          },
+        }
+      },
+    })
+
+    const save = writer(contexts.a.project, renameProjectMetadataPatch("Saved on A"))
+    active = contexts.b
+    protocol.resolve("v1")
+    await save
+
+    expect(contexts.a.calls).toEqual(["server", "projection", "local"])
+    expect(contexts.b.calls).toEqual([])
+  })
+
+  test("uses independent queues for different captured server targets", async () => {
+    const delayed = Promise.withResolvers<{ id: string; worktree: string }>()
+    const contexts = {
+      a: {
+        scope: "server-a" as ReturnType<typeof ServerScope.fromServerKey>,
+        project: { id: "project-a", worktree: "/shared" },
+        calls: [] as string[],
+      },
+      b: {
+        scope: "server-b" as ReturnType<typeof ServerScope.fromServerKey>,
+        project: { id: "project-b", worktree: "/shared" },
+        calls: [] as string[],
+      },
+    }
+    let active = contexts.a
+    const writer = createProjectMetadataWriter({
+      target: () => {
+        const context = active
+        return {
+          scope: context.scope,
+          protocol: "v1" as const,
+          readProject: () => context.project,
+          updateServer: async (project) => {
+            context.calls.push("server")
+            if (context === contexts.a) return delayed.promise
+            return project
+          },
+          updateProjection: () => {
+            context.calls.push("projection")
+          },
+          writeLocal: () => {
+            context.calls.push("local")
+          },
+        }
+      },
+    })
+
+    const saveA = writer(contexts.a.project, renameProjectMetadataPatch("Saved on A"))
+    await Promise.resolve()
+    active = contexts.b
+    await writer(contexts.b.project, renameProjectMetadataPatch("Saved on B"))
+
+    expect(contexts.a.calls).toEqual(["server"])
+    expect(contexts.b.calls).toEqual(["server", "projection", "local"])
+
+    delayed.resolve(contexts.a.project)
+    await saveA
+
+    expect(contexts.a.calls).toEqual(["server", "projection", "local"])
+    expect(contexts.b.calls).toEqual(["server", "projection", "local"])
   })
 })
 

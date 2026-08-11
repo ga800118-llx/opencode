@@ -66,6 +66,7 @@ import { SidecarRecoveryMount } from "@/components/workflow/sidecar-recovery-not
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { ServerConnection, useServer } from "@/context/server"
 import { useLanguage, type Locale } from "@/context/language"
+import { useGlobal } from "@/context/global"
 import { pathKey } from "@/utils/path-key"
 import {
   displayName,
@@ -115,6 +116,7 @@ export default function LegacyLayout(props: ParentProps) {
   const params = useParams()
   const serverSync = useServerSync()
   const layout = useLayout()
+  const global = useGlobal()
   const layoutReady = createMemo(() => layout.ready())
   const platform = usePlatform()
   const pickDirectory = useDirectoryPicker()
@@ -1305,35 +1307,39 @@ export default function LegacyLayout(props: ParentProps) {
   })
 
   const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
-    scope: () => serverSDK().scope,
-    protocol: () => serverSDK().protocol,
-    readProject: (worktree) =>
-      layout.projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
-    updateServer: async (project, input) => {
-      const sdk = serverSDK()
-      const result = await sdk.client.project
-        .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
-        .then((response) => response.data)
-      if (!result) return
-      return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
-    },
-    writeLocal: createProjectMetadataLocalWriter({
-      meta: (directory, patch) => serverSync().project.meta(directory, patch),
-    }),
-    updateProjection: (project) => {
-      if (!project.id) return
-      serverSync().set("project", (items) =>
-        items.map((item) =>
-          item.id === project.id
-            ? {
-                ...item,
-                ...project,
-                icon: { ...item.icon, ...project.icon },
-                commands: { ...item.commands, ...project.commands },
-              }
-            : item,
-        ),
-      )
+    target: () => {
+      const context = global.ensureServerCtx(serverSDK().server)
+      return {
+        scope: context.sdk.scope,
+        protocol: context.sdk.protocol,
+        readProject: (worktree) =>
+          context.projects.list().find((project) => pathKey(project.worktree) === pathKey(worktree)),
+        updateServer: async (project, input) => {
+          const result = await context.sdk.client.project
+            .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+            .then((response) => response.data)
+          if (!result) return
+          return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+        },
+        writeLocal: createProjectMetadataLocalWriter({
+          meta: (directory, patch) => context.sync.project.meta(directory, patch),
+        }),
+        updateProjection: (project) => {
+          if (!project.id) return
+          context.sync.set("project", (items) =>
+            items.map((item) =>
+              item.id === project.id
+                ? {
+                    ...item,
+                    ...project,
+                    icon: { ...item.icon, ...project.icon },
+                    commands: { ...item.commands, ...project.commands },
+                  }
+                : item,
+            ),
+          )
+        },
+      }
     },
   })
 

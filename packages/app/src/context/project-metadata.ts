@@ -102,28 +102,32 @@ export async function persistProjectMetadata<T extends ProjectMetadata>(input: {
 }
 
 export function createProjectMetadataWriter<T extends ProjectMetadata>(input: {
-  scope: () => ServerScope
-  protocol: () => "v1" | "v2" | Promise<"v1" | "v2">
-  readProject: (worktree: string) => T | undefined
-  updateServer: (project: T, update: ProjectMetadataUpdate) => Promise<T | undefined>
-  writeLocal: (project: T, patch: ProjectMeta) => void | Promise<void>
-  updateProjection: (project: MergedProjectMetadata<T>) => void | Promise<void>
+  target: () => {
+    scope: ServerScope
+    protocol: "v1" | "v2" | Promise<"v1" | "v2">
+    readProject: (worktree: string) => T | undefined
+    updateServer: (project: T, update: ProjectMetadataUpdate) => Promise<T | undefined>
+    writeLocal: (project: T, patch: ProjectMeta) => void | Promise<void>
+    updateProjection: (project: MergedProjectMetadata<T>) => void | Promise<void>
+  }
 }) {
-  return (project: T, patch: ProjectMeta, options?: { shouldWrite?: (project: T) => boolean }) =>
-    serializeProjectMetadataWrite(input.scope(), project.worktree, async () => {
-      const latest = input.readProject(project.worktree)
+  return (project: T, patch: ProjectMeta, options?: { shouldWrite?: (project: T) => boolean }) => {
+    const target = input.target()
+    return serializeProjectMetadataWrite(target.scope, project.worktree, async () => {
+      const latest = target.readProject(project.worktree)
       if (!latest && options?.shouldWrite) return project
       const current = latest ?? project
       if (options?.shouldWrite && !options.shouldWrite(current)) return current
       return persistProjectMetadata({
-        protocol: await input.protocol(),
+        protocol: await target.protocol,
         project: current,
         patch,
-        updateServer: (update) => input.updateServer(current, update),
-        writeLocal: (next) => input.writeLocal(current, next),
-        updateProjection: input.updateProjection,
+        updateServer: (update) => target.updateServer(current, update),
+        writeLocal: (next) => target.writeLocal(current, next),
+        updateProjection: target.updateProjection,
       })
     })
+  }
 }
 
 export function createProjectMetadataLocalWriter(input: {
