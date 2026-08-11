@@ -10,7 +10,6 @@ export const modelCenterEn = {
   "settings.modelCenter.advanced.notSupported": "Not supported in this version",
   "settings.modelCenter.advanced.output": "Output limit",
   "settings.modelCenter.advanced.proxy": "Per-source proxy",
-  "settings.modelCenter.advanced.timeout": "Timeout (ms)",
   "settings.modelCenter.advanced.title": "Advanced",
   "settings.modelCenter.advanced.transportLimitation":
     "Per-source proxy and insecure TLS are visible but disabled because the current agent runtime cannot apply them safely to only one model source.",
@@ -124,7 +123,6 @@ export const modelCenterZh: Record<keyof typeof modelCenterEn, string> = {
   "settings.modelCenter.advanced.notSupported": "当前版本不支持",
   "settings.modelCenter.advanced.output": "输出上限",
   "settings.modelCenter.advanced.proxy": "模型源代理",
-  "settings.modelCenter.advanced.timeout": "超时（毫秒）",
   "settings.modelCenter.advanced.title": "高级设置",
   "settings.modelCenter.advanced.transportLimitation":
     "当前智能体运行时无法把代理或不安全 TLS 安全地限定到单个模型源，因此这些选项可见但不可启用。",
