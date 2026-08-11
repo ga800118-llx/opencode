@@ -100,6 +100,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "İşlem",
   "ui.sessionTurn.process.processing": "İşleniyor {{duration}}",
   "ui.sessionTurn.process.elapsed": "{{duration}} sürdü",
+  "ui.sessionTurn.process.slow": "Yanıt yavaş; beklemeye devam ediliyor",
+  "ui.sessionTurn.process.unverified": "Etkinlik doğrulanamıyor; görev çalışmaya devam ediyor",
 
   "ui.messagePart.questions.dismissed": "Sorular reddedildi",
   "ui.messagePart.compaction": "Oturum sıkıştırıldı",

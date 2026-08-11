@@ -96,6 +96,8 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.process.details": "Activity",
   "ui.sessionTurn.process.processing": "Processing {{duration}}",
   "ui.sessionTurn.process.elapsed": "Took {{duration}}",
+  "ui.sessionTurn.process.slow": "Response is slow; still waiting",
+  "ui.sessionTurn.process.unverified": "Activity cannot be confirmed; task is still running",
 
   "ui.messagePart.diagnostic.error": "Error",
   "ui.messagePart.title.edit": "Edit",

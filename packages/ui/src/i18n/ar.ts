@@ -94,6 +94,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "النشاط",
   "ui.sessionTurn.process.processing": "جارٍ المعالجة {{duration}}",
   "ui.sessionTurn.process.elapsed": "استغرق {{duration}}",
+  "ui.sessionTurn.process.slow": "الاستجابة بطيئة؛ ما زلنا ننتظر",
+  "ui.sessionTurn.process.unverified": "تعذر تأكيد النشاط؛ لا تزال المهمة قيد التشغيل",
 
   "ui.messagePart.questions.dismissed": "تم رفض الأسئلة",
   "ui.messagePart.compaction": "تم ضغط الجلسة",

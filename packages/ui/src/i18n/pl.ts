@@ -93,6 +93,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "Aktywność",
   "ui.sessionTurn.process.processing": "Przetwarzanie {{duration}}",
   "ui.sessionTurn.process.elapsed": "Czas: {{duration}}",
+  "ui.sessionTurn.process.slow": "Odpowiedź jest opóźniona; nadal czekamy",
+  "ui.sessionTurn.process.unverified": "Nie można potwierdzić aktywności; zadanie nadal działa",
 
   "ui.messagePart.questions.dismissed": "Pytania odrzucone",
   "ui.messagePart.compaction": "Sesja skompaktowana",

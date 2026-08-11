@@ -26,6 +26,12 @@ import type { ServerApi } from "@/utils/server"
 
 type MessageApi = ServerApi["message"]
 type ProjectedSession = Session & { readonly permissionMode?: Permission.Mode }
+type LegacySessionEvent = {
+  readonly type: string
+  readonly properties?: unknown
+  readonly timestamp?: number
+  readonly created?: number
+}
 type PermissionModeSwitchedCurrentEvent = {
   readonly id: string
   readonly metadata?: Readonly<Record<string, unknown>>
@@ -43,6 +49,23 @@ const initialMessagePageSize = 20
 const historyMessagePageSize = 200
 const sessionInfoLimit = 2_048
 const emptyIDs: ReadonlySet<string> = new Set()
+
+function activityEventTime(event: unknown) {
+  if (!event || typeof event !== "object") return Date.now()
+  const payload =
+    "data" in event && event.data && typeof event.data === "object"
+      ? event.data
+      : "properties" in event && event.properties && typeof event.properties === "object"
+        ? event.properties
+        : undefined
+  const candidates = [
+    "timestamp" in event ? event.timestamp : undefined,
+    payload && "timestamp" in payload ? payload.timestamp : undefined,
+    "created" in event ? event.created : undefined,
+    payload && "created" in payload ? payload.created : undefined,
+  ]
+  return candidates.find((value): value is number => typeof value === "number" && Number.isFinite(value)) ?? Date.now()
+}
 
 function needsOlderTurnRoot(source: readonly SessionMessageInfo[]) {
   const boundary = source.find(
@@ -215,6 +238,7 @@ export function createServerSession(
     session_message: {} as Record<string, SessionMessageInfo[]>,
     part: {} as Record<string, Part[]>,
     part_text_accum_delta: {} as Record<string, string>,
+    session_activity: {} as Record<string, number>,
     session_working(id: string) {
       return (this.session_status[id]?.type ?? "idle") !== "idle"
     },
@@ -258,6 +282,12 @@ export function createServerSession(
     loading: {} as Record<string, boolean | undefined>,
     at: {} as Record<string, number | undefined>,
   })
+
+  const markActivity = (sessionID: string, at = Date.now()) => {
+    const current = data.session_activity[sessionID]
+    if (current !== undefined && current >= at) return
+    setData("session_activity", sessionID, at)
+  }
 
   const indexLegacyMessage = (message: Message) => {
     const current = data.session_message[message.sessionID] ?? []
@@ -520,6 +550,7 @@ export function createServerSession(
     setData(
       produce((draft) => {
         dropSessionCaches(draft, sessionIDs)
+        sessionIDs.forEach((sessionID) => delete draft.session_activity[sessionID])
       }),
     )
     setMeta(
@@ -903,7 +934,7 @@ export function createServerSession(
       return properties.part.sessionID
   }
 
-  const projectV2 = (reduction: V2SessionReduction) => {
+  const projectV2 = (reduction: V2SessionReduction, activityAt = Date.now()) => {
     reduction.touched.forEach((messageID) => messageLoads.get(reduction.sessionID)?.touchedSource.add(messageID))
     setData("session_message", reduction.sessionID, reconcile(reduction.messages))
     if (reduction.touched.length === 0) return
@@ -925,18 +956,27 @@ export function createServerSession(
     batch(() => {
       for (const message of normalized.messages) {
         if (!touched.has(message.id)) continue
-        apply({ type: "message.updated", properties: { sessionID: reduction.sessionID, info: message } })
+        apply({
+          type: "message.updated",
+          timestamp: activityAt,
+          properties: { sessionID: reduction.sessionID, info: message },
+        })
       }
       for (const messageID of touched) {
         const next = normalized.parts.get(messageID) ?? []
         const nextIDs = new Set(next.map((part) => part.id))
         for (const part of next) {
-          apply({ type: "message.part.updated", properties: { sessionID: reduction.sessionID, part } })
+          apply({
+            type: "message.part.updated",
+            timestamp: activityAt,
+            properties: { sessionID: reduction.sessionID, part },
+          })
         }
         for (const part of data.part[messageID] ?? []) {
           if (nextIDs.has(part.id)) continue
           apply({
             type: "message.part.removed",
+            timestamp: activityAt,
             properties: { sessionID: reduction.sessionID, messageID, partID: part.id },
           })
         }
@@ -959,6 +999,8 @@ export function createServerSession(
   const applyV2 = (event: OpenCodeEvent | PermissionModeSwitchedCurrentEvent) => {
     if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
+    const activityAt = activityEventTime(event)
+    markActivity(sessionID, activityAt)
     if (event.type === "session.next.permission-mode.switched") {
       const info = data.info[sessionID]
       if (!info || event.data.timestamp < info.time.updated) return
@@ -979,7 +1021,7 @@ export function createServerSession(
     }
     const reduction = v2.reduce(data.session_message[sessionID] ?? [], event)
     if (reduction) {
-      projectV2(reduction)
+      projectV2(reduction, activityAt)
       if (reduction.missing) hydrateV2Message(sessionID, reduction.missing)
     }
 
@@ -1024,9 +1066,10 @@ export function createServerSession(
       void resolve(sessionID, { force: true }).catch(() => {})
   }
 
-  const apply = (event: { type: string; properties?: unknown }) => {
+  const apply = (event: LegacySessionEvent) => {
     const eventID = eventSessionID(event)
     if (eventID) {
+      markActivity(eventID, activityEventTime(event))
       touch(eventID)
       if (
         !data.info[eventID] &&
@@ -1361,6 +1404,7 @@ export function createServerSession(
     },
     optimistic: {
       add(input: { sessionID: string; message: Message; parts: Part[] }) {
+        markActivity(input.sessionID)
         const parts = input.parts
           .filter((part) => !!part?.id && !SKIP_PARTS.has(part.type))
           .sort((a, b) => cmp(a.id, b.id))

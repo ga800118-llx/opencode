@@ -96,6 +96,8 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.process.details": "Процес",
   "ui.sessionTurn.process.processing": "Обробка · {{duration}}",
   "ui.sessionTurn.process.elapsed": "Тривало {{duration}}",
+  "ui.sessionTurn.process.slow": "Відповідь затримується; очікування триває",
+  "ui.sessionTurn.process.unverified": "Не вдалося підтвердити активність; завдання продовжує виконуватися",
 
   "ui.messagePart.diagnostic.error": "Помилка",
   "ui.messagePart.title.edit": "Редагувати",

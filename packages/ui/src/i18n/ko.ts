@@ -70,6 +70,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "작업 과정",
   "ui.sessionTurn.process.processing": "처리 중 {{duration}}",
   "ui.sessionTurn.process.elapsed": "소요 시간 {{duration}}",
+  "ui.sessionTurn.process.slow": "응답이 느립니다. 계속 기다리는 중입니다",
+  "ui.sessionTurn.process.unverified": "활동을 확인할 수 없습니다. 작업은 계속 실행 중입니다",
 
   "ui.messagePart.questions.dismissed": "질문 무시됨",
   "ui.messagePart.compaction": "세션 압축됨",

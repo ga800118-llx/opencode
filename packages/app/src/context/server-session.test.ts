@@ -1669,6 +1669,137 @@ describe("server session", () => {
     expect(ctx.get).toEqual([])
   })
 
+  test("records V1 part and status activity from event timestamps", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    ctx.store.apply({
+      type: "message.part.updated",
+      timestamp: 100,
+      properties: { sessionID: "child", part: textPart("message") },
+    })
+
+    expect(ctx.store.data.session_activity.child).toBe(100)
+
+    ctx.store.apply({
+      type: "session.status",
+      created: 200,
+      properties: { sessionID: "child", status: { type: "busy" } },
+    })
+
+    expect(ctx.store.data.session_activity.child).toBe(200)
+  })
+
+  test("records V2 text and tool activity", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    ctx.store.applyV2({
+      id: "evt_text_activity",
+      created: 300,
+      type: "session.text.delta",
+      location: { directory: "/repo" },
+      data: { sessionID: "child", assistantMessageID: "assistant", ordinal: 0, delta: "text" },
+    } as OpenCodeEvent)
+
+    expect(ctx.store.data.session_activity.child).toBe(300)
+
+    ctx.store.applyV2({
+      id: "evt_tool_activity",
+      created: 400,
+      type: "session.tool.input.started",
+      location: { directory: "/repo" },
+      data: {
+        sessionID: "child",
+        assistantMessageID: "assistant",
+        callID: "call",
+        name: "bash",
+      },
+    } as OpenCodeEvent)
+
+    expect(ctx.store.data.session_activity.child).toBe(400)
+  })
+
+  test("records V2 execution completion before returning to idle", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    ctx.store.applyV2({
+      id: "evt_execution_started",
+      created: 500,
+      type: "session.execution.started",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent)
+    ctx.store.applyV2({
+      id: "evt_execution_succeeded",
+      created: 700,
+      type: "session.execution.succeeded",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent)
+
+    expect(ctx.store.data.session_activity.child).toBe(700)
+    expect(ctx.store.data.session_status.child).toEqual({ type: "idle" })
+  })
+
+  test("records optimistic prompt admission activity", () => {
+    const ctx = setup({ child: session("child") })
+    const before = Date.now()
+    ctx.store.optimistic.add({ sessionID: "child", message: userMessage("optimistic"), parts: [] })
+
+    expect(ctx.store.data.session_activity.child).toBeGreaterThanOrEqual(before)
+    expect(ctx.store.data.session_activity.child).toBeLessThanOrEqual(Date.now())
+  })
+
+  test("keeps activity scoped to its session and ignores older events", () => {
+    const ctx = setup({ first: session("first"), second: session("second") })
+    ctx.store.remember(session("first"))
+    ctx.store.remember(session("second"))
+    ctx.store.apply({
+      type: "session.status",
+      timestamp: 900,
+      properties: { sessionID: "first", status: { type: "busy" } },
+    })
+    ctx.store.apply({
+      type: "session.status",
+      timestamp: 800,
+      properties: { sessionID: "second", status: { type: "busy" } },
+    })
+    ctx.store.apply({
+      type: "session.status",
+      timestamp: 700,
+      properties: { sessionID: "first", status: { type: "idle" } },
+    })
+    ctx.store.applyV2({
+      id: "evt_newer_activity",
+      created: 1_100,
+      type: "session.execution.started",
+      location: { directory: "/repo" },
+      data: { sessionID: "second" },
+    } as OpenCodeEvent)
+    ctx.store.applyV2({
+      id: "evt_older_activity",
+      created: 1_000,
+      type: "session.execution.started",
+      location: { directory: "/repo" },
+      data: { sessionID: "second" },
+    } as OpenCodeEvent)
+
+    expect(ctx.store.data.session_activity).toEqual({ first: 900, second: 1_100 })
+  })
+
+  test("deletes activity when a session is evicted", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    ctx.store.apply({
+      type: "session.status",
+      timestamp: 1_000,
+      properties: { sessionID: "child", status: { type: "idle" } },
+    })
+
+    ctx.store.evict("child")
+
+    expect(ctx.store.data.session_activity.child).toBeUndefined()
+  })
+
   test("preserves pinned session content under server-wide cache pressure", () => {
     const ctx = setup({})
     ctx.store.pin("active")

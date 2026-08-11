@@ -93,6 +93,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "Aktivitet",
   "ui.sessionTurn.process.processing": "Behandler {{duration}}",
   "ui.sessionTurn.process.elapsed": "Tog {{duration}}",
+  "ui.sessionTurn.process.slow": "Svaret er langsomt; venter stadig",
+  "ui.sessionTurn.process.unverified": "Aktiviteten kan ikke bekræftes; opgaven kører stadig",
 
   "ui.messagePart.questions.dismissed": "Spørgsmål afvist",
   "ui.messagePart.compaction": "Session komprimeret",

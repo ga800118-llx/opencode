@@ -93,6 +93,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "処理内容",
   "ui.sessionTurn.process.processing": "処理中 {{duration}}",
   "ui.sessionTurn.process.elapsed": "所要時間 {{duration}}",
+  "ui.sessionTurn.process.slow": "応答が遅れています。引き続き待機中です",
+  "ui.sessionTurn.process.unverified": "アクティビティを確認できません。タスクは引き続き実行中です",
 
   "ui.messagePart.questions.dismissed": "質問をスキップしました",
   "ui.messagePart.compaction": "セッションを圧縮しました",

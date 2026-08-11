@@ -73,6 +73,8 @@ export const dict: Record<Keys, string> = {
   "ui.sessionTurn.process.details": "Aktivitet",
   "ui.sessionTurn.process.processing": "Behandler {{duration}}",
   "ui.sessionTurn.process.elapsed": "Tok {{duration}}",
+  "ui.sessionTurn.process.slow": "Responsen er treg; venter fortsatt",
+  "ui.sessionTurn.process.unverified": "Aktiviteten kan ikke bekreftes; oppgaven kjører fortsatt",
 
   "ui.messagePart.questions.dismissed": "Spørsmål avvist",
   "ui.messagePart.compaction": "Økt komprimert",

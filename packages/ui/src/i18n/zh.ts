@@ -97,6 +97,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "过程",
   "ui.sessionTurn.process.processing": "处理中 {{duration}}",
   "ui.sessionTurn.process.elapsed": "耗时 {{duration}}",
+  "ui.sessionTurn.process.slow": "响应较慢，仍在等待",
+  "ui.sessionTurn.process.unverified": "暂时无法确认活动，任务仍在继续",
 
   "ui.messagePart.questions.dismissed": "问题已忽略",
   "ui.messagePart.compaction": "会话已压缩",

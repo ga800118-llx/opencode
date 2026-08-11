@@ -78,6 +78,7 @@ import { observeElementOffsetReconnectAware } from "./observe-element-offset"
 import { createTimelineProjection } from "./projection"
 import { MessageComment, SummaryDiff, TimelineRow, TimelineRowMap } from "./rows"
 import { filterVirtualIndexes } from "./virtual-items"
+import { projectActivity } from "./activity-watchdog"
 
 const emptyMessages: MessageType[] = []
 const emptyParts: PartType[] = []
@@ -971,6 +972,24 @@ export function MessageTimeline(props: {
 
   const workingTurn = (userMessageID: string) => sessionStatus().type !== "idle" && activeMessageID() === userMessageID
 
+  const turnActivity = (userMessageID: string) => {
+    if (!workingTurn(userMessageID)) return "idle"
+    const message = messageByID().get(userMessageID)
+    if (!message || message.role !== "user") return "idle"
+    const id = sessionID()
+    const toolRunning = (assistantMessagesByParent().get(userMessageID) ?? emptyAssistantMessages).some((assistant) =>
+      getMsgParts(assistant.id).some(
+        (part) => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
+      ),
+    )
+    return projectActivity({
+      working: true,
+      now: clock(),
+      lastActivityAt: (id ? sync().data.session_activity?.[id] : undefined) ?? message.time.created,
+      toolRunning,
+    })
+  }
+
   const turnDurationMs = (userMessageID: string) => {
     const message = messageByID().get(userMessageID)
     if (!message || message.role !== "user") return
@@ -1001,11 +1020,16 @@ export function MessageTimeline(props: {
 
   const processLabel = (userMessageID: string) => {
     const duration = formatDuration(turnDurationMs(userMessageID))
-    if (!duration) return language.t("ui.sessionTurn.process.details")
-    return language.t(
-      workingTurn(userMessageID) ? "ui.sessionTurn.process.processing" : "ui.sessionTurn.process.elapsed",
-      { duration },
-    )
+    const label = duration
+      ? language.t(
+          workingTurn(userMessageID) ? "ui.sessionTurn.process.processing" : "ui.sessionTurn.process.elapsed",
+          { duration },
+        )
+      : language.t("ui.sessionTurn.process.details")
+    const activity = turnActivity(userMessageID)
+    if (activity === "slow") return `${label} · ${language.t("ui.sessionTurn.process.slow")}`
+    if (activity === "unverified") return `${label} · ${language.t("ui.sessionTurn.process.unverified")}`
+    return label
   }
 
   const assistantCopyPartID = (userMessageID: string) => {
@@ -1116,9 +1140,7 @@ export function MessageTimeline(props: {
           </div>
         </Match>
         <Match when={groupRow()}>
-          {(row) => (
-            <div data-slot="session-turn-process-item">{renderAssistantPartGroup(row, onSizeChange)}</div>
-          )}
+          {(row) => <div data-slot="session-turn-process-item">{renderAssistantPartGroup(row, onSizeChange)}</div>}
         </Match>
       </Switch>
     )

@@ -98,6 +98,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "Aktivnost",
   "ui.sessionTurn.process.processing": "Obrada {{duration}}",
   "ui.sessionTurn.process.elapsed": "Trajalo {{duration}}",
+  "ui.sessionTurn.process.slow": "Odgovor je spor; i dalje čekamo",
+  "ui.sessionTurn.process.unverified": "Aktivnost se ne može potvrditi; zadatak se i dalje izvršava",
 
   "ui.messagePart.questions.dismissed": "Pitanja odbačena",
   "ui.messagePart.compaction": "Sesija sažeta",

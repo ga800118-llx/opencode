@@ -95,6 +95,8 @@ export const dict = {
   "ui.sessionTurn.process.details": "กระบวนการ",
   "ui.sessionTurn.process.processing": "กำลังประมวลผล {{duration}}",
   "ui.sessionTurn.process.elapsed": "ใช้เวลา {{duration}}",
+  "ui.sessionTurn.process.slow": "การตอบสนองช้า ยังรออยู่",
+  "ui.sessionTurn.process.unverified": "ไม่สามารถยืนยันกิจกรรมได้ งานยังคงทำงานอยู่",
 
   "ui.messagePart.questions.dismissed": "ละทิ้งคำถามแล้ว",
   "ui.messagePart.compaction": "บีบอัดเซสชันแล้ว",
