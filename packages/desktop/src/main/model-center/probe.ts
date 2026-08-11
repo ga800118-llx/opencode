@@ -28,7 +28,7 @@ type ModelProbeOptions = {
   readonly requestID?: () => string
 }
 
-const MODEL_PROBE_TIMEOUT_MS = 30_000
+export const MODEL_PROBE_TIMEOUT_MS = 30_000
 
 export function createModelProbe(options: ModelProbeOptions = {}): ModelProbe {
   const fetcher = options.fetch ?? fetch

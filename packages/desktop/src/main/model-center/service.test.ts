@@ -6,7 +6,7 @@ import type {
 } from "@opencode-ai/app/product/model-center"
 import type { ProductCredentialEnvelope, ProductCredentialService } from "./credentials"
 import type { LocalModelDetector } from "./local-detection"
-import type { ModelProbe, ModelProbeTarget } from "./probe"
+import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "./probe"
 import { createProfileRepository } from "./profiles"
 import { createModelCenterService } from "./service"
 
@@ -154,12 +154,14 @@ describe("createModelCenterService", () => {
         baseURL: "https://models.example.test/v1",
         apiKey: "sk-test-secret",
         headers: { "X-Tenant": "alpha", "X-Secret": "Bearer secret-header" },
+        timeoutMs: MODEL_PROBE_TIMEOUT_MS,
       },
       {
         kind: "openai-compatible",
         baseURL: "https://models.example.test/v1",
         apiKey: "sk-test-secret",
         headers: { "X-Tenant": "alpha", "X-Secret": "Bearer secret-header" },
+        timeoutMs: MODEL_PROBE_TIMEOUT_MS,
       },
     ])
     expect(fake.profiles.get(profile.id)?.test).toEqual(tested)

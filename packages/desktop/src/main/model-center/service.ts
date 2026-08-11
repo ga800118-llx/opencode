@@ -9,7 +9,7 @@ import {
 } from "@opencode-ai/app/product/model-center"
 import type { ProductCredentialEnvelope, ProductCredentialService } from "./credentials"
 import type { LocalModelDetector } from "./local-detection"
-import type { ModelProbe, ModelProbeTarget } from "./probe"
+import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "./probe"
 import type { ProfileRepository } from "./profiles"
 
 type ModelCenterServiceOptions = {
@@ -151,6 +151,7 @@ function targetFromProfile(profile: ProductProviderProfile, envelope?: ProductCr
     baseURL: profile.baseURL,
     ...(envelope?.apiKey ? { apiKey: envelope.apiKey } : {}),
     headers: Object.freeze(resolveHeaders(profile.headers, envelope)),
+    timeoutMs: MODEL_PROBE_TIMEOUT_MS,
   })
 }
 
@@ -163,6 +164,7 @@ function targetFromDraft(
     baseURL: profile.baseURL,
     ...(envelope.apiKey ? { apiKey: envelope.apiKey } : {}),
     headers: Object.freeze(resolveHeaders(profile.headers, envelope)),
+    timeoutMs: MODEL_PROBE_TIMEOUT_MS,
   })
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test"
-import { createModelProbe, type ModelProbeTarget } from "./probe"
+import { createModelProbe, MODEL_PROBE_TIMEOUT_MS, type ModelProbeTarget } from "./probe"
 import { startMockModelServer, type MockModelServerMode } from "./mock-openai-server.fixture.test"
 
 function target(baseURL: string, kind: ModelProbeTarget["kind"] = "openai-compatible"): ModelProbeTarget {
@@ -90,7 +90,7 @@ describe("createModelProbe discovery", () => {
       }).discover(target("https://private.example.test/v1"))
 
       expect(result.models).toEqual([])
-      expect(timeout).toHaveBeenCalledWith(30_000)
+      expect(timeout).toHaveBeenCalledWith(MODEL_PROBE_TIMEOUT_MS)
     } finally {
       timeout.mockRestore()
     }
