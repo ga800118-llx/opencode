@@ -184,10 +184,13 @@ const layer = Layer.effect(
     const list = Effect.fn("SkillV2.list")(function* () {
       return effective(yield* installed(), yield* disabled())
     })
+    const managementSnapshot = Effect.fn("SkillV2.management.snapshot")(function* () {
+      return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
+    })
     const managementList = Effect.fn("SkillV2.management.list")(function* (refresh = false) {
       yield* state.reload()
       if (refresh) cache.clear()
-      return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
+      return yield* managementSnapshot()
     })
 
     return Service.of({
@@ -215,14 +218,14 @@ const layer = Layer.effect(
             expectedScope,
             installed,
           )
-          return yield* managementList()
+          return yield* managementSnapshot()
         }),
         remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
           yield* remove(fs, safeMove, flock, global, paths[scope(installation.source)], installation, installed)
           cache.delete(Source.key(installation.source))
-          return yield* managementList()
+          return yield* managementSnapshot()
         }),
       },
     })

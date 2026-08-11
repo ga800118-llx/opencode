@@ -2191,7 +2191,76 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("rescans local Skills and reloads changed source topology for every management snapshot", () =>
+  it.live("keeps mutation snapshots on the admitted source topology", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const input: SkillLayerInput = {
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("stable-mutation-snapshot"),
+            projectRoot: path.join(tmp.path, "repo"),
+          }
+          const sourceRoot = path.join(tmp.path, "skills")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(sourceRoot, "owned"), { recursive: true })
+            await write(sourceRoot, "owned", "Owned")
+          })
+          const configured = SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make(sourceRoot),
+            origin: { type: "config-directory", scope: "project", value: sourceRoot },
+          })
+          const plugin = SkillV2.DirectorySource.make({
+            type: "directory",
+            path: AbsolutePath.make(sourceRoot),
+            origin: { type: "plugin", scope: "project", value: "late-plugin" },
+          })
+          const selected = { source: configured as SkillV2.Source, replays: 0 }
+          const skill = yield* buildSkill(input)
+          yield* skill.transform((editor) => {
+            selected.replays++
+            editor.source(selected.source)
+          })
+
+          const initial = (yield* skill.management.list())[0]
+          expect(initial).toMatchObject({
+            source: { type: "directory", scope: "project", value: sourceRoot },
+            deletable: true,
+            deleteTarget: AbsolutePath.make(path.join(sourceRoot, "owned")),
+          })
+          expect(selected.replays).toBe(2)
+
+          selected.source = plugin
+          const disabled = (yield* skill.management.setEnabled(initial.id, false))[0]
+          expect(disabled).toMatchObject({
+            id: initial.id,
+            status: "disabled",
+            source: initial.source,
+            deletable: true,
+            deleteTarget: initial.deleteTarget,
+          })
+          expect(selected.replays).toBe(2)
+
+          expect(yield* skill.management.remove(initial.id)).toEqual([])
+          expect(selected.replays).toBe(2)
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(path.join(sourceRoot, "owned")).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
+        }),
+      ),
+    ),
+  )
+
+  it.live("rescans local Skills and reloads changed source topology for every management GET", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),

@@ -221,6 +221,11 @@ describe("v2 location HttpApi", () => {
     expect(disabledBody.data.find((entry) => entry.id === installation!.id)).toMatchObject({
       enabled: false,
       status: "disabled",
+      source: installation!.source,
+      deletable: installation!.deletable,
+      ...(installation!.deletable
+        ? { deleteTarget: installation!.deleteTarget }
+        : { deleteBlocked: installation!.deleteBlocked }),
     })
 
     const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
