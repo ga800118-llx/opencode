@@ -13,6 +13,7 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
   store[1],
   null,
   Object.assign(() => true, { promise: undefined }),
+  async () => {},
 ]
 
 const child = () => createStore({} as State)
@@ -274,7 +275,7 @@ describe("createChildStoreManager", () => {
     }
   })
 
-  test("merges project metadata patches immediately and preserves explicit clears", () => {
+  test("merges project metadata patches immediately and preserves explicit clears", async () => {
     let manager: ReturnType<typeof createChildStoreManager> | undefined
 
     const dispose = createOwner((owner) => {
@@ -297,12 +298,12 @@ describe("createChildStoreManager", () => {
       if (!manager) throw new Error("manager required")
       const [store] = manager.child("/project", { bootstrap: false })
 
-      manager.projectMeta("/project", {
+      await manager.projectMeta("/project", {
         name: "Project",
         icon: { color: "blue", override: "custom.png" },
         commands: { start: "bun dev" },
       })
-      manager.projectMeta("/project", {
+      await manager.projectMeta("/project", {
         name: "",
         icon: { color: "" },
         commands: { start: "" },
@@ -313,6 +314,75 @@ describe("createChildStoreManager", () => {
         icon: { color: "", override: "custom.png" },
         commands: { start: "" },
       })
+    } finally {
+      dispose()
+    }
+  })
+
+  test("updates project metadata immediately while awaiting metadata and icon flushes", async () => {
+    let resolveMeta: (() => void) | undefined
+    let resolveIcon: (() => void) | undefined
+    const deferredPersist: typeof import("@/utils/persist").persisted = (target, store) => {
+      const key = typeof target === "string" ? target : target.key
+      const flush = () => {
+        if (key === "workspace:project") {
+          return new Promise<void>((resolve) => {
+            resolveMeta = resolve
+          })
+        }
+        if (key === "workspace:icon") {
+          return new Promise<void>((resolve) => {
+            resolveIcon = resolve
+          })
+        }
+        return Promise.resolve()
+      }
+      return [store[0], store[1], null, Object.assign(() => true, { promise: undefined }), flush]
+    }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist: deferredPersist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      let metaSettled = false
+      const meta = manager.projectMeta("/project", { name: "Saved" }).then(() => {
+        metaSettled = true
+      })
+
+      expect(store.projectMeta?.name).toBe("Saved")
+      await Promise.resolve()
+      expect(metaSettled).toBe(false)
+      resolveMeta?.()
+      await meta
+      expect(metaSettled).toBe(true)
+
+      let iconSettled = false
+      const icon = manager.projectIcon("/project", "custom.png").then(() => {
+        iconSettled = true
+      })
+
+      expect(store.icon).toBe("custom.png")
+      await Promise.resolve()
+      expect(iconSettled).toBe(false)
+      resolveIcon?.()
+      await icon
+      expect(iconSettled).toBe(true)
     } finally {
       dispose()
     }

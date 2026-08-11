@@ -49,7 +49,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { listAllSessions } from "@/utils/session"
-import { persistProjectMetadata } from "@/context/project-metadata"
+import { createProjectMetadataWriter, renameProjectMetadataPatch } from "@/context/project-metadata"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1300,43 +1300,43 @@ export default function LegacyLayout(props: ParentProps) {
     makeEventListener(window, deepLinkEvent, handler as EventListener)
   })
 
+  const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+    protocol: () => serverSDK().protocol,
+    updateServer: async (project, input) => {
+      const sdk = serverSDK()
+      const result = await sdk.client.project
+        .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+        .then((response) => response.data)
+      if (!result) return
+      return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+    },
+    writeLocal: async (project, patch) => {
+      await serverSync().project.meta(project.worktree, patch)
+      if (patch.icon?.override !== undefined) await serverSync().project.icon(project.worktree, patch.icon.override)
+    },
+    updateProjection: (project) => {
+      if (!project.id) return
+      serverSync().set("project", (items) =>
+        items.map((item) =>
+          item.id === project.id
+            ? {
+                ...item,
+                ...project,
+                icon: { ...item.icon, ...project.icon },
+                commands: { ...item.commands, ...project.commands },
+              }
+            : item,
+        ),
+      )
+    },
+  })
+
   async function renameProject(project: LocalProject, next: string) {
     const current = displayName(project)
     if (next === current) return
     const name = next === getFilename(project.worktree) ? "" : next
 
-    const sdk = serverSDK()
-    await persistProjectMetadata({
-      protocol: await sdk.protocol,
-      project,
-      patch: { name },
-      updateServer: async (input) => {
-        const result = await sdk.client.project
-          .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
-          .then((response) => response.data)
-        if (!result) return
-        return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
-      },
-      writeLocal: (patch) => {
-        serverSync().project.meta(project.worktree, patch)
-        if (patch.icon?.override !== undefined) serverSync().project.icon(project.worktree, patch.icon.override)
-      },
-      updateProjection: (next) => {
-        if (!next.id) return
-        serverSync().set("project", (items) =>
-          items.map((item) =>
-            item.id === next.id
-              ? {
-                  ...item,
-                  ...next,
-                  icon: { ...item.icon, ...next.icon },
-                  commands: { ...item.commands, ...next.commands },
-                }
-              : item,
-          ),
-        )
-      },
-    })
+    await writeProjectMetadata(project, renameProjectMetadataPatch(name))
   }
 
   function saveProjectName(project: LocalProject, next: string) {

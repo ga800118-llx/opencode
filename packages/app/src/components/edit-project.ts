@@ -7,12 +7,51 @@ import { createStore } from "solid-js/store"
 import { useGlobal } from "@/context/global"
 import { type LocalProject } from "@/context/layout"
 import { ServerConnection } from "@/context/server"
-import { persistProjectMetadata, projectMetadataErrorMessage } from "@/context/project-metadata"
+import {
+  createProjectMetadataWriter,
+  editProjectMetadataPatch,
+  projectMetadataErrorMessage,
+} from "@/context/project-metadata"
 
 export function createEditProjectModel(props: { project: LocalProject; server: ServerConnection.Any }) {
   const dialog = useDialog()
   const global = useGlobal()
   const serverCtx = createMemo(() => global.ensureServerCtx(props.server))
+  const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+    protocol: () => serverCtx().sdk.protocol,
+    updateServer: async (project, input) => {
+      const result = await serverCtx()
+        .sdk.client.project.update({
+          projectID: input.projectID,
+          directory: input.directory,
+          ...input.patch,
+        })
+        .then((response) => response.data)
+      if (!result) return
+      return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+    },
+    writeLocal: async (project, patch) => {
+      await serverCtx().sync.project.meta(project.worktree, patch)
+      if (patch.icon?.override !== undefined) {
+        await serverCtx().sync.project.icon(project.worktree, patch.icon.override)
+      }
+    },
+    updateProjection: (project) => {
+      if (!project.id) return
+      serverCtx().sync.set("project", (items) =>
+        items.map((item) =>
+          item.id === project.id
+            ? {
+                ...item,
+                ...project,
+                icon: { ...item.icon, ...project.icon },
+                commands: { ...item.commands, ...project.commands },
+              }
+            : item,
+        ),
+      )
+    },
+  })
   const folderName = createMemo(() => getFilename(props.project.worktree))
   const defaultName = createMemo(() => props.project.name || folderName())
   const [store, setStore] = createStore({
@@ -70,49 +109,13 @@ export function createEditProjectModel(props: { project: LocalProject; server: S
     mutationFn: async () => {
       const name = store.name.trim() === folderName() ? "" : store.name.trim()
       const start = store.startup.trim()
-      const patch = {
+      const patch = editProjectMetadataPatch({
         name,
-        icon: { color: store.color ?? "", override: store.iconOverride ?? "" },
-        commands: { start },
-      }
-
-      return persistProjectMetadata({
-        protocol: await serverCtx().sdk.protocol,
-        project: props.project,
-        patch,
-        updateServer: async (input) => {
-          const project = await serverCtx()
-            .sdk.client.project.update({
-              projectID: input.projectID,
-              directory: input.directory,
-              ...input.patch,
-            })
-            .then((result) => result.data)
-          if (!project) return
-          return { ...props.project, ...normalizeProjectInfo(project), expanded: props.project.expanded }
-        },
-        writeLocal: (next) => {
-          serverCtx().sync.project.meta(props.project.worktree, next)
-          if (next.icon?.override !== undefined) {
-            serverCtx().sync.project.icon(props.project.worktree, next.icon.override)
-          }
-        },
-        updateProjection: (project) => {
-          if (!project.id) return
-          serverCtx().sync.set("project", (items) =>
-            items.map((item) =>
-              item.id === project.id
-                ? {
-                    ...item,
-                    ...project,
-                    icon: { ...item.icon, ...project.icon },
-                    commands: { ...item.commands, ...project.commands },
-                  }
-                : item,
-            ),
-          )
-        },
+        color: store.color,
+        override: store.iconOverride,
+        start,
       })
+      return writeProjectMetadata(props.project, patch)
     },
     onSuccess: () => dialog.close(),
   }))

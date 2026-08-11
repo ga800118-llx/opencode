@@ -650,10 +650,10 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const projectApi = {
     loadSessions,
     meta(directory: string, patch: ProjectMeta) {
-      children.projectMeta(directory, patch)
+      return children.projectMeta(directory, patch)
     },
     icon(directory: string, value: string | undefined) {
-      children.projectIcon(directory, value)
+      return children.projectIcon(directory, value)
     },
   }
 

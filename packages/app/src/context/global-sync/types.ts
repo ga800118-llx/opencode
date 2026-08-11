@@ -98,12 +98,14 @@ export type MetaCache = {
   store: Store<{ value: ProjectMeta | undefined }>
   setStore: SetStoreFunction<{ value: ProjectMeta | undefined }>
   ready: Accessor<boolean>
+  flush: () => Promise<void>
 }
 
 export type IconCache = {
   store: Store<{ value: string | undefined }>
   setStore: SetStoreFunction<{ value: string | undefined }>
   ready: Accessor<boolean>
+  flush: () => Promise<void>
 }
 
 export type ChildOptions = {

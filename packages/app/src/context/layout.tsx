@@ -1,5 +1,5 @@
 import { createStore, produce, reconcile } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import { useLocation } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -21,7 +21,13 @@ import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./la
 import { requireServerKey } from "@/utils/session-route"
 import { type DraftTab, useTabs } from "./tabs"
 import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
-import { mergeProjectMetadata, needsAutomaticProjectColor, persistProjectMetadata } from "./project-metadata"
+import {
+  automaticProjectColorPatch,
+  createProjectMetadataWriter,
+  mergeProjectMetadata,
+  needsAutomaticProjectColor,
+} from "./project-metadata"
+import { createProjectColorRetryController } from "./project-color-retry"
 
 export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 
@@ -436,6 +442,43 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     const [colors, setColors] = createStore<Record<string, AvatarColorKey>>({})
     const colorRequested = new Map<string, AvatarColorKey>()
+    const [colorRetryRevision, setColorRetryRevision] = createSignal(0)
+    const colorRetry = createProjectColorRetryController({
+      retry: () => setColorRetryRevision((revision) => revision + 1),
+    })
+    const writeProjectMetadata = createProjectMetadataWriter<LocalProject>({
+      protocol: () => serverSdk().protocol,
+      updateServer: async (project, input) => {
+        const sdk = serverSdk()
+        const result = await sdk.client.project
+          .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
+          .then((response) => response.data)
+        if (!result) return
+        return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+      },
+      writeLocal: async (project, patch) => {
+        await serverSync().project.meta(project.worktree, patch)
+        if (patch.icon?.override !== undefined) {
+          await serverSync().project.icon(project.worktree, patch.icon.override)
+        }
+      },
+      updateProjection: (project) => {
+        if (!project.id) return
+        serverSync().set("project", (items) =>
+          items.map((item) =>
+            item.id === project.id
+              ? {
+                  ...item,
+                  ...project,
+                  icon: { ...item.icon, ...project.icon },
+                  commands: { ...item.commands, ...project.commands },
+                }
+              : item,
+          ),
+        )
+      },
+    })
+    onCleanup(() => colorRetry.dispose())
 
     function pickAvailableColor(used: Set<string>): AvatarColorKey {
       const available = AVATAR_COLOR_KEYS.filter((c) => !used.has(c))
@@ -532,16 +575,26 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       for (const project of projects) {
         if (!project.id) continue
         if (project.id === "global") continue
-        serverSync().project.icon(project.worktree, project.icon?.override)
+        void serverSync()
+          .project.icon(project.worktree, project.icon?.override)
+          .catch(() => {})
       }
     })
 
     createEffect(() => {
+      colorRetryRevision()
       const projects = enriched()
       if (projects.length === 0) return
 
       for (const project of projects) {
-        if (project.icon?.color !== undefined) colorRequested.delete(project.worktree)
+        const assigned = colors[project.worktree]
+        const generated =
+          assigned !== undefined &&
+          project.icon?.color === assigned &&
+          !project.icon?.override &&
+          !project.icon?.url
+        if (project.icon?.color !== undefined && !generated) colorRequested.delete(project.worktree)
+        if (!needsAutomaticProjectColor(project) && !generated) colorRetry.clear(project.worktree)
       }
 
       const used = new Set<string>()
@@ -551,8 +604,16 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
 
       for (const project of projects) {
-        if (!needsAutomaticProjectColor(project)) continue
         const worktree = project.worktree
+        const assigned = colors[worktree]
+        const retrying =
+          colorRetry.has(worktree) &&
+          assigned !== undefined &&
+          project.icon?.color === assigned &&
+          !project.icon?.override &&
+          !project.icon?.url
+        if (!needsAutomaticProjectColor(project) && !retrying) continue
+        if (!colorRetry.canAttempt(worktree)) continue
         const existing = colors[worktree]
         const color = existing ?? pickAvailableColor(used)
         if (!existing) {
@@ -563,41 +624,14 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         if (requested === color) continue
         colorRequested.set(worktree, color)
 
-        void (async () => {
-          const sdk = serverSdk()
-          await persistProjectMetadata({
-            protocol: await sdk.protocol,
-            project,
-            patch: { icon: { color } },
-            updateServer: async (input) => {
-              const result = await sdk.client.project
-                .update({ projectID: input.projectID, directory: input.directory, ...input.patch })
-                .then((response) => response.data)
-              if (!result) return
-              return { ...project, ...normalizeProjectInfo(result), expanded: project.expanded }
+        void writeProjectMetadata(project, automaticProjectColorPatch(color))
+          .then(
+            () => colorRetry.clear(worktree),
+            () => {
+              if (colorRequested.get(worktree) !== color) return
+              colorRetry.failed(worktree)
             },
-            writeLocal: (next) => {
-              serverSync().project.meta(worktree, next)
-              if (next.icon?.override !== undefined) serverSync().project.icon(worktree, next.icon.override)
-            },
-            updateProjection: (next) => {
-              if (!next.id) return
-              serverSync().set("project", (items) =>
-                items.map((item) =>
-                  item.id === next.id
-                    ? {
-                        ...item,
-                        ...next,
-                        icon: { ...item.icon, ...next.icon },
-                        commands: { ...item.commands, ...next.commands },
-                      }
-                    : item,
-                ),
-              )
-            },
-          })
-        })()
-          .catch(() => {})
+          )
           .finally(() => {
             if (colorRequested.get(worktree) === color) colorRequested.delete(worktree)
           })

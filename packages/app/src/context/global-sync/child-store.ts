@@ -170,7 +170,7 @@ export function createChildStoreManager(input: {
         ),
       )
       if (!meta) throw new Error(input.translate("error.childStore.persistedProjectMetadataCreateFailed"))
-      metaCache.set(key, { store: meta[0], setStore: meta[1], ready: meta[3] })
+      metaCache.set(key, { store: meta[0], setStore: meta[1], ready: meta[3], flush: meta[4] })
 
       const icon = runWithOwner(input.owner, () =>
         input.persist(
@@ -179,7 +179,7 @@ export function createChildStoreManager(input: {
         ),
       )
       if (!icon) throw new Error(input.translate("error.childStore.persistedProjectIconCreateFailed"))
-      iconCache.set(key, { store: icon[0], setStore: icon[1], ready: icon[3] })
+      iconCache.set(key, { store: icon[0], setStore: icon[1], ready: icon[3], flush: icon[4] })
 
       const init = () =>
         createRoot((dispose) => {
@@ -346,7 +346,7 @@ export function createChildStoreManager(input: {
     mcpToggles.get(key)?.(false)
   }
 
-  function projectMeta(directory: string, patch: ProjectMeta) {
+  async function projectMeta(directory: string, patch: ProjectMeta) {
     const key = directoryKey(directory)
     const [store, setStore] = ensureChild(directory)
     const cached = metaCache.get(key)
@@ -362,16 +362,19 @@ export function createChildStoreManager(input: {
     }
     cached.setStore("value", next)
     setStore("projectMeta", next)
+    await cached.flush()
   }
 
-  function projectIcon(directory: string, value: string | undefined) {
+  async function projectIcon(directory: string, value: string | undefined) {
     const key = directoryKey(directory)
     const [store, setStore] = ensureChild(directory)
     const cached = iconCache.get(key)
     if (!cached) return
-    if (store.icon === value) return
-    cached.setStore("value", value)
-    setStore("icon", value)
+    if (store.icon !== value) {
+      cached.setStore("value", value)
+      setStore("icon", value)
+    }
+    await cached.flush()
   }
 
   return {

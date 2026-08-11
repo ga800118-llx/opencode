@@ -12,7 +12,14 @@ type PersistedWithReady<T> = [
   SetStoreFunction<T>,
   InitType,
   Accessor<boolean> & { promise: undefined | Promise<any> },
+  () => Promise<void>,
 ]
+
+type PendingWrite = {
+  promise: Promise<void>
+  failed?: boolean
+  error?: unknown
+}
 
 type PersistTarget = {
   storage?: string
@@ -575,6 +582,44 @@ export function persisted<T>(
   })()
 
   const legacyStorageNames = config.legacyStorageNames ?? []
+  const writes = new Set<PendingWrite>()
+
+  function trackWrite<T>(write: () => T): T {
+    try {
+      const result = write()
+      if (!(result instanceof Promise)) return result
+
+      const pending = {} as PendingWrite
+      pending.promise = result.then(
+        () => {
+          writes.delete(pending)
+        },
+        (error) => {
+          pending.failed = true
+          pending.error = error
+          throw error
+        },
+      )
+      writes.add(pending)
+      void pending.promise.catch(() => {})
+      return result
+    } catch (error) {
+      const pending = { promise: Promise.reject(error), failed: true, error }
+      writes.add(pending)
+      void pending.promise.catch(() => {})
+      throw error
+    }
+  }
+
+  async function flush() {
+    const current = [...writes]
+    if (current.length === 0) return
+
+    await Promise.allSettled(current.map((item) => item.promise))
+    current.forEach((item) => writes.delete(item))
+    const failed = current.find((item) => item.failed)
+    if (failed) throw failed.error
+  }
 
   const storage = (() => {
     if (!isDesktop) {
@@ -597,10 +642,10 @@ export function persisted<T>(
           })
         },
         setItem: (key, value) => {
-          current.setItem(key, value)
+          trackWrite(() => current.setItem(key, value))
         },
         removeItem: (key) => {
-          current.removeItem(key)
+          trackWrite(() => current.removeItem(key))
         },
       }
 
@@ -627,12 +672,8 @@ export function persisted<T>(
           migrate: config.migrate,
         })
       },
-      setItem: async (key, value) => {
-        await current.setItem(key, value)
-      },
-      removeItem: async (key) => {
-        await current.removeItem(key)
-      },
+      setItem: (key, value) => trackWrite(() => current.setItem(key, value)),
+      removeItem: (key) => trackWrite(() => current.removeItem(key)),
     }
 
     return api
@@ -657,5 +698,6 @@ export function persisted<T>(
     Object.assign(() => (ready.loading ? false : ready.latest === true), {
       promise: init instanceof Promise ? init : undefined,
     }),
+    flush,
   ]
 }

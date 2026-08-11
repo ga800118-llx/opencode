@@ -1,9 +1,52 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { ServerScope } from "./server-scope"
+import { createStore } from "solid-js/store"
+import { renderToString } from "solid-js/web"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
 type PersistType = typeof import("./persist").Persist
 type RemovePersistedType = typeof import("./persist").removePersisted
+type PersistedType = typeof import("./persist").persisted
+
+type TestPlatform = {
+  platform: "web" | "desktop"
+  storage?: () => DeferredStorage
+}
+
+class DeferredStorage {
+  private writes: Array<{
+    resolve: () => void
+    reject: (error: Error) => void
+  }> = []
+
+  async getItem() {
+    return null
+  }
+
+  setItem() {
+    return new Promise<void>((resolve, reject) => {
+      this.writes.push({ resolve, reject })
+    })
+  }
+
+  async removeItem() {}
+
+  get pending() {
+    return this.writes.length
+  }
+
+  resolveNext() {
+    const write = this.writes.shift()
+    if (!write) throw new Error("pending write required")
+    write.resolve()
+  }
+
+  rejectNext(error: Error) {
+    const write = this.writes.shift()
+    if (!write) throw new Error("pending write required")
+    write.reject(error)
+  }
+}
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -50,19 +93,23 @@ const storage = new MemoryStorage()
 let persistTesting: PersistTestingType
 let Persist: PersistType
 let removePersisted: RemovePersistedType
+let persisted: PersistedType
+let platform: TestPlatform = { platform: "web" }
 
 beforeAll(async () => {
   mock.module("@/context/platform", () => ({
-    usePlatform: () => ({ platform: "web" }),
+    usePlatform: () => platform,
   }))
 
   const mod = await import("./persist")
   persistTesting = mod.PersistTesting
   Persist = mod.Persist
   removePersisted = mod.removePersisted
+  persisted = mod.persisted
 })
 
 beforeEach(() => {
+  platform = { platform: "web" }
   storage.clear()
   storage.events.length = 0
   storage.calls.get = 0
@@ -71,6 +118,67 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "localStorage", {
     value: storage,
     configurable: true,
+  })
+})
+
+function createTestPersisted(key: string) {
+  return persisted(key, createStore({ value: 0 }))
+}
+
+describe("persist flush", () => {
+  test("waits for the current desktop write", async () => {
+    const storage = new DeferredStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let result: ReturnType<typeof createTestPersisted> | undefined
+    renderToString(() => {
+      result = createTestPersisted("flush.wait")
+      return ""
+    })
+    if (!result) throw new Error("persisted store required")
+
+    const [, setStore, , , flush] = result
+    setStore("value", 1)
+
+    let settled = false
+    const flushed = flush().then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    storage.resolveNext()
+    await flushed
+    expect(settled).toBe(true)
+  })
+
+  test("rejects failed writes and recovers on the next write", async () => {
+    const storage = new DeferredStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let result: ReturnType<typeof createTestPersisted> | undefined
+    renderToString(() => {
+      result = createTestPersisted("flush.recover")
+      return ""
+    })
+    if (!result) throw new Error("persisted store required")
+
+    const [, setStore, , , flush] = result
+    setStore("value", 1)
+    expect(storage.pending).toBe(1)
+
+    const failed = flush().then(
+      () => undefined,
+      (error) => error,
+    )
+    storage.rejectNext(new Error("desktop write failed"))
+    const error = await failed
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe("desktop write failed")
+
+    setStore("value", 2)
+    expect(storage.pending).toBe(1)
+    const recovered = flush()
+    storage.resolveNext()
+    await recovered
   })
 })
 

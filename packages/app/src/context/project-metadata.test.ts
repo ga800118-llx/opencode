@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
+  automaticProjectColorPatch,
+  createProjectMetadataWriter,
+  editProjectMetadataPatch,
   mergeProjectMetadata,
   needsAutomaticProjectColor,
   persistProjectMetadata,
   projectMetadataErrorMessage,
+  renameProjectMetadataPatch,
 } from "./project-metadata"
 
 describe("mergeProjectMetadata", () => {
@@ -64,7 +68,7 @@ describe("mergeProjectMetadata", () => {
 })
 
 describe("persistProjectMetadata", () => {
-  test("updates a V1 server first, then mirrors locally and updates the projection", async () => {
+  test("updates a V1 server first, then the projection, then the local mirror", async () => {
     const calls: string[] = []
     const project = { id: "project-1", worktree: "/project", name: "before", icon: { url: "server.png" } }
     const patch = { name: "after", icon: { color: "mint" } }
@@ -88,7 +92,7 @@ describe("persistProjectMetadata", () => {
       },
     })
 
-    expect(calls).toEqual(["server", "local", "projection"])
+    expect(calls).toEqual(["server", "projection", "local"])
     expect(result).toEqual({ ...project, name: "after", icon: { url: "server.png", color: "mint" } })
   })
 
@@ -158,7 +162,7 @@ describe("persistProjectMetadata", () => {
       },
     })
 
-    expect(calls).toEqual(["local", "projection"])
+    expect(calls).toEqual(["projection", "local"])
     expect(result.icon).toEqual({ url: "server.png", color: "mint" })
   })
 
@@ -184,36 +188,96 @@ describe("persistProjectMetadata", () => {
     await save({ id: "global", worktree: "/global" })
     await save({ worktree: "/local" })
 
-    expect(calls).toEqual(["local:global", "projection:global", "local:missing", "projection:missing"])
+    expect(calls).toEqual(["projection:global", "local:global", "projection:missing", "local:missing"])
   })
 
-  test("propagates local and projection failures", async () => {
+  test("propagates local failures after updating the projection", async () => {
     const base = {
       protocol: "v2" as const,
       project: { worktree: "/project" },
       patch: { name: "local" },
       updateServer: async () => undefined,
     }
+    const calls: string[] = []
 
     await expect(
       persistProjectMetadata({
         ...base,
         writeLocal: async () => {
+          calls.push("local")
           throw new Error("local failed")
         },
-        updateProjection: async () => {},
+        updateProjection: async () => {
+          calls.push("projection")
+        },
       }),
     ).rejects.toThrow("local failed")
 
+    expect(calls).toEqual(["projection", "local"])
+  })
+
+  test("does not write locally when projection update fails", async () => {
+    const calls: string[] = []
+
     await expect(
       persistProjectMetadata({
-        ...base,
-        writeLocal: async () => {},
+        protocol: "v2",
+        project: { worktree: "/project" },
+        patch: { name: "local" },
+        updateServer: async () => undefined,
+        writeLocal: async () => {
+          calls.push("local")
+        },
         updateProjection: async () => {
+          calls.push("projection")
           throw new Error("projection failed")
         },
       }),
     ).rejects.toThrow("projection failed")
+
+    expect(calls).toEqual(["projection"])
+  })
+})
+
+describe("createProjectMetadataWriter", () => {
+  test("routes edit, rename, and automatic-color patches through the same writer", async () => {
+    const project = { id: "project-1", worktree: "/project" }
+    const local: unknown[] = []
+    const projected: unknown[] = []
+    let serverCalls = 0
+    const writer = createProjectMetadataWriter({
+      protocol: () => "v2",
+      updateServer: async () => {
+        serverCalls += 1
+        return project
+      },
+      writeLocal: async (_project, patch) => {
+        local.push(patch)
+      },
+      updateProjection: async (next) => {
+        projected.push(next)
+      },
+    })
+    const patches = [
+      editProjectMetadataPatch({ name: "Edited", color: undefined, override: undefined, start: "bun dev" }),
+      renameProjectMetadataPatch("Renamed"),
+      automaticProjectColorPatch("mint"),
+    ]
+
+    for (const patch of patches) await writer(project, patch)
+
+    expect(serverCalls).toBe(0)
+    expect(local).toEqual(patches)
+    expect(projected).toEqual([
+      {
+        ...project,
+        name: "Edited",
+        icon: { color: "", override: "" },
+        commands: { start: "bun dev" },
+      },
+      { ...project, name: "Renamed" },
+      { ...project, icon: { color: "mint" } },
+    ])
   })
 })
 

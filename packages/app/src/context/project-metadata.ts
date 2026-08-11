@@ -23,6 +23,12 @@ export type MergedProjectMetadata<T extends Omit<ProjectMetadata, "worktree">> =
   commands?: ProjectMetadata["commands"]
 }
 
+export type ProjectMetadataUpdate = {
+  projectID: string
+  directory: string
+  patch: ProjectMeta
+}
+
 export function mergeProjectMetadata<T extends Omit<ProjectMetadata, "worktree">>(
   server: T,
   local?: ProjectMeta,
@@ -55,7 +61,7 @@ export async function persistProjectMetadata<T extends ProjectMetadata>(input: {
   protocol: "v1" | "v2"
   project: T
   patch: ProjectMeta
-  updateServer: (input: { projectID: string; directory: string; patch: ProjectMeta }) => Promise<T | undefined>
+  updateServer: (input: ProjectMetadataUpdate) => Promise<T | undefined>
   writeLocal: (patch: ProjectMeta) => void | Promise<void>
   updateProjection: (project: MergedProjectMetadata<T>) => void | Promise<void>
 }) {
@@ -71,9 +77,47 @@ export async function persistProjectMetadata<T extends ProjectMetadata>(input: {
   if (!source) throw new Error("The server did not confirm the project update.")
 
   const project = mergeProjectMetadata(source, input.patch)
-  await input.writeLocal(input.patch)
   await input.updateProjection(project)
+  await input.writeLocal(input.patch)
   return project
+}
+
+export function createProjectMetadataWriter<T extends ProjectMetadata>(input: {
+  protocol: () => "v1" | "v2" | Promise<"v1" | "v2">
+  updateServer: (project: T, update: ProjectMetadataUpdate) => Promise<T | undefined>
+  writeLocal: (project: T, patch: ProjectMeta) => void | Promise<void>
+  updateProjection: (project: MergedProjectMetadata<T>) => void | Promise<void>
+}) {
+  return async (project: T, patch: ProjectMeta) =>
+    persistProjectMetadata({
+      protocol: await input.protocol(),
+      project,
+      patch,
+      updateServer: (update) => input.updateServer(project, update),
+      writeLocal: (next) => input.writeLocal(project, next),
+      updateProjection: input.updateProjection,
+    })
+}
+
+export function editProjectMetadataPatch(input: {
+  name: string
+  color: string | undefined
+  override: string | undefined
+  start: string
+}): ProjectMeta {
+  return {
+    name: input.name,
+    icon: { color: input.color ?? "", override: input.override ?? "" },
+    commands: { start: input.start },
+  }
+}
+
+export function renameProjectMetadataPatch(name: string): ProjectMeta {
+  return { name }
+}
+
+export function automaticProjectColorPatch(color: string): ProjectMeta {
+  return { icon: { color } }
 }
 
 export function projectMetadataErrorMessage(error: unknown, fallback: string) {
