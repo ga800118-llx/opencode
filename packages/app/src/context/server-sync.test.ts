@@ -15,11 +15,14 @@ import {
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
+  refreshWorkspaceReadinessOnReconnect,
   seedActiveSessionStatuses,
 } from "./server-sync"
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
+import { createDraftReadinessController } from "./tabs"
+import type { ServerConnection } from "./server"
 
 type McpApi = ServerApi["mcp"]
 
@@ -118,6 +121,99 @@ describe("workspace readiness", () => {
     refresh.resolve({ status: "degraded", errors: [new Error("provider failed")] })
     expect(await automatic).toBe("degraded")
     expect(controller.readiness("/project")).toBe("degraded")
+  })
+
+  test("refreshes a ready workspace on reconnect and shares one config request with a pending draft", async () => {
+    const reconnect = deferred<{ status: "ready"; errors: readonly Error[] }>()
+    let configRequests = 0
+    const readiness = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        configRequests++
+        if (configRequests === 1) return { status: "ready", errors: [] }
+        return reconnect.promise
+      },
+    })
+    const created: string[] = []
+    const drafts = createDraftReadinessController({
+      ensureReady: (_, directory) => readiness.ensureReady(directory),
+      createDraft: async (draft) => {
+        created.push(draft.directory)
+        return { type: "draft", draftID: "draft-reconnect", ...draft }
+      },
+      openLegacy: async () => {},
+      onError() {},
+    })
+
+    expect(await readiness.ensureReady("C:/project")).toBe("ready")
+    const reconnecting = refreshWorkspaceReadinessOnReconnect({
+      directories: ["C:\\project\\"],
+      active: () => true,
+      refresh: readiness.refresh,
+    })[0]!
+    const direct = readiness.ensureReady("C:/project")
+    const draft = drafts.newDraft({
+      server: "sidecar" as ServerConnection.Key,
+      directory: "C:/project/",
+    })
+
+    await Promise.resolve()
+    expect(direct).toBe(reconnecting)
+    expect(configRequests).toBe(2)
+    expect(created).toEqual([])
+
+    reconnect.resolve({ status: "ready", errors: [] })
+    expect(await direct).toBe("ready")
+    expect(await draft).toMatchObject({ type: "draft", directory: "C:/project/" })
+    expect(configRequests).toBe(2)
+    expect(created).toEqual(["C:/project/"])
+  })
+
+  test("keeps reconnect failures retryable for the next draft", async () => {
+    const reconnect = deferred<{ status: "ready"; errors: readonly Error[] }>()
+    let configRequests = 0
+    const readiness = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        configRequests++
+        if (configRequests === 1 || configRequests === 3) return { status: "ready", errors: [] }
+        return reconnect.promise
+      },
+    })
+    const created: string[] = []
+    const errors: unknown[] = []
+    const drafts = createDraftReadinessController({
+      ensureReady: (_, directory) => readiness.ensureReady(directory),
+      createDraft: async (draft) => {
+        created.push(draft.directory)
+        return { type: "draft", draftID: "draft-retry", ...draft }
+      },
+      openLegacy: async () => {},
+      onError: (error) => errors.push(error),
+    })
+
+    expect(await readiness.ensureReady("/project")).toBe("ready")
+    const reconnecting = refreshWorkspaceReadinessOnReconnect({
+      directories: ["/project"],
+      active: () => true,
+      refresh: readiness.refresh,
+    })[0]!
+    const blocked = drafts.newDraft({ server: "sidecar" as ServerConnection.Key, directory: "/project" })
+
+    reconnect.reject(new Error("config unavailable after reconnect"))
+    await expect(reconnecting).rejects.toThrow("config unavailable after reconnect")
+    expect(await blocked).toBeUndefined()
+    expect(readiness.readiness("/project")).toBe("failed")
+    expect(configRequests).toBe(2)
+    expect(created).toEqual([])
+    expect(errors).toHaveLength(1)
+
+    expect(await drafts.newDraft({ server: "sidecar" as ServerConnection.Key, directory: "/project" })).toMatchObject({
+      type: "draft",
+      directory: "/project",
+    })
+    expect(configRequests).toBe(3)
+    expect(created).toEqual(["/project"])
   })
 
   test("retains degraded and ready results for the child lifetime", async () => {

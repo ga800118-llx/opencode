@@ -94,6 +94,14 @@ type SessionActiveApi = {
 
 export type WorkspaceReadiness = "initializing" | "ready" | "degraded" | "failed"
 
+export function refreshWorkspaceReadinessOnReconnect(input: {
+  directories: readonly string[]
+  active: (directory: string) => boolean
+  refresh: (directory: string) => Promise<"ready" | "degraded">
+}) {
+  return input.directories.filter(input.active).map((directory) => input.refresh(directory))
+}
+
 export function createWorkspaceReadinessController(input: {
   scope: ServerScope
   bootstrap: (directory: string) => Promise<WorkspaceBootstrapResult>
@@ -630,10 +638,11 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         bootstrap.refetch()
       if (eventType === "server.connected") {
         if (recent) return
-        for (const directory of Object.keys(children.children)) {
-          if (!children.active(directory)) continue
-          void workspaceReadiness.ensureReady(directory).catch(() => undefined)
-        }
+        refreshWorkspaceReadinessOnReconnect({
+          directories: Object.keys(children.children),
+          active: children.active,
+          refresh: workspaceReadiness.refresh,
+        }).forEach((request) => void request.catch(() => undefined))
       }
       if (eventType === "global.disposed") {
         if (recent) return
