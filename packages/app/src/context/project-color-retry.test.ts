@@ -107,4 +107,27 @@ describe("createProjectColorRetryController", () => {
     expect(timer.scheduled.size).toBe(0)
     expect(timer.cancelled).toEqual([1, 2])
   })
+
+  test("removing a project cancels its timer and re-adding starts with a full budget", () => {
+    const timer = createTimer()
+    const controller = createProjectColorRetryController({
+      retry: () => {},
+      schedule: timer.schedule,
+      cancel: timer.cancel,
+    })
+
+    controller.failed("/project")
+    expect(timer.scheduled.get(1)?.delay).toBe(1_000)
+
+    controller.retain(new Set())
+    expect(controller.has("/project")).toBe(false)
+    expect(timer.cancelled).toEqual([1])
+
+    controller.retain(new Set(["/project"]))
+    controller.failed("/project")
+    expect(timer.scheduled.get(2)?.delay).toBe(1_000)
+    timer.run(2)
+    controller.failed("/project")
+    expect(timer.scheduled.get(3)?.delay).toBe(2_000)
+  })
 })

@@ -44,11 +44,18 @@ export function createProjectColorRetryController(input: {
     for (const worktree of states.keys()) clear(worktree)
   }
 
+  function retain(worktrees: ReadonlySet<string>) {
+    for (const worktree of states.keys()) {
+      if (!worktrees.has(worktree)) clear(worktree)
+    }
+  }
+
   return {
     failed,
     clear,
     has: (worktree: string) => states.has(worktree),
     canAttempt: (worktree: string) => states.get(worktree)?.allowed ?? true,
+    retain,
     dispose,
   }
 }

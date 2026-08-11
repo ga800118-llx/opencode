@@ -1,12 +1,15 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test"
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createRoot, getOwner, type Owner } from "solid-js"
 import { createStore } from "solid-js/store"
+import { renderToString } from "solid-js/web"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import type { State } from "./types"
 import type { QueryOptionsApi } from "../server-sync"
 import { ServerScope } from "@/utils/server-scope"
 
 let createChildStoreManager: typeof import("./child-store").createChildStoreManager
+let actualPersisted: typeof import("@/utils/persist").persisted
+let platform: { platform: "web" | "desktop"; storage?: () => DeferredStorage } = { platform: "web" }
 const querySingles: Array<() => { queryKey?: unknown[]; enabled?: boolean }> = []
 const persist: typeof import("@/utils/persist").persisted = (_target, store) => [
   store[0],
@@ -18,6 +21,39 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
 
 const child = () => createStore({} as State)
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
+
+class DeferredStorage {
+  private writes: Array<{
+    resolve: () => void
+    reject: (error: Error) => void
+  }> = []
+  readonly calls = { set: 0 }
+
+  async getItem() {
+    return null
+  }
+
+  setItem() {
+    this.calls.set += 1
+    return new Promise<void>((resolve, reject) => {
+      this.writes.push({ resolve, reject })
+    })
+  }
+
+  async removeItem() {}
+
+  resolveNext() {
+    const write = this.writes.shift()
+    if (!write) throw new Error("pending write required")
+    write.resolve()
+  }
+
+  rejectNext(error: Error) {
+    const write = this.writes.shift()
+    if (!write) throw new Error("pending write required")
+    write.reject(error)
+  }
+}
 
 const queryOptionsApi = {
   globalConfig: () => ({ queryKey: ["globalConfig"], queryFn: async () => ({}) }),
@@ -52,6 +88,9 @@ function createOwner(callback: (owner: Owner) => void) {
 }
 
 beforeAll(async () => {
+  mock.module("@/context/platform", () => ({
+    usePlatform: () => platform,
+  }))
   mock.module("@tanstack/solid-query", () => ({
     useQuery: (options: () => { queryKey?: unknown[]; enabled?: boolean }) => {
       querySingles.push(options)
@@ -70,7 +109,12 @@ beforeAll(async () => {
     },
   }))
 
+  actualPersisted = (await import("@/utils/persist")).persisted
   createChildStoreManager = (await import("./child-store")).createChildStoreManager
+})
+
+beforeEach(() => {
+  platform = { platform: "web" }
 })
 
 describe("createChildStoreManager", () => {
@@ -383,6 +427,56 @@ describe("createChildStoreManager", () => {
       resolveIcon?.()
       await icon
       expect(iconSettled).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("retries the same project icon through real deferred persistence after a failed flush", async () => {
+    const storage = new DeferredStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    let dispose = () => {}
+
+    renderToString(() => {
+      dispose = createOwner((owner) => {
+        manager = createChildStoreManager({
+          owner,
+          scope: ServerScope.local,
+          persist: actualPersisted,
+          isBooting: () => false,
+          isLoadingSessions: () => false,
+          onBootstrap() {},
+          onMcp() {},
+          onDispose() {},
+          translate: (key) => key,
+          queryOptions: queryOptionsApi,
+          global: { provider },
+        })
+      })
+      return ""
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      const first = manager.projectIcon("/project", "custom.png").then(
+        () => undefined,
+        (error) => error,
+      )
+
+      expect(store.icon).toBe("custom.png")
+      expect(storage.calls.set).toBe(1)
+      storage.rejectNext(new Error("icon write failed"))
+      const error = await first
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe("icon write failed")
+
+      const second = manager.projectIcon("/project", "custom.png")
+      expect(storage.calls.set).toBe(2)
+      storage.resolveNext()
+      await second
+      expect(store.icon).toBe("custom.png")
     } finally {
       dispose()
     }

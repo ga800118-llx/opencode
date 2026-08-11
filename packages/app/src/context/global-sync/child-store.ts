@@ -370,10 +370,8 @@ export function createChildStoreManager(input: {
     const [store, setStore] = ensureChild(directory)
     const cached = iconCache.get(key)
     if (!cached) return
-    if (store.icon !== value) {
-      cached.setStore("value", value)
-      setStore("icon", value)
-    }
+    cached.setStore("value", value)
+    if (store.icon !== value) setStore("icon", value)
     await cached.flush()
   }
 

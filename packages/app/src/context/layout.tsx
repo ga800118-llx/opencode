@@ -584,6 +584,11 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     createEffect(() => {
       colorRetryRevision()
       const projects = enriched()
+      const worktrees = new Set(projects.map((project) => project.worktree))
+      colorRetry.retain(worktrees)
+      for (const worktree of colorRequested.keys()) {
+        if (!worktrees.has(worktree)) colorRequested.delete(worktree)
+      }
       if (projects.length === 0) return
 
       for (const project of projects) {
