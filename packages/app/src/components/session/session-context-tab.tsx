@@ -5,6 +5,9 @@ import { checksum } from "@opencode-ai/core/util/encode"
 import { findLast } from "@opencode-ai/core/util/array"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Spinner } from "@opencode-ai/ui/spinner"
+import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { File } from "@opencode-ai/session-ui/file"
@@ -15,6 +18,10 @@ import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSDK } from "@/context/sdk"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { useLocal } from "@/context/local"
+import { showToast } from "@/utils/toast"
+import { formatServerError } from "@/utils/server-errors"
+import { createSessionCompaction } from "@/pages/session/session-compaction"
 import { getSessionContext } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
@@ -95,6 +102,7 @@ export function SessionContextTab() {
   const sync = useSync()
   const language = useLanguage()
   const sdk = useSDK()
+  const local = useLocal()
   const providers = useProviders(() => sdk().directory)
   const { params, view } = useSessionLayout()
 
@@ -126,20 +134,8 @@ export function SessionContextTab() {
     { equals: same },
   )
 
-  const usd = createMemo(
-    () =>
-      new Intl.NumberFormat(language.intl(), {
-        style: "currency",
-        currency: "USD",
-      }),
-  )
-
   const ctx = createMemo(() => getSessionContext(messages(), [...providers.all().values()]))
   const formatter = createMemo(() => createSessionContextFormatter(language.intl()))
-
-  const cost = createMemo(() => {
-    return usd().format(info()?.cost ?? 0)
-  })
 
   const counts = createMemo(() => {
     const all = messages()
@@ -197,6 +193,46 @@ export function SessionContextTab() {
     return language.t("context.breakdown.other")
   }
 
+  const compaction = createSessionCompaction({
+    sessionID: () => params.id,
+    hasVisibleUserMessage: () => visibleUserMessages().length > 0,
+    model: () => {
+      const model = local.model.current()
+      if (!model) return
+      return { providerID: model.provider.id, modelID: model.id }
+    },
+    working: () => {
+      const sessionID = params.id
+      return !!sessionID && sync().data.session_working(sessionID)
+    },
+    compact: (request) => sdk().api.session.compact(request),
+  })
+
+  const compact = async () => {
+    const result = await compaction.run()
+    if (result.status === "disabled") {
+      if (result.reason !== "no-model") return
+      showToast({
+        title: language.t("toast.model.none.title"),
+        description: language.t("toast.model.none.description"),
+      })
+      return
+    }
+    if (result.status === "error") {
+      showToast({
+        title: language.t("command.session.compact"),
+        description: formatServerError(result.error, language.t, language.t("common.requestFailed")),
+        variant: "error",
+      })
+      return
+    }
+    showToast({
+      title: language.t("command.session.compact"),
+      description: language.t("command.session.compact.description"),
+      variant: "success",
+    })
+  }
+
   const stats = [
     { label: "context.stats.session", value: () => info()?.title ?? params.id ?? "—" },
     { label: "context.stats.messages", value: () => counts().all.toLocaleString(language.intl()) },
@@ -215,7 +251,6 @@ export function SessionContextTab() {
     },
     { label: "context.stats.userMessages", value: () => counts().user.toLocaleString(language.intl()) },
     { label: "context.stats.assistantMessages", value: () => counts().assistant.toLocaleString(language.intl()) },
-    { label: "context.stats.totalCost", value: cost },
     { label: "context.stats.sessionCreated", value: () => formatter().time(info()?.time.created) },
     { label: "context.stats.lastActivity", value: () => formatter().time(ctx()?.message.time.created) },
   ] satisfies { label: string; value: () => JSX.Element }[]
@@ -279,6 +314,25 @@ export function SessionContextTab() {
       onScroll={handleScroll}
     >
       <div class="px-6 pt-4 pb-10 flex flex-col gap-10">
+        <div class="flex justify-end">
+          <TooltipV2 value={language.t("command.session.compact.description")} placement="bottom">
+            <ButtonV2
+              type="button"
+              size="small"
+              variant={compaction.pending() ? "loading" : "neutral"}
+              icon={compaction.pending() ? undefined : "collapse"}
+              disabled={compaction.disabledReason() !== undefined}
+              aria-busy={compaction.pending()}
+              onClick={() => void compact()}
+            >
+              <Show when={compaction.pending()}>
+                <Spinner class="size-3.5" />
+              </Show>
+              {language.t("command.session.compact")}
+            </ButtonV2>
+          </TooltipV2>
+        </div>
+
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
           <For each={stats}>
             {(stat) => <Stat label={language.t(stat.label as Parameters<typeof language.t>[0])} value={stat.value()} />}

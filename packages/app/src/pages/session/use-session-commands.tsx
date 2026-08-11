@@ -22,6 +22,8 @@ import { useLocal } from "@/context/local"
 import { useProductTaskAdapter } from "@/product/context"
 import { usePermissionModeRequester } from "@/components/permission-mode-control"
 import { toggleAutoMode } from "@/components/settings-v2/general-controllers"
+import { createSessionCompaction } from "./session-compaction"
+import { formatServerError } from "@/utils/server-errors"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -106,6 +108,20 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     if (!revert) return userMessages()
     return userMessages().filter((m) => m.id < revert)
   }
+  const compaction = createSessionCompaction({
+    sessionID: () => params.id,
+    hasVisibleUserMessage: () => visibleUserMessages().length > 0,
+    model: () => {
+      const model = local.model.current()
+      if (!model) return
+      return { providerID: model.provider.id, modelID: model.id }
+    },
+    working: () => {
+      const sessionID = params.id
+      return !!sessionID && sync().data.session_working(sessionID)
+    },
+    compact: (request) => sdk().api.session.compact(request),
+  })
 
   const showAllFiles = () => {
     if (layout.fileTree.tab() !== "changes") return
@@ -339,7 +355,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const parts = sync().data.part[message.id]
 
     if (sync().data.session_working(sessionID)) {
-      await taskAdapter().interrupt({ taskID: sessionID, directory }).catch(() => {})
+      await taskAdapter()
+        .interrupt({ taskID: sessionID, directory })
+        .catch(() => {})
     }
 
     await runCommand({
@@ -386,21 +404,27 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const compact = async () => {
-    const sessionID = params.id
-    if (!sessionID) return
-
-    const model = local.model.current()
-    if (!model) {
+    const result = await compaction.run()
+    if (result.status === "disabled") {
+      if (result.reason !== "no-model") return
       showToast({
         title: language.t("toast.model.none.title"),
         description: language.t("toast.model.none.description"),
       })
       return
     }
-
-    await sdk().api.session.compact({
-      sessionID,
-      model: { providerID: model.provider.id, modelID: model.id },
+    if (result.status === "error") {
+      showToast({
+        title: language.t("command.session.compact"),
+        description: formatServerError(result.error, language.t, language.t("common.requestFailed")),
+        variant: "error",
+      })
+      return
+    }
+    showToast({
+      title: language.t("command.session.compact"),
+      description: language.t("command.session.compact.description"),
+      variant: "success",
     })
   }
 
@@ -470,7 +494,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.compact"),
       description: language.t("command.session.compact.description"),
       slash: "compact",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      disabled: compaction.disabledReason() !== undefined && compaction.disabledReason() !== "no-model",
       onSelect: compact,
     }),
     sessionCommand({

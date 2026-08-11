@@ -63,20 +63,8 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     fileBrowser: () => settings.general.newLayoutDesigns() && isDesktop() && !!params.id,
   })
   const messages = createMemo(() => (params.id ? (sync().data.message[params.id] ?? []) : []))
-  const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
-
-  const usd = createMemo(
-    () =>
-      new Intl.NumberFormat(language.intl(), {
-        style: "currency",
-        currency: "USD",
-      }),
-  )
 
   const context = createMemo(() => getSessionContext(messages(), [...providers.all().values()]))
-  const cost = createMemo(() => {
-    return usd().format(info()?.cost ?? 0)
-  })
   const contextVisible = createMemo(() => view().reviewPanel.opened() && tabState.activeTab() === "context")
   const hasOtherTabs = createMemo(() =>
     tabs()
@@ -127,7 +115,6 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const tooltipValue = () => (
     <div class="flex w-[120px] flex-col gap-2">
-      <ContextTooltipRow name={language.t("context.usage.cost")} value={cost()} />
       <ContextTooltipRow name={language.t("context.usage.usage")} value={`${context()?.usage ?? 0}%`} />
       <ContextTooltipRow
         name={language.t("context.usage.tokens")}
