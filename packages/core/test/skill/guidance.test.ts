@@ -3,6 +3,7 @@ import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { PluginV2 } from "@opencode-ai/core/plugin"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SystemContext } from "@opencode-ai/core/system-context"
@@ -30,6 +31,14 @@ const denied = SkillV2.Info.make({
 
 const layer = (list: () => SkillV2.Info[]) =>
   AppNodeBuilder.build(SkillGuidance.node, [
+    [
+      PluginV2.node,
+      Layer.mock(PluginV2.Service, {
+        add: () => Effect.die("unused"),
+        remove: () => Effect.die("unused"),
+        wait: () => Effect.void,
+      }),
+    ],
     [
       SkillV2.node,
       Layer.mock(SkillV2.Service, {
