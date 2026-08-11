@@ -494,25 +494,77 @@ async function readRequestBody(request: IncomingMessage, maximumBytes: number) {
 function validateMessages(value: unknown) {
   if (!Array.isArray(value) || value.length === 0) return "The soak fixture requires at least one message"
   if (value.length > 256) return "The soak fixture accepts at most 256 messages"
-  const roles = new Set(["system", "developer", "user", "assistant", "tool"])
   const invalid = value.findIndex((message) => {
-    if (!isRecord(message) || typeof message.role !== "string" || !roles.has(message.role)) return true
-    if (typeof message.content === "string") {
-      return !message.content.trim() || Buffer.byteLength(message.content) > 1024 * 1024
-    }
-    if (!Array.isArray(message.content) || message.content.length === 0 || message.content.length > 64) return true
-    return message.content.some((value) => {
-      if (!isRecord(value) || Object.keys(value).sort().join() !== "text,type") return true
+    if (!isRecord(message) || typeof message.role !== "string") return true
+    if (message.role === "system" || message.role === "developer" || message.role === "user") {
       return (
-        value.type !== "text" ||
-        typeof value.text !== "string" ||
-        !value.text.trim() ||
-        Buffer.byteLength(value.text) > 1024 * 1024
+        !hasExactFields(message, ["content", "name", "role"]) ||
+        !validOptionalName(message.name) ||
+        !validContent(message.content)
       )
-    })
+    }
+    if (message.role === "assistant") {
+      if (!hasExactFields(message, ["content", "name", "role", "tool_calls"])) return true
+      if (!validOptionalName(message.name)) return true
+      const hasContent = message.content !== null && message.content !== undefined
+      const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0
+      if (!hasContent && !hasToolCalls) return true
+      if (hasContent && !validContent(message.content)) return true
+      return hasToolCalls ? !validToolCalls(message.tool_calls) : message.tool_calls !== undefined
+    }
+    if (message.role === "tool") {
+      return (
+        !hasExactFields(message, ["content", "name", "role", "tool_call_id"]) ||
+        !validOptionalName(message.name) ||
+        !validContent(message.content) ||
+        !validIdentifier(message.tool_call_id)
+      )
+    }
+    return true
   })
   if (invalid !== -1) return `The soak fixture message at index ${invalid} is invalid`
   return undefined
+}
+
+function validContent(value: unknown) {
+  if (typeof value === "string") return Boolean(value.trim()) && Buffer.byteLength(value) <= 1024 * 1024
+  if (!Array.isArray(value) || value.length === 0 || value.length > 64) return false
+  return value.every((part) => {
+    if (!isRecord(part) || !hasExactFields(part, ["text", "type"])) return false
+    return (
+      part.type === "text" &&
+      typeof part.text === "string" &&
+      Boolean(part.text.trim()) &&
+      Buffer.byteLength(part.text) <= 1024 * 1024
+    )
+  })
+}
+
+function validToolCalls(value: unknown[]) {
+  if (value.length > 64) return false
+  return value.every((call) => {
+    if (!isRecord(call) || !hasExactFields(call, ["function", "id", "type"])) return false
+    if (!validIdentifier(call.id) || call.type !== "function" || !isRecord(call.function)) return false
+    if (!hasExactFields(call.function, ["arguments", "name"])) return false
+    return (
+      validIdentifier(call.function.name) &&
+      typeof call.function.arguments === "string" &&
+      Buffer.byteLength(call.function.arguments) <= 1024 * 1024
+    )
+  })
+}
+
+function hasExactFields(value: Record<string, unknown>, allowed: string[]) {
+  const fields = Object.keys(value)
+  return fields.every((field) => allowed.includes(field))
+}
+
+function validIdentifier(value: unknown) {
+  return typeof value === "string" && Boolean(value.trim()) && Buffer.byteLength(value) <= 256
+}
+
+function validOptionalName(value: unknown) {
+  return value === undefined || validIdentifier(value)
 }
 
 async function macSocketEstablished(localPort: number | undefined, remotePort: number | undefined) {

@@ -46,8 +46,9 @@ describe("Mac runtime soak evidence", () => {
 
   test("binds a structured packaged-client export to the package manifest and valid ZIP", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-"))
+    const artifacts = await createEvidenceArtifacts(directory)
     try {
-      const artifacts = await createEvidenceArtifacts(directory)
+      await Bun.write(artifacts.sourcePath, "forged handwritten evidence")
       expect(assertMacRuntimeSoakServerEvidence(valid(), shortPolicy)).toEqual(valid())
       expect(() => assertMacRuntimeSoakEvidence(valid(), shortPolicy)).toThrow("fields")
       const evidence = await combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)
@@ -63,6 +64,15 @@ describe("Mac runtime soak evidence", () => {
       })
       expect(evidence.packagedClientAcknowledgment.sourceSha256).toMatch(/^[a-f0-9]{64}$/)
       expect(evidence.packagedClientAcknowledgment.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(await Bun.file(artifacts.sourcePath).json()).toMatchObject({
+        capture: {
+          transport: "opencode-session-http",
+          sessionID: "ses_soak",
+          directory,
+          endpoint: artifacts.session.endpoint,
+          responseSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      })
       expect(await verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).toEqual(evidence)
       expect(() =>
         assertMacRuntimeSoakEvidence(
@@ -74,24 +84,15 @@ describe("Mac runtime soak evidence", () => {
         ),
       ).toThrow("runID")
     } finally {
+      artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
 
-  test("rejects unstructured and forged packaged-client evidence", async () => {
+  test("rejects forged package names, manifests, and ZIP content", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-forged-"))
+    const artifacts = await createEvidenceArtifacts(directory)
     try {
-      const artifacts = await createEvidenceArtifacts(directory)
-      await Bun.write(artifacts.sourcePath, `assistant ${valid().runID} ${valid().terminalMarker}`)
-      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("JSON")
-
-      await writeSessionExport(artifacts, await sha256(artifacts.packagePath))
-      await writeSessionExport(artifacts, "f".repeat(64))
-      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow(
-        "session export package hash",
-      )
-
-      await writeSessionExport(artifacts, await sha256(artifacts.packagePath))
       await Bun.write(
         artifacts.manifestPath,
         `${await sha256(artifacts.packagePath)} ${path.basename(artifacts.packagePath)}`,
@@ -122,42 +123,56 @@ describe("Mac runtime soak evidence", () => {
 
       await Bun.write(artifacts.packagePath, "not a ZIP archive")
       const invalidHash = await sha256(artifacts.packagePath)
-      await writeSessionExport(artifacts, invalidHash)
       await Bun.write(
         artifacts.manifestPath,
         formatChecksumManifest([{ file: artifacts.packagePath, sha256: invalidHash }]),
       )
       await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("ZIP")
     } finally {
+      artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
 
-  test("rejects transcript fields that do not exactly prove the assistant output", async () => {
+  test("rejects live session responses that do not exactly prove one completed assistant output", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-transcript-"))
     try {
-      const artifacts = await createEvidenceArtifacts(directory)
-      const packageSha256 = await sha256(artifacts.packagePath)
-      await writeSessionExport(artifacts, packageSha256, {
-        output: `completed ${valid().terminalMarker} suffix`,
-        parts: [{ type: "text", text: `completed ${valid().terminalMarker} suffix` }],
-      })
-      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("terminal marker")
-
-      await writeSessionExport(artifacts, packageSha256, {
-        output: `response\n${valid().terminalMarker}`,
-        parts: [{ type: "text", text: `response\n${valid().terminalMarker}\nforged extra` }],
-      })
-      await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow("parts")
+      await expectInvalidSession(
+        path.join(directory, "inline-marker"),
+        [assistantMessage(`completed ${valid().terminalMarker} suffix`)],
+        "exactly one completed assistant marker",
+      )
+      await expectInvalidSession(
+        path.join(directory, "duplicate-marker"),
+        [assistantMessage(valid().terminalMarker), assistantMessage(valid().terminalMarker)],
+        "exactly one completed assistant marker",
+      )
+      await expectInvalidSession(
+        path.join(directory, "early-marker"),
+        [assistantMessage(valid().terminalMarker, Date.parse(valid().terminalAt) - 1)],
+        "predates",
+      )
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
   })
 
+  test("rejects a structurally valid DMG that does not contain the packaged app", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-empty-dmg-"))
+    const artifacts = await createEvidenceArtifacts(path.join(directory, "session"))
+    try {
+      const dmg = await createEmptyDmgArtifacts(path.join(directory, "dmg"), artifacts.session)
+      await expect(combineMacRuntimeSoakEvidence(valid(), dmg, shortPolicy)).rejects.toThrow("missing a valid")
+    } finally {
+      artifacts.stop()
+      await rm(directory, { recursive: true, force: true })
+    }
+  }, 20_000)
+
   test("revalidates session export, manifest, and package artifacts after combination", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mac-runtime-soak-reverify-"))
+    const artifacts = await createEvidenceArtifacts(directory)
     try {
-      const artifacts = await createEvidenceArtifacts(directory)
       const evidence = await combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)
       const source = await Bun.file(artifacts.sourcePath).text()
       const manifest = await Bun.file(artifacts.manifestPath).text()
@@ -176,6 +191,7 @@ describe("Mac runtime soak evidence", () => {
       )
       await expect(verifyMacRuntimeSoakEvidence(evidence, shortPolicy)).rejects.toThrow("package hash")
     } finally {
+      artifacts.stop()
       await rm(directory, { recursive: true, force: true })
     }
   })
@@ -302,6 +318,19 @@ describe("Mac runtime soak fixture", () => {
       [{ role: "user", content: "" }],
       [{ role: "user", content: "   " }],
       [{ role: "user", content: [] }],
+      [{ role: "user", content: "soak", forged: true }],
+      [{ role: "tool", content: "tool" }],
+      [{ role: "tool", content: "tool", tool_call_id: 123 }],
+      [{ role: "tool", content: "tool", tool_call_id: "call-1", forged: true }],
+      [{ role: "assistant", content: null }],
+      [{ role: "assistant", content: null, tool_calls: [] }],
+      [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "call-1", type: "function", function: { name: "shell", arguments: "{}", forged: true } }],
+        },
+      ],
       [{ role: "user", content: [{ type: "text", text: "" }] }],
       [{ role: "user", content: [{ type: "image_url", image_url: { url: "https://example.com" } }] }],
       Array.from({ length: 257 }, () => ({ role: "user", content: "soak" })),
@@ -316,7 +345,11 @@ describe("Mac runtime soak fixture", () => {
         { role: "system", content: "system" },
         { role: "developer", content: [{ type: "text", text: "developer" }] },
         { role: "user", content: [{ type: "text", text: "soak" }] },
-        { role: "assistant", content: "assistant" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "call-1", type: "function", function: { name: "shell", arguments: "{}" } }],
+        },
         { role: "tool", content: [{ type: "text", text: "tool" }], tool_call_id: "call-1" },
       ])
       expect(response.status).toBe(200)
@@ -567,14 +600,36 @@ function read(response: IncomingMessage) {
   })
 }
 
-async function createEvidenceArtifacts(directory: string) {
+async function createEvidenceArtifacts(
+  directory: string,
+  sessionResponse: unknown = [assistantMessage(`response\n${valid().terminalMarker}`)],
+) {
   const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.zip")
   const sourcePath = path.join(directory, "packaged-client-session.json")
   const manifestPath = path.join(directory, "SHA256SUMS.txt")
   const contents = path.join(directory, "Guai Code Beta.app", "Contents")
   await mkdir(path.join(contents, "MacOS"), { recursive: true })
-  await Bun.write(path.join(contents, "Info.plist"), '<?xml version="1.0"?><plist></plist>\n')
-  await Bun.write(path.join(contents, "MacOS", "Guai Code Beta"), "#!/bin/sh\nexit 0\n")
+  await Bun.write(
+    path.join(contents, "Info.plist"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>Guai Code Beta</string>
+  <key>CFBundleIdentifier</key><string>com.guaicode.desktop.beta</string>
+  <key>CFBundleName</key><string>Guai Code Beta</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0-alpha.2</string>
+  <key>CFBundleVersion</key><string>1</string>
+</dict>
+</plist>
+`,
+  )
+  const source = path.join(directory, "main.c")
+  const executable = path.join(contents, "MacOS", "Guai Code Beta")
+  await Bun.write(source, "int main(void) { return 0; }\n")
+  await run(["/usr/bin/clang", "-arch", "arm64", source, "-o", executable])
+  await run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", path.join(directory, "Guai Code Beta.app")])
   const zip = Bun.spawn(["/usr/bin/zip", "-qry", packagePath, "Guai Code Beta.app"], {
     cwd: directory,
     stdout: "pipe",
@@ -582,47 +637,61 @@ async function createEvidenceArtifacts(directory: string) {
   })
   if ((await zip.exited) !== 0) throw new Error(await new Response(zip.stderr).text())
   const packageSha256 = await sha256(packagePath)
-  const artifacts = { sourcePath, manifestPath, packagePath }
-  await writeSessionExport(artifacts, packageSha256)
   await Bun.write(manifestPath, formatChecksumManifest([{ file: packagePath, sha256: packageSha256 }]))
-  return artifacts
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname !== "/session/ses_soak/message") return new Response(null, { status: 404 })
+      if (request.headers.get("x-opencode-directory") !== directory) return new Response(null, { status: 400 })
+      return Response.json(sessionResponse)
+    },
+  })
+  return {
+    sourcePath,
+    manifestPath,
+    packagePath,
+    session: {
+      endpoint: `http://127.0.0.1:${server.port}/session/ses_soak/message`,
+      sessionID: "ses_soak",
+      directory,
+    },
+    stop: () => server.stop(true),
+  }
 }
 
-async function writeSessionExport(
-  artifacts: { sourcePath: string; packagePath: string },
-  packageSha256: string,
-  assistant: {
-    output: string
-    parts: { type: "text"; text: string }[]
-  } = {
-    output: `response\n${valid().terminalMarker}`,
-    parts: [
-      { type: "text", text: "response\n" },
-      { type: "text", text: valid().terminalMarker },
-    ],
-  },
+function assistantMessage(text: string, completed = Date.parse(valid().completedAt)) {
+  return {
+    info: { role: "assistant", time: { created: completed - 1, completed } },
+    parts: [{ type: "text", text }],
+  }
+}
+
+async function expectInvalidSession(directory: string, response: unknown, message: string) {
+  const artifacts = await createEvidenceArtifacts(directory, response)
+  try {
+    await expect(combineMacRuntimeSoakEvidence(valid(), artifacts, shortPolicy)).rejects.toThrow(message)
+  } finally {
+    artifacts.stop()
+  }
+}
+
+async function createEmptyDmgArtifacts(
+  directory: string,
+  session: { endpoint: string; sessionID: string; directory: string },
 ) {
-  await Bun.write(
-    artifacts.sourcePath,
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        producer: {
-          id: "guai-code-packaged-qa",
-          product: "Guai Code Beta",
-          version: "0.1.0-alpha.2",
-          platform: "darwin",
-          arch: "arm64",
-        },
-        package: { fileName: path.basename(artifacts.packagePath), sha256: packageSha256 },
-        session: {
-          runID: valid().runID,
-          completedAt: valid().completedAt,
-          assistant: { role: "assistant", ...assistant },
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  )
+  const empty = path.join(directory, "empty")
+  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.dmg")
+  const sourcePath = path.join(directory, "packaged-client-session.json")
+  const manifestPath = path.join(directory, "SHA256SUMS.txt")
+  await mkdir(empty, { recursive: true })
+  await run(["/usr/bin/hdiutil", "create", "-quiet", "-srcfolder", empty, "-format", "UDZO", packagePath])
+  await Bun.write(manifestPath, formatChecksumManifest([{ file: packagePath, sha256: await sha256(packagePath) }]))
+  return { sourcePath, manifestPath, packagePath, session }
+}
+
+async function run(command: string[]) {
+  const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" })
+  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+  if (exitCode !== 0) throw new Error(`${command.join(" ")} failed: ${stderr}`)
 }

@@ -1,3 +1,5 @@
+import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 
 export const DEFAULT_MAC_RUNTIME_SOAK_DURATION_MS = 65 * 60_000
@@ -56,6 +58,13 @@ export type MacRuntimeSoakSessionExport = {
     fileName: string
     sha256: string
   }
+  capture: {
+    transport: "opencode-session-http"
+    sessionID: string
+    directory: string
+    endpoint: string
+    responseSha256: string
+  }
   session: {
     runID: string
     completedAt: string
@@ -91,6 +100,18 @@ export type MacRuntimeSoakEvidencePolicy = {
   minimumChunks?: number
   maximumActivityGapMs?: number
   durationToleranceMs?: number
+}
+
+export type MacRuntimeSoakCaptureInput = {
+  sourcePath: string
+  manifestPath: string
+  packagePath: string
+  session: {
+    endpoint: string
+    sessionID: string
+    directory: string
+    headers?: Readonly<Record<string, string>>
+  }
 }
 
 const observationKeys = [
@@ -206,10 +227,11 @@ export function assertMacRuntimeSoakServerEvidence(
 
 export async function combineMacRuntimeSoakEvidence(
   server: unknown,
-  input: { sourcePath: string; manifestPath: string; packagePath: string },
+  input: MacRuntimeSoakCaptureInput,
   policy: MacRuntimeSoakEvidencePolicy = {},
 ): Promise<MacRuntimeSoakEvidence> {
   const verifiedServer = assertMacRuntimeSoakServerEvidence(server, policy)
+  await capturePackagedClientSession(verifiedServer, input)
   const packagedClientAcknowledgment = await loadPackagedClientAcknowledgment(verifiedServer, input)
   return assertMacRuntimeSoakEvidence({ ...verifiedServer, packagedClientAcknowledgment }, policy)
 }
@@ -284,6 +306,122 @@ export function assertMacRuntimeSoakEvidence(
   }
 }
 
+async function capturePackagedClientSession(server: MacRuntimeSoakServerEvidence, input: MacRuntimeSoakCaptureInput) {
+  const packagePath = path.resolve(input.packagePath)
+  const packageArtifact = Bun.file(packagePath)
+  if (!(await packageArtifact.exists())) throw new Error("Packaged client package artifact does not exist")
+  const packageIdentity = requirePackageIdentity(path.basename(packagePath))
+  const packageSha256 = await sha256(packagePath)
+  const endpoint = requireSessionEndpoint(input.session.endpoint, input.session.sessionID)
+  if (!path.isAbsolute(input.session.directory)) {
+    throw new Error("Packaged client session directory is invalid")
+  }
+  const response = await fetch(endpoint, {
+    headers: {
+      ...input.session.headers,
+      "x-opencode-directory": input.session.directory,
+    },
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!response.ok) throw new Error(`Packaged client session export request failed with ${response.status}`)
+  const responseBody = await readBoundedResponse(response, sessionExportMaximumBytes)
+  const assistant = extractAssistantOutput(parseJson(responseBody, "Packaged client session response"), server)
+  const sessionExport = {
+    schemaVersion: 1,
+    producer: {
+      id: packagedClientProducer,
+      product: packagedClientProduct,
+      version: packageIdentity.version,
+      platform: "darwin",
+      arch: "arm64",
+    },
+    package: { fileName: path.basename(packagePath), sha256: packageSha256 },
+    capture: {
+      transport: "opencode-session-http",
+      sessionID: input.session.sessionID,
+      directory: input.session.directory,
+      endpoint,
+      responseSha256: sha256Text(responseBody),
+    },
+    session: {
+      runID: server.runID,
+      completedAt: assistant.completedAt,
+      assistant: { role: "assistant", output: assistant.output, parts: assistant.parts },
+    },
+  } satisfies MacRuntimeSoakSessionExport
+  const sourcePath = path.resolve(input.sourcePath)
+  await mkdir(path.dirname(sourcePath), { recursive: true })
+  await Bun.write(sourcePath, `${JSON.stringify(sessionExport, null, 2)}\n`)
+}
+
+function requireSessionEndpoint(value: string, sessionID: string) {
+  if (!/^[a-zA-Z0-9_-]{1,256}$/.test(sessionID)) throw new Error("Packaged client session ID is invalid")
+  const endpoint = new URL(value)
+  if (endpoint.protocol !== "http:" || !new Set(["127.0.0.1", "::1", "localhost"]).has(endpoint.hostname)) {
+    throw new Error("Packaged client session endpoint must use loopback HTTP")
+  }
+  if (endpoint.username || endpoint.password || endpoint.hash || endpoint.search) {
+    throw new Error("Packaged client session endpoint is invalid")
+  }
+  const encoded = encodeURIComponent(sessionID)
+  if (endpoint.pathname !== `/session/${encoded}/message` && endpoint.pathname !== `/api/session/${encoded}/message`) {
+    throw new Error("Packaged client session endpoint path is invalid")
+  }
+  return endpoint.toString()
+}
+
+async function readBoundedResponse(response: Response, maximumBytes: number) {
+  const contentLength = Number(response.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    throw new Error("Packaged client session response is too large")
+  }
+  if (!response.body) throw new Error("Packaged client session response is empty")
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytes = 0
+  while (true) {
+    const value = await reader.read()
+    if (value.done) break
+    bytes += value.value.byteLength
+    if (bytes > maximumBytes) {
+      await reader.cancel()
+      throw new Error("Packaged client session response is too large")
+    }
+    chunks.push(value.value)
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8")
+}
+
+function extractAssistantOutput(value: unknown, server: MacRuntimeSoakServerEvidence) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100_000) {
+    throw new Error("Packaged client session response must contain a bounded message array")
+  }
+  const matches = value.flatMap((item) => {
+    if (!isRecord(item) || !isRecord(item.info) || item.info.role !== "assistant" || !Array.isArray(item.parts)) {
+      return []
+    }
+    const completed = isRecord(item.info.time) ? item.info.time.completed : undefined
+    if (typeof completed !== "number" || !Number.isSafeInteger(completed) || completed < 0) return []
+    const parts = item.parts.flatMap((part) => {
+      if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") return []
+      return [{ type: "text" as const, text: requireText(part.text, "Packaged client session text part") }]
+    })
+    if (parts.length === 0 || parts.length > 4_096) return []
+    const output = parts.map((part) => part.text).join("")
+    if (!containsExactLine(output, server.terminalMarker)) return []
+    return [{ completedAt: new Date(completed).toISOString(), output, parts }]
+  })
+  if (matches.length !== 1) {
+    throw new Error("Packaged client session response must contain exactly one completed assistant marker")
+  }
+  const completedAt = requireTimestamp(matches[0].completedAt, "captured session completedAt")
+  if (completedAt.millis < Date.parse(server.terminalAt)) {
+    throw new Error("Packaged client session response predates the terminal marker")
+  }
+  return matches[0]
+}
+
 async function loadPackagedClientAcknowledgment(
   server: MacRuntimeSoakServerEvidence,
   input: { sourcePath: string; manifestPath: string; packagePath: string },
@@ -325,7 +463,7 @@ async function loadPackagedClientAcknowledgment(
   if (manifestEntry.sha256 !== packageSha256) {
     throw new Error("Packaged client checksum manifest package hash does not match")
   }
-  await validatePackageArtifact(packagePath, packageIdentity.format)
+  await validatePackageArtifact(packagePath, packageIdentity)
 
   return {
     runID: server.runID,
@@ -346,7 +484,11 @@ async function loadPackagedClientAcknowledgment(
 function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence): MacRuntimeSoakSessionExport {
   const parsed = parseJson(value, "Packaged client session export")
   const sessionExport = requireRecord(parsed, "Packaged client session export")
-  requireExactKeys(sessionExport, ["schemaVersion", "producer", "package", "session"], "Packaged client session export")
+  requireExactKeys(
+    sessionExport,
+    ["schemaVersion", "producer", "package", "capture", "session"],
+    "Packaged client session export",
+  )
   if (sessionExport.schemaVersion !== 1) throw new Error("Packaged client session export schema version is invalid")
 
   const producer = requireRecord(sessionExport.producer, "Packaged client session export producer")
@@ -374,6 +516,24 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
     throw new Error("Packaged client session export package name is invalid")
   }
   requireSha256(packageMetadata.sha256, "session export package")
+
+  const capture = requireRecord(sessionExport.capture, "Packaged client session export capture")
+  requireExactKeys(
+    capture,
+    ["transport", "sessionID", "directory", "endpoint", "responseSha256"],
+    "Packaged client session export capture",
+  )
+  if (capture.transport !== "opencode-session-http") {
+    throw new Error("Packaged client session export capture transport is invalid")
+  }
+  if (typeof capture.sessionID !== "string" || typeof capture.endpoint !== "string") {
+    throw new Error("Packaged client session export capture session is invalid")
+  }
+  requireSessionEndpoint(capture.endpoint, capture.sessionID)
+  if (typeof capture.directory !== "string" || !path.isAbsolute(capture.directory)) {
+    throw new Error("Packaged client session export capture directory is invalid")
+  }
+  requireSha256(capture.responseSha256, "session response")
 
   const session = requireRecord(sessionExport.session, "Packaged client session export session")
   requireExactKeys(session, ["runID", "completedAt", "assistant"], "Packaged client session export session")
@@ -416,6 +576,13 @@ function parseSessionExport(value: string, server: MacRuntimeSoakServerEvidence)
       arch: "arm64",
     },
     package: { fileName: packageMetadata.fileName, sha256: packageMetadata.sha256 },
+    capture: {
+      transport: "opencode-session-http",
+      sessionID: capture.sessionID,
+      directory: capture.directory,
+      endpoint: capture.endpoint,
+      responseSha256: capture.responseSha256,
+    },
     session: {
       runID: server.runID,
       completedAt: completedAt.value,
@@ -447,35 +614,83 @@ function parseChecksumManifest(value: string) {
   return entries
 }
 
-async function validatePackageArtifact(packagePath: string, format: "dmg" | "zip") {
-  if (format === "dmg") {
-    if (process.platform !== "darwin") throw new Error("DMG package validation requires macOS")
-    await runCommand("/usr/bin/hdiutil", ["imageinfo", packagePath], "DMG image info")
-    await runCommand("/usr/bin/hdiutil", ["verify", packagePath], "DMG verification")
-    return
-  }
+async function validatePackageArtifact(packagePath: string, identity: { version: string; format: "dmg" | "zip" }) {
+  if (process.platform !== "darwin") throw new Error("Mac package validation requires macOS")
+  const directory = await mkdtemp(path.join(tmpdir(), "guai-runtime-package-"))
+  const mount = path.join(directory, "mount")
+  const extracted = path.join(directory, "extracted")
+  let mounted = false
+  try {
+    if (identity.format === "dmg") {
+      await mkdir(mount)
+      await runCommand("/usr/bin/hdiutil", ["imageinfo", packagePath], "DMG image info")
+      await runCommand("/usr/bin/hdiutil", ["verify", packagePath], "DMG verification")
+      await runCommand(
+        "/usr/bin/hdiutil",
+        ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, packagePath],
+        "DMG mount",
+      )
+      mounted = true
+      await validateAppBundle(path.join(mount, "Guai Code Beta.app"), identity.version)
+      return
+    }
 
-  const signature = Buffer.from(await Bun.file(packagePath).slice(0, 4).arrayBuffer()).toString("hex")
-  if (!new Set(["504b0304", "504b0506", "504b0708"]).has(signature)) {
-    throw new Error("Packaged client ZIP signature is invalid")
+    const signature = Buffer.from(await Bun.file(packagePath).slice(0, 4).arrayBuffer()).toString("hex")
+    if (!new Set(["504b0304", "504b0506", "504b0708"]).has(signature)) {
+      throw new Error("Packaged client ZIP signature is invalid")
+    }
+    await runCommand("/usr/bin/unzip", ["-t", packagePath], "ZIP verification")
+    const listing = await runCommand("/usr/bin/unzip", ["-Z1", packagePath], "ZIP listing")
+    const entries = listing.trimEnd().split("\n")
+    if (
+      entries.some(
+        (entry) =>
+          !entry ||
+          entry.startsWith("/") ||
+          entry.includes("\\") ||
+          entry.split("/").some((segment) => segment === ".."),
+      )
+    ) {
+      throw new Error("Packaged client ZIP contains an invalid entry")
+    }
+    await mkdir(extracted)
+    await runCommand("/usr/bin/ditto", ["-x", "-k", packagePath, extracted], "ZIP extraction")
+    await validateAppBundle(path.join(extracted, "Guai Code Beta.app"), identity.version)
+  } finally {
+    if (mounted) await runCommand("/usr/bin/hdiutil", ["detach", mount, "-force"], "DMG detach").catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
   }
-  await runCommand("/usr/bin/unzip", ["-t", packagePath], "ZIP verification")
-  const listing = await runCommand("/usr/bin/unzip", ["-Z1", packagePath], "ZIP listing")
-  const entries = listing.trimEnd().split("\n")
-  if (
-    entries.some(
-      (entry) =>
-        !entry || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((segment) => segment === ".."),
-    )
-  ) {
-    throw new Error("Packaged client ZIP contains an invalid entry")
+}
+
+async function validateAppBundle(appPath: string, version: string) {
+  const app = await lstat(appPath).catch(() => undefined)
+  if (!app?.isDirectory() || app.isSymbolicLink()) {
+    throw new Error("Packaged client image is missing a valid Guai Code Beta.app")
   }
-  for (const expected of [
-    "Guai Code Beta.app/Contents/Info.plist",
-    "Guai Code Beta.app/Contents/MacOS/Guai Code Beta",
-  ]) {
-    if (!entries.includes(expected)) throw new Error(`Packaged client ZIP is missing ${expected}`)
+  const info = path.join(appPath, "Contents", "Info.plist")
+  const executableDirectory = path.join(appPath, "Contents", "MacOS")
+  for (const item of [path.join(appPath, "Contents"), executableDirectory, info]) {
+    if ((await lstat(item)).isSymbolicLink()) throw new Error("Packaged client app contains an invalid symlink")
   }
+  const identifier = await plistValue(info, "CFBundleIdentifier")
+  const name = await plistValue(info, "CFBundleName")
+  const shortVersion = await plistValue(info, "CFBundleShortVersionString")
+  const executableName = await plistValue(info, "CFBundleExecutable")
+  if (identifier !== "com.guaicode.desktop.beta") throw new Error("Packaged client app Bundle ID is invalid")
+  if (name !== packagedClientProduct) throw new Error("Packaged client app name is invalid")
+  if (shortVersion !== version) throw new Error("Packaged client app version is invalid")
+  if (executableName !== packagedClientProduct) throw new Error("Packaged client app executable name is invalid")
+  const executable = path.join(executableDirectory, executableName)
+  if ((await lstat(executable)).isSymbolicLink()) throw new Error("Packaged client app contains an invalid symlink")
+  const file = await runCommand("/usr/bin/file", ["-b", executable], "App executable inspection")
+  if (!file.includes("Mach-O") || !file.includes("arm64")) {
+    throw new Error("Packaged client app executable is not an arm64 Mach-O")
+  }
+  await runCommand("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], "App signature")
+}
+
+async function plistValue(info: string, key: string) {
+  return (await runCommand("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", info], `App ${key}`)).trim()
 }
 
 async function runCommand(command: string, args: string[], name: string) {
@@ -503,6 +718,10 @@ async function sha256(filePath: string) {
   const hasher = new Bun.CryptoHasher("sha256")
   for await (const chunk of Bun.file(filePath).stream()) hasher.update(chunk)
   return hasher.digest("hex")
+}
+
+function sha256Text(value: string) {
+  return new Bun.CryptoHasher("sha256").update(value).digest("hex")
 }
 
 function parseJson(value: string, name: string): unknown {
