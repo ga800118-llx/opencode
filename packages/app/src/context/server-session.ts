@@ -293,7 +293,8 @@ export function createServerSession(
 
   const markActivity = (sessionID: string, at = Date.now()) => {
     const observedAt = Date.now()
-    const normalizedAt = !Number.isFinite(at) || at > observedAt + activityClockSkewTolerance ? observedAt : at
+    const normalizedAt =
+      !Number.isFinite(at) || Math.abs(at - observedAt) > activityClockSkewTolerance ? observedAt : at
     const current = data.session_activity[sessionID]
     const currentInvalid =
       current !== undefined && (!Number.isFinite(current) || current > observedAt + activityClockSkewTolerance)

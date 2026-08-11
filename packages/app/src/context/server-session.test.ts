@@ -4,6 +4,7 @@ import type { OpenCodeEvent, SessionApi } from "@opencode-ai/client/promise"
 import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
+import { projectActivity } from "../pages/session/timeline/activity-watchdog"
 
 type MessageApi = ServerApi["message"]
 
@@ -1672,19 +1673,20 @@ describe("server session", () => {
   test("records V1 part and status activity from event times", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
+    const base = Date.now()
     ctx.store.apply({
       type: "message.part.updated",
-      properties: { sessionID: "child", part: textPart("message"), time: 100 },
+      properties: { sessionID: "child", part: textPart("message"), time: base - 2 },
     })
 
-    expect(ctx.store.data.session_activity.child).toBe(100)
+    expect(ctx.store.data.session_activity.child).toBe(base - 2)
 
     ctx.store.apply({
       type: "session.status",
-      properties: { sessionID: "child", status: { type: "busy" }, time: 200 },
+      properties: { sessionID: "child", status: { type: "busy" }, time: base - 1 },
     })
 
-    expect(ctx.store.data.session_activity.child).toBe(200)
+    expect(ctx.store.data.session_activity.child).toBe(base - 1)
   })
 
   test("normalizes future activity clocks and recovers from a poisoned cache", () => {
@@ -1712,52 +1714,71 @@ describe("server session", () => {
     expect(ctx.store.data.session_activity.child).toBeLessThanOrEqual(Date.now())
   })
 
+  test("normalizes a stale received event without projecting an immediate slowdown", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    const before = Date.now()
+
+    ctx.store.apply({
+      type: "session.status",
+      properties: { sessionID: "child", status: { type: "busy" }, time: before - 10 * 60_000 },
+    })
+
+    const after = Date.now()
+    const activity = ctx.store.data.session_activity.child
+    expect(activity).toBeGreaterThanOrEqual(before)
+    expect(activity).toBeLessThanOrEqual(after)
+    expect(projectActivity({ working: true, now: after, lastActivityAt: activity, toolRunning: false })).toBe("active")
+  })
+
   test("preserves original V2 time across current and legacy double dispatch", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
+    const base = Date.now()
     const dispatch = (current: OpenCodeEvent) => {
       ctx.store.applyV2(current)
       ctx.store.apply({ id: current.id, type: current.type, properties: current.data, current })
     }
     const older = {
       id: "evt_double_dispatch_older",
-      created: 500,
+      created: base - 2,
       type: "session.execution.started",
       location: { directory: "/repo" },
       data: { sessionID: "child" },
     } as OpenCodeEvent
     const newer = {
       id: "evt_double_dispatch_newer",
-      created: 700,
+      created: base - 1,
       type: "session.execution.started",
       location: { directory: "/repo" },
       data: { sessionID: "child" },
     } as OpenCodeEvent
 
     dispatch(older)
-    expect(ctx.store.data.session_activity.child).toBe(500)
+    expect(ctx.store.data.session_activity.child).toBe(base - 2)
 
     dispatch(newer)
     dispatch(older)
-    expect(ctx.store.data.session_activity.child).toBe(700)
+    expect(ctx.store.data.session_activity.child).toBe(base - 1)
   })
 
   test("records V2 text and tool activity", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
+    const base = Date.now()
     ctx.store.applyV2({
       id: "evt_text_activity",
-      created: 300,
+      created: base - 2,
       type: "session.text.delta",
       location: { directory: "/repo" },
       data: { sessionID: "child", assistantMessageID: "assistant", ordinal: 0, delta: "text" },
     } as OpenCodeEvent)
 
-    expect(ctx.store.data.session_activity.child).toBe(300)
+    expect(ctx.store.data.session_activity.child).toBe(base - 2)
 
     ctx.store.applyV2({
       id: "evt_tool_activity",
-      created: 400,
+      created: base - 1,
       type: "session.tool.input.started",
       location: { directory: "/repo" },
       data: {
@@ -1768,28 +1789,29 @@ describe("server session", () => {
       },
     } as OpenCodeEvent)
 
-    expect(ctx.store.data.session_activity.child).toBe(400)
+    expect(ctx.store.data.session_activity.child).toBe(base - 1)
   })
 
   test("records V2 execution completion before returning to idle", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
+    const base = Date.now()
     ctx.store.applyV2({
       id: "evt_execution_started",
-      created: 500,
+      created: base - 2,
       type: "session.execution.started",
       location: { directory: "/repo" },
       data: { sessionID: "child" },
     } as OpenCodeEvent)
     ctx.store.applyV2({
       id: "evt_execution_succeeded",
-      created: 700,
+      created: base - 1,
       type: "session.execution.succeeded",
       location: { directory: "/repo" },
       data: { sessionID: "child" },
     } as OpenCodeEvent)
 
-    expect(ctx.store.data.session_activity.child).toBe(700)
+    expect(ctx.store.data.session_activity.child).toBe(base - 1)
     expect(ctx.store.data.session_status.child).toEqual({ type: "idle" })
   })
 
@@ -1806,45 +1828,47 @@ describe("server session", () => {
     const ctx = setup({ first: session("first"), second: session("second") })
     ctx.store.remember(session("first"))
     ctx.store.remember(session("second"))
+    const base = Date.now()
     ctx.store.apply({
       type: "session.status",
-      timestamp: 900,
+      timestamp: base - 4,
       properties: { sessionID: "first", status: { type: "busy" } },
     })
     ctx.store.apply({
       type: "session.status",
-      timestamp: 800,
+      timestamp: base - 3,
       properties: { sessionID: "second", status: { type: "busy" } },
     })
     ctx.store.apply({
       type: "session.status",
-      timestamp: 700,
+      timestamp: base - 5,
       properties: { sessionID: "first", status: { type: "idle" } },
     })
     ctx.store.applyV2({
       id: "evt_newer_activity",
-      created: 1_100,
+      created: base - 1,
       type: "session.execution.started",
       location: { directory: "/repo" },
       data: { sessionID: "second" },
     } as OpenCodeEvent)
     ctx.store.applyV2({
       id: "evt_older_activity",
-      created: 1_000,
+      created: base - 2,
       type: "session.execution.started",
       location: { directory: "/repo" },
       data: { sessionID: "second" },
     } as OpenCodeEvent)
 
-    expect(ctx.store.data.session_activity).toEqual({ first: 900, second: 1_100 })
+    expect(ctx.store.data.session_activity).toEqual({ first: base - 4, second: base - 1 })
   })
 
   test("deletes activity when a session is evicted", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
+    const base = Date.now()
     ctx.store.apply({
       type: "session.status",
-      timestamp: 1_000,
+      timestamp: base,
       properties: { sessionID: "child", status: { type: "idle" } },
     })
 
