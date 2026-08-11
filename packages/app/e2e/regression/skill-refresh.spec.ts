@@ -25,16 +25,45 @@ const installed = {
   deleteTarget: `${directory}/.opencode/skills/newly-installed`,
 }
 
+const refreshed = {
+  ...existing,
+  id: "project-manually-refreshed",
+  name: "manually-refreshed-skill",
+  description: "Discovered by a full manual refresh",
+  location: `${directory}/.opencode/skills/manually-refreshed/SKILL.md`,
+  deleteTarget: `${directory}/.opencode/skills/manually-refreshed`,
+}
+
 test.use({ viewport: { width: 1440, height: 900 } })
 
 test("discovers an externally installed Skill on polling and retains it after refresh failure", async ({ page }) => {
   const project = projectFixture(directory, { id: "proj_skill_refresh", name: "SkillRefresh", color: "blue" })
   await setupMockApp(page, { directory, project })
-  let calls = 0
+  let pollCalls = 0
+  let failedPolls = 0
+  const manualRequests: string[] = []
   await page.route("**/api/skill/management**", async (route) => {
-    calls++
-    if (calls >= 3) return fulfillJson(route, { error: "deterministic refresh failure" }, 500)
-    const items = calls === 1 ? [existing] : [existing, installed]
+    const url = new URL(route.request().url())
+    if (
+      route.request().method() !== "GET" ||
+      url.pathname !== "/api/skill/management" ||
+      url.searchParams.get("location[directory]") !== directory
+    )
+      return route.fallback()
+    if (url.searchParams.get("refresh") === "true") {
+      manualRequests.push(url.toString())
+      return fulfillJson(route, {
+        location: { directory, project: { id: project.id, directory } },
+        data: [existing, installed, refreshed],
+      })
+    }
+
+    pollCalls++
+    if (pollCalls >= 3) {
+      failedPolls++
+      return fulfillJson(route, { error: "deterministic refresh failure" }, 500)
+    }
+    const items = pollCalls === 1 ? [existing] : [existing, installed]
     await fulfillJson(route, {
       location: { directory, project: { id: project.id, directory } },
       data: items,
@@ -51,10 +80,19 @@ test("discovers an externally installed Skill on polling and retains it after re
 
   await expect(dialog.getByText(existing.name, { exact: true })).toBeVisible()
   await expect(dialog.getByText(installed.name, { exact: true })).toBeVisible({ timeout: 7_000 })
-  await expect.poll(() => calls, { timeout: 7_000 }).toBeGreaterThanOrEqual(3)
+  const refresh = dialog.getByRole("button", { name: "Refresh Skills", exact: true })
+  await expect(refresh).toBeEnabled()
+  await refresh.click()
+  await expect.poll(() => manualRequests.length).toBe(1)
+  expect(new URL(manualRequests[0]!).searchParams.get("refresh")).toBe("true")
+  await expect(dialog.getByText(refreshed.name, { exact: true })).toBeVisible()
+
+  const failuresBeforeStaleCheck = failedPolls
+  await expect.poll(() => failedPolls, { timeout: 7_000 }).toBeGreaterThan(failuresBeforeStaleCheck)
   await expect(dialog.getByRole("alert")).toContainText(
     "Skills could not be refreshed. Showing the last successful results.",
   )
   await expect(dialog.getByText(existing.name, { exact: true })).toBeVisible()
   await expect(dialog.getByText(installed.name, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(refreshed.name, { exact: true })).toBeVisible()
 })

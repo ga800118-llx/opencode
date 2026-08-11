@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Request } from "@playwright/test"
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -17,16 +17,34 @@ import type { ProductCredentialService } from "../../../desktop/src/main/model-c
 import { createModelCredentialEnvironment } from "../../../desktop/src/main/model-center/environment"
 import type { ProfileRepository } from "../../../desktop/src/main/model-center/profiles"
 import { assistantMessage, reasoningPart, setupTimeline, userMessage } from "../performance/timeline-stability/fixture"
-import { expectAppVisible } from "../utils/waits"
+import { APP_READY_TIMEOUT, expectAppVisible } from "../utils/waits"
 import { isolateAppStorage, setupMockApp } from "../utils/mac-stability"
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
 const formerRuntimeTimeoutMs = 30_000
 const progressAfterTimeoutMs = 1_500
+const runtimeServerStartupTimeoutMs = 20_000
+const runtimeCompletionTimeoutMs = 10_000
+const runtimeCleanupBudgetMs = 10_000
+const runtimeTestTimeoutMs =
+  runtimeServerStartupTimeoutMs +
+  APP_READY_TIMEOUT * 3 +
+  formerRuntimeTimeoutMs +
+  progressAfterTimeoutMs +
+  runtimeCompletionTimeoutMs +
+  runtimeCleanupBudgetMs
 const privatePrompt = "Keep the private model transport running beyond the former timeout"
 const firstChunk = "Private transport started"
 const finalChunk = " and completed after the former timeout"
+const titlePrompt = "Generate a title for this conversation:\n"
+type ProviderRequestPurpose = "agent-turn" | "title" | "summary" | "auxiliary"
+type PrivateModelRequest = {
+  authorization: string | null
+  privateHeader: string | null
+  body: unknown
+  purpose: ProviderRequestPurpose
+}
 
 test("removes the user-configurable model runtime timeout field", async ({ page }) => {
   const directory = "C:/OpenCode/ModelRuntimeSettings"
@@ -36,7 +54,7 @@ test("removes the user-configurable model runtime timeout field", async ({ page 
   const settings = page.getByRole("button", { name: "Settings", exact: true }).first()
   await expectAppVisible(settings)
   await settings.click()
-  const dialog = page.locator(".settings-v2-dialog")
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true })
   await expect(dialog).toBeVisible()
   await dialog.getByRole("tab", { name: "Models", exact: true }).click()
   await dialog.getByRole("button", { name: "Private endpoint", exact: true }).click()
@@ -51,10 +69,10 @@ test("removes the user-configurable model runtime timeout field", async ({ page 
 })
 
 test("keeps a delayed model request running beyond the former short deadline", async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(runtimeTestTimeoutMs)
   const apiKey = "e2e-private-api-key"
   const privateHeader = "e2e-private-header"
-  const requests: Array<{ authorization: string | null; privateHeader: string | null; body: unknown }> = []
+  const requests: PrivateModelRequest[] = []
   const upstream = await startPrivateModelServer(requests)
   const profile = {
     id: "runtime-e2e",
@@ -112,36 +130,116 @@ test("keeps a delayed model request running beyond the former short deadline", a
         provider,
       })
       try {
+        await expectRuntimeReady(runtime.url, directory, profile.providerID)
         const sessionResponse = await fetch(`${runtime.url}/session`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-opencode-directory": directory },
-          body: JSON.stringify({ title: "Private model runtime E2E" }),
+          body: JSON.stringify({}),
         })
         expect(sessionResponse.ok).toBe(true)
-        const session = (await sessionResponse.json()) as { id: string }
+        const session = (await sessionResponse.json()) as { id: string; title: string }
+        const persistedSession = await fetch(`${runtime.url}/session/${session.id}`, {
+          headers: { "x-opencode-directory": directory },
+        })
+        expect(persistedSession.ok).toBe(true)
+        expect(await persistedSession.json()).toMatchObject({ id: session.id, directory: await realpath(directory) })
 
         await isolateAppStorage(page, { projects: [{ worktree: directory, expanded: true }] })
-        await page.goto(`/server/${base64Encode(runtime.url)}/session/${session.id}`)
+        const eventSubscription = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url())
+            return url.origin === runtime.url && url.pathname === "/global/event" && response.status() === 200
+          },
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const sessionHistory = page.waitForResponse(
+          (response) => isSessionHistoryRequest(response.request(), runtime.url, session.id),
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const sessionPath = `/server/${base64Encode(runtime.url)}/session/${session.id}`
+        await page.goto(sessionPath)
+        const [eventResponse, historyResponse] = await Promise.all([eventSubscription, sessionHistory])
+        expect(eventResponse.headers()["content-type"]).toContain("text/event-stream")
+        expect(historyResponse.ok()).toBe(true)
+        expect(await historyResponse.json()).toEqual([])
+        expect(new URL(page.url()).pathname).toBe(sessionPath)
+
         const composer = page.locator('[data-component="prompt-input-v2"]')
         const input = composer.locator('[data-component="prompt-input"]')
         const submit = composer.locator('[data-action="prompt-submit"]')
         await expectAppVisible(composer)
+        await expect(page.locator(`a[href="${sessionPath}"]`).first()).toBeVisible()
+        expect(session.title).toMatch(/^New session - /)
+        await expect(page.getByRole("heading", { level: 1, name: "New session", exact: true })).toBeVisible()
+        await expect(composer.locator('[data-action="prompt-model"]')).toContainText("Runtime model")
+        await expect(input).toBeEditable()
+        await expect(submit).toBeDisabled()
         await input.fill(privatePrompt)
-        await submit.click()
+        await expect(input).toHaveText(privatePrompt)
+        await expect(submit).toBeEnabled()
 
-        await expect(page.getByText(firstChunk, { exact: false })).toBeVisible({ timeout: 20_000 })
+        const promptRequestPromise = page.waitForRequest(
+          (request) => isPromptAdmissionRequest(request, runtime.url, session.id),
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const promptResponsePromise = page.waitForResponse(
+          (response) => isPromptAdmissionRequest(response.request(), runtime.url, session.id),
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const promptFailure = Promise.withResolvers<Request>()
+        const onPromptFailure = (request: Request) => {
+          if (isPromptAdmissionRequest(request, runtime.url, session.id)) promptFailure.resolve(request)
+        }
+        page.on("requestfailed", onPromptFailure)
+
+        await submit.click()
+        const admittedRequest = await promptRequestPromise
+        const promptPayload = admittedRequest.postDataJSON() as unknown
+        expect(
+          isPromptAdmissionPayload(promptPayload),
+          `Unexpected prompt admission payload:\n${JSON.stringify(promptPayload, null, 2)}`,
+        ).toBe(true)
+        const admission = await Promise.race([
+          promptResponsePromise.then((response) => ({ response })),
+          promptFailure.promise.then((request) => ({ request })),
+        ]).finally(() => page.off("requestfailed", onPromptFailure))
+        if ("request" in admission) {
+          throw new Error(
+            `Prompt admission request failed: ${admission.request.failure()?.errorText ?? "unknown error"}`,
+          )
+        }
+        const admissionBody = await admission.response.text().catch(() => "")
+        expect(
+          admission.response.ok(),
+          `Prompt admission failed with ${admission.response.status()}: ${admissionBody || "<empty response>"}`,
+        ).toBe(true)
+        expect([200, 204]).toContain(admission.response.status())
+        await expect(page.locator('[data-timeline-row="UserMessage"]').filter({ hasText: privatePrompt })).toBeVisible()
+
+        const promptRequest = await waitForMainProviderRequest(upstream.mainChunkSent.promise, requests)
+        await expect(page.getByText(firstChunk, { exact: false })).toBeVisible()
         await expect(submit).toHaveAccessibleName("Stop")
         await page.waitForTimeout(formerRuntimeTimeoutMs + 250)
         await expect(submit).toHaveAccessibleName("Stop")
-        await expect(page.getByText(finalChunk.trim(), { exact: false })).toBeVisible({ timeout: 10_000 })
-        await expect(submit).not.toHaveAccessibleName("Stop", { timeout: 10_000 })
+        await expect(page.getByText(finalChunk.trim(), { exact: false })).toBeVisible({
+          timeout: runtimeCompletionTimeoutMs,
+        })
+        await expect(submit).not.toHaveAccessibleName("Stop", { timeout: runtimeCompletionTimeoutMs })
 
-        const promptRequest = requests.find((request) => JSON.stringify(request.body).includes(privatePrompt))
         expect(promptRequest).toMatchObject({
           authorization: `Bearer ${apiKey}`,
           privateHeader,
+          purpose: "agent-turn",
         })
         expect(promptRequest?.body).toMatchObject({ model: "runtime-model", stream: true })
+        expect(
+          requests.filter((request) => request.purpose === "agent-turn"),
+          providerRequestDiagnostics(requests),
+        ).toHaveLength(1)
+        expect(
+          requests.some((request) => request.purpose === "title"),
+          providerRequestDiagnostics(requests),
+        ).toBe(true)
       } finally {
         runtime.process.kill()
         await runtime.exited
@@ -202,11 +300,10 @@ function modelChunk(input: { content?: string; finish?: string }) {
   })}\n\n`
 }
 
-async function startPrivateModelServer(
-  requests: Array<{ authorization: string | null; privateHeader: string | null; body: unknown }>,
-) {
+async function startPrivateModelServer(requests: PrivateModelRequest[]) {
+  const mainChunkSent = Promise.withResolvers<PrivateModelRequest>()
   const server = createServer((request, response) => {
-    void handlePrivateModelRequest(request, response, requests).catch(() => {
+    void handlePrivateModelRequest(request, response, requests, mainChunkSent).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" })
       response.end(JSON.stringify({ error: { message: "Private model fixture failed" } }))
     })
@@ -222,6 +319,7 @@ async function startPrivateModelServer(
   if (!address || typeof address === "string") throw new Error("Private model fixture address is unavailable")
   return {
     url: `http://127.0.0.1:${address.port}`,
+    mainChunkSent,
     stop: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())
@@ -233,29 +331,148 @@ async function startPrivateModelServer(
 async function handlePrivateModelRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  requests: Array<{ authorization: string | null; privateHeader: string | null; body: unknown }>,
+  requests: PrivateModelRequest[],
+  mainChunkSent: ReturnType<typeof Promise.withResolvers<PrivateModelRequest>>,
 ) {
   const chunks: Buffer[] = []
   for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
-  requests.push({
+  const record = {
     authorization: request.headers.authorization ?? null,
     privateHeader: typeof request.headers["x-private-token"] === "string" ? request.headers["x-private-token"] : null,
     body,
-  })
+    purpose: providerRequestPurpose(body),
+  }
+  requests.push(record)
   response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
-  if (!JSON.stringify(body).includes(privatePrompt)) {
-    response.end(
-      `${modelChunk({ content: "Private transport title" })}${modelChunk({ finish: "stop" })}data: [DONE]\n\n`,
-    )
+  if (record.purpose !== "agent-turn") {
+    const content =
+      record.purpose === "title"
+        ? "Private transport title"
+        : record.purpose === "summary"
+          ? "Private transport summary"
+          : "Private transport auxiliary response"
+    response.end(`${modelChunk({ content })}${modelChunk({ finish: "stop" })}data: [DONE]\n\n`)
     return
   }
 
   response.write(modelChunk({ content: firstChunk }))
+  mainChunkSent.resolve(record)
   const timer = setTimeout(() => {
     response.end(`${modelChunk({ content: finalChunk })}${modelChunk({ finish: "stop" })}data: [DONE]\n\n`)
   }, formerRuntimeTimeoutMs + progressAfterTimeoutMs)
   response.once("close", () => clearTimeout(timer))
+}
+
+function providerRequestPurpose(body: unknown): ProviderRequestPurpose {
+  if (!isRecord(body) || !Array.isArray(body.messages)) return "auxiliary"
+  const messages = body.messages.filter(isRecord)
+  const userMessages = messages.filter((message) => message.role === "user")
+  const content = userMessages.flatMap(modelMessageContent)
+  if (content.some((value) => value === titlePrompt)) return "title"
+  if (
+    content.some(
+      (value) =>
+        value.startsWith("Create a new anchored summary from the conversation history.") ||
+        value.startsWith("Update the anchored summary below using the conversation history above."),
+    )
+  )
+    return "summary"
+
+  const finalUser = userMessages.at(-1)
+  const exactPrompt = finalUser ? modelMessageContent(finalUser).some((value) => value === privatePrompt) : false
+  const hasSystem = messages.some((message) => message.role === "system" && modelMessageContent(message).length > 0)
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0
+  if (body.model === "runtime-model" && body.stream === true && exactPrompt && hasSystem && hasTools)
+    return "agent-turn"
+  return "auxiliary"
+}
+
+function modelMessageContent(message: Record<string, unknown>) {
+  if (typeof message.content === "string") return [message.content]
+  if (!Array.isArray(message.content)) return []
+  return message.content.flatMap((part) => {
+    if (typeof part === "string") return [part]
+    if (!isRecord(part) || typeof part.text !== "string") return []
+    return [part.text]
+  })
+}
+
+function providerRequestDiagnostics(requests: PrivateModelRequest[]) {
+  return `Provider requests:\n${JSON.stringify(
+    requests.map((request) => {
+      if (!isRecord(request.body)) return { purpose: request.purpose, body: typeof request.body }
+      const messages = Array.isArray(request.body.messages) ? request.body.messages.filter(isRecord) : []
+      const finalUser = messages.filter((message) => message.role === "user").at(-1)
+      return {
+        purpose: request.purpose,
+        model: request.body.model,
+        stream: request.body.stream,
+        roles: messages.map((message) => message.role),
+        finalUser: finalUser ? modelMessageContent(finalUser) : [],
+        systemMessages: messages.filter((message) => message.role === "system").length,
+        tools: Array.isArray(request.body.tools) ? request.body.tools.length : 0,
+      }
+    }),
+    null,
+    2,
+  )}`
+}
+
+async function waitForMainProviderRequest(promise: Promise<PrivateModelRequest>, requests: PrivateModelRequest[]) {
+  const timeout = Promise.withResolvers<never>()
+  const timer = setTimeout(() => {
+    timeout.reject(
+      new Error(`Main provider request did not produce its first SSE chunk.\n${providerRequestDiagnostics(requests)}`),
+    )
+  }, APP_READY_TIMEOUT)
+  try {
+    return await Promise.race([promise, timeout.promise])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function isPromptAdmissionRequest(request: Request, server: string, sessionID: string) {
+  if (request.method() !== "POST") return false
+  const url = new URL(request.url())
+  if (url.origin !== server) return false
+  return url.pathname === `/session/${sessionID}/prompt_async` || url.pathname === `/api/session/${sessionID}/prompt`
+}
+
+function isSessionHistoryRequest(request: Request, server: string, sessionID: string) {
+  if (request.method() !== "GET") return false
+  const url = new URL(request.url())
+  if (url.origin !== server) return false
+  return url.pathname === `/session/${sessionID}/message` || url.pathname === `/api/session/${sessionID}/message`
+}
+
+function isPromptAdmissionPayload(payload: unknown) {
+  if (!isRecord(payload)) return false
+  if (Array.isArray(payload.parts)) {
+    return payload.parts.some((part) => isRecord(part) && part.type === "text" && part.text === privatePrompt)
+  }
+  if (!isRecord(payload.prompt)) return false
+  return payload.prompt.text === privatePrompt
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+async function expectRuntimeReady(server: string, directory: string, providerID: string) {
+  const health = await fetch(`${server}/global/health`)
+  expect(health.ok).toBe(true)
+  expect(await health.json()).toMatchObject({ healthy: true })
+
+  const config = await fetch(`${server}/config`, { headers: { "x-opencode-directory": directory } })
+  expect(config.ok).toBe(true)
+  expect(await config.json()).toMatchObject({
+    model: `${providerID}/runtime-model`,
+    provider: {
+      [providerID]: { options: { timeout: false, headerTimeout: false } },
+    },
+  })
 }
 
 function credentialService(
@@ -346,7 +563,7 @@ function readServerURL(stream: Readable) {
     const timer = setTimeout(() => {
       stream.off("data", onData)
       reject(new Error(`OpenCode E2E server readiness timed out. stdout:\n${output}`))
-    }, 20_000)
+    }, runtimeServerStartupTimeoutMs)
     const onData = (chunk: Buffer) => {
       output += chunk.toString("utf8")
       const match = output.match(/listening on (http:\/\/[^\s]+)/)
