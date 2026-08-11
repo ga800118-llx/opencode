@@ -51,6 +51,7 @@ const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 const initialMessagePageSize = 20
 const historyMessagePageSize = 200
 const sessionInfoLimit = 2_048
+const activityClockSkewTolerance = 60_000
 const emptyIDs: ReadonlySet<string> = new Set()
 
 function activityEventTime(event: unknown) {
@@ -291,9 +292,13 @@ export function createServerSession(
   })
 
   const markActivity = (sessionID: string, at = Date.now()) => {
+    const observedAt = Date.now()
+    const normalizedAt = !Number.isFinite(at) || at > observedAt + activityClockSkewTolerance ? observedAt : at
     const current = data.session_activity[sessionID]
-    if (current !== undefined && current >= at) return
-    setData("session_activity", sessionID, at)
+    const currentInvalid =
+      current !== undefined && (!Number.isFinite(current) || current > observedAt + activityClockSkewTolerance)
+    if (!currentInvalid && current !== undefined && current >= normalizedAt) return
+    setData("session_activity", sessionID, normalizedAt)
   }
 
   const indexLegacyMessage = (message: Message) => {

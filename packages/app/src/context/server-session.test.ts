@@ -1687,6 +1687,31 @@ describe("server session", () => {
     expect(ctx.store.data.session_activity.child).toBe(200)
   })
 
+  test("normalizes future activity clocks and recovers from a poisoned cache", () => {
+    const ctx = setup({ child: session("child") })
+    ctx.store.remember(session("child"))
+    const future = Date.now() + 10 * 60_000
+    const before = Date.now()
+
+    ctx.store.apply({
+      type: "session.status",
+      properties: { sessionID: "child", status: { type: "busy" }, time: future },
+    })
+
+    expect(ctx.store.data.session_activity.child).toBeGreaterThanOrEqual(before)
+    expect(ctx.store.data.session_activity.child).toBeLessThanOrEqual(Date.now())
+
+    ctx.store.set("session_activity", "child", future)
+    const next = Date.now()
+    ctx.store.apply({
+      type: "session.status",
+      properties: { sessionID: "child", status: { type: "busy" }, time: next },
+    })
+
+    expect(ctx.store.data.session_activity.child).toBeGreaterThanOrEqual(next)
+    expect(ctx.store.data.session_activity.child).toBeLessThanOrEqual(Date.now())
+  })
+
   test("preserves original V2 time across current and legacy double dispatch", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
