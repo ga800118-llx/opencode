@@ -13,7 +13,6 @@ import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 const context = Context.empty() as Context.Context<unknown>
-Global.Path.state = await fs.realpath(Global.Path.state)
 
 function request(route: string, directory: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
@@ -228,10 +227,27 @@ describe("v2 location HttpApi", () => {
         : { deleteBlocked: installation!.deleteBlocked }),
     })
 
+    const reloaded = await request("/api/skill/management", tmp.path)
+    expect(reloaded.status).toBe(200)
+    expect(
+      Schema.decodeUnknownSync(ManagementResponse)(await reloaded.json()).data.find(
+        (entry) => entry.id === installation!.id,
+      ),
+    ).toMatchObject({
+      enabled: false,
+      status: "disabled",
+      source: installation!.source,
+      deletable: installation!.deletable,
+      ...(installation!.deletable
+        ? { deleteTarget: installation!.deleteTarget }
+        : { deleteBlocked: installation!.deleteBlocked }),
+    })
+
     const removed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
+    const removal = await removed.clone().json()
     if (!installation!.deletable) {
       expect(removed.status).toBe(403)
-      expect(await removed.json()).toEqual({
+      expect(removal).toEqual({
         _tag: "SkillManagementForbiddenError",
         id: installation!.id,
         reason: "unsafe",
@@ -242,8 +258,8 @@ describe("v2 location HttpApi", () => {
       return
     }
 
-    expect(removed.status).toBe(200)
-    const removedBody = Schema.decodeUnknownSync(ManagementResponse)(await removed.json())
+    expect(removed.status, JSON.stringify(removal)).toBe(200)
+    const removedBody = Schema.decodeUnknownSync(ManagementResponse)(removal)
     expect(removedBody.location.directory).toBe(AbsolutePath.make(tmp.path))
     expect(removedBody.data.some((entry) => entry.id === installation!.id)).toBe(false)
     expect(await fs.stat(tmp.extra).catch(() => undefined)).toBeUndefined()
@@ -344,7 +360,6 @@ describe("v2 location HttpApi", () => {
 
   test("serializes delete failures without exposing Skill or filesystem details", async () => {
     const contentMarker = "HTTP_DELETE_CONTENT_MUST_NOT_LEAK_c862"
-    const recoveryMarker = "HTTP_DELETE_RECOVERY_MUST_NOT_LEAK_ef15"
     await using tmp = await tmpdir({
       git: true,
       init: async (directory) => {
@@ -363,10 +378,8 @@ describe("v2 location HttpApi", () => {
     )
     const installation = listed.data.find((entry) => entry.name === "http-delete-operation-fixture")
     expect(installation).toBeDefined()
-    const trash = path.join(Global.Path.state, "skills", "trash")
-    await fs.rm(trash, { recursive: true, force: true })
-    await fs.mkdir(path.dirname(trash), { recursive: true })
-    await Bun.write(trash, recoveryMarker)
+    const source = path.dirname(tmp.extra)
+    await fs.chmod(source, 0o500)
 
     try {
       const failed = await request(`/api/skill/management/${installation!.id}`, tmp.path, { method: "DELETE" })
@@ -378,17 +391,16 @@ describe("v2 location HttpApi", () => {
         operation: "delete",
         message: "Skill management operation failed.",
       })
-      expect(serialized).not.toContain(trash)
+      expect(serialized).not.toContain(source)
       expect(serialized).not.toContain(tmp.path)
       expect(serialized).not.toContain(tmp.extra)
       expect(serialized).not.toContain(contentMarker)
-      expect(serialized).not.toContain(recoveryMarker)
       expect(serialized).not.toContain("cause")
       expect(serialized).not.toContain("PlatformError")
       expect(await fs.stat(tmp.extra)).toBeDefined()
       expect(await Bun.file(path.join(tmp.extra, "SKILL.md")).text()).toContain(contentMarker)
     } finally {
-      await fs.rm(trash, { recursive: true, force: true })
+      await fs.chmod(source, 0o700)
     }
   })
 

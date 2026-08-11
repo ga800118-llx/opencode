@@ -113,8 +113,8 @@ const layer = Layer.effect(
         source: (source) => {
           const index = draft.sources.findIndex((item) => Source.equals(item, source))
           if (index !== -1) {
-            if (draft.sources[index].origin?.type === "external") return
-            if (source.origin !== undefined) draft.sources[index] = source as Types.DeepMutable<Source>
+            if (ownership(source) < ownership(draft.sources[index])) return
+            draft.sources[index] = source as Types.DeepMutable<Source>
             return
           }
           draft.sources.push(source as Types.DeepMutable<Source>)
@@ -231,6 +231,19 @@ const layer = Layer.effect(
     })
   }),
 )
+
+function ownership(source: Source) {
+  if (!source.origin) return "0"
+  const priority =
+    source.origin.type === "external" || source.origin.type === "builtin"
+      ? 4
+      : source.origin.type === "config-file"
+        ? 3
+        : source.origin.type === "config-directory"
+          ? 2
+          : 1
+  return `${priority}:${source.origin.scope}:${source.origin.type}:${source.origin.value ?? ""}`
+}
 
 export const node = makeLocationNode({
   service: Service,

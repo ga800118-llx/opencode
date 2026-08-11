@@ -2191,7 +2191,7 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("keeps mutation snapshots on the admitted source topology", () =>
+  it.live("keeps mutation ownership stable across topology reloads", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -2219,11 +2219,11 @@ describe("SkillV2", () => {
             path: AbsolutePath.make(sourceRoot),
             origin: { type: "plugin", scope: "project", value: "late-plugin" },
           })
-          const selected = { source: configured as SkillV2.Source, replays: 0 }
+          const selected = { sources: [plugin, configured] as SkillV2.Source[], replays: 0 }
           const skill = yield* buildSkill(input)
           yield* skill.transform((editor) => {
             selected.replays++
-            editor.source(selected.source)
+            selected.sources.forEach(editor.source)
           })
 
           const initial = (yield* skill.management.list())[0]
@@ -2234,7 +2234,7 @@ describe("SkillV2", () => {
           })
           expect(selected.replays).toBe(2)
 
-          selected.source = plugin
+          selected.sources = [configured, plugin]
           const disabled = (yield* skill.management.setEnabled(initial.id, false))[0]
           expect(disabled).toMatchObject({
             id: initial.id,
@@ -2245,8 +2245,18 @@ describe("SkillV2", () => {
           })
           expect(selected.replays).toBe(2)
 
+          const reloaded = (yield* skill.management.list())[0]
+          expect(reloaded).toMatchObject({
+            id: initial.id,
+            status: "disabled",
+            source: initial.source,
+            deletable: true,
+            deleteTarget: initial.deleteTarget,
+          })
+          expect(selected.replays).toBe(3)
+
           expect(yield* skill.management.remove(initial.id)).toEqual([])
-          expect(selected.replays).toBe(2)
+          expect(selected.replays).toBe(3)
           expect(
             yield* Effect.promise(() =>
               fs.stat(path.join(sourceRoot, "owned")).then(
@@ -2255,6 +2265,10 @@ describe("SkillV2", () => {
               ),
             ),
           ).toBe(false)
+
+          selected.sources = [plugin]
+          yield* skill.management.list()
+          expect(yield* skill.sources()).toEqual([plugin])
         }),
       ),
     ),
