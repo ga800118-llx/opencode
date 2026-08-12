@@ -596,11 +596,19 @@ function validContent(value: unknown) {
 
 function hasExactUserPrompt(value: unknown, requiredPrompt: string) {
   if (!Array.isArray(value)) return false
+  const firstUser = value.find((item) => isRecord(item) && item.role === "user")
+  const firstUserText = firstUser ? messageText(firstUser.content) : []
+  const titleRequest = firstUserText.length === 1 && firstUserText[0] === "Generate a title for this conversation:\n"
+  if (titleRequest) return false
   const message = value.filter((item) => isRecord(item) && item.role === "user").at(-1)
   if (!message) return false
-  if (typeof message.content === "string") return message.content === requiredPrompt
-  if (!Array.isArray(message.content)) return false
-  return message.content.some((part) => isRecord(part) && part.type === "text" && part.text === requiredPrompt)
+  return messageText(message.content).includes(requiredPrompt)
+}
+
+function messageText(content: unknown) {
+  if (typeof content === "string") return [content]
+  if (!Array.isArray(content)) return []
+  return content.flatMap((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []))
 }
 
 function validToolCalls(value: unknown[]) {

@@ -1126,10 +1126,14 @@ export default function LegacyLayout(props: ParentProps) {
 
   function openSettings() {
     const run = ++dialogRun
-    const module = settings.general.newLayoutDesigns()
-      ? import("@/components/settings-v2")
-      : import("@/components/dialog-settings")
-    void module.then((x) => {
+    if (settings.general.newLayoutDesigns()) {
+      void import("@/components/settings-v2").then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => <x.DialogSettings directory={currentDir} />)
+      })
+      return
+    }
+    void import("@/components/dialog-settings").then((x) => {
       if (dialogDead || dialogRun !== run) return
       dialog.show(() => <x.DialogSettings />)
     })

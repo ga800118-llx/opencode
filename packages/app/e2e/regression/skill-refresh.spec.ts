@@ -1,3 +1,4 @@
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { expect, test } from "@playwright/test"
 import { expectAppVisible } from "../utils/waits"
 import { fulfillJson, projectFixture, setupMockApp } from "../utils/mac-stability"
@@ -32,6 +33,16 @@ const refreshed = {
   description: "Discovered by a full manual refresh",
   location: `${directory}/.opencode/skills/manually-refreshed/SKILL.md`,
   deleteTarget: `${directory}/.opencode/skills/manually-refreshed`,
+}
+
+const session = {
+  id: "ses_skill_refresh",
+  slug: "skill-refresh",
+  projectID: "proj_skill_refresh",
+  directory,
+  title: "Skill refresh session",
+  version: "dev",
+  time: { created: 1_700_000_000_000, updated: 1_700_000_000_000 },
 }
 
 test.use({ viewport: { width: 1440, height: 900 } })
@@ -95,4 +106,30 @@ test("discovers an externally installed Skill on polling and retains it after re
   await expect(dialog.getByText(existing.name, { exact: true })).toBeVisible()
   await expect(dialog.getByText(installed.name, { exact: true })).toBeVisible()
   await expect(dialog.getByText(refreshed.name, { exact: true })).toBeVisible()
+})
+
+test("opens session Skills settings in the active project directory", async ({ page }) => {
+  const project = projectFixture(directory, { id: session.projectID, name: "SkillRefresh", color: "blue" })
+  await setupMockApp(page, { directory, project, sessions: [session] })
+  const directories: string[] = []
+  await page.route("**/api/skill/management**", async (route) => {
+    const url = new URL(route.request().url())
+    if (route.request().method() !== "GET" || url.pathname !== "/api/skill/management") return route.fallback()
+    directories.push(url.searchParams.get("location[directory]") ?? "")
+    await fulfillJson(route, {
+      location: { directory, project: { id: project.id, directory } },
+      data: [existing],
+    })
+  })
+
+  await page.goto(`/${base64Encode(directory)}/session/${session.id}`)
+  await expect(page.getByText(session.title).first()).toBeVisible()
+  await page.keyboard.press("Control+,")
+  const dialog = page.locator(".settings-v2-dialog")
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("tab", { name: "Skills", exact: true }).click()
+
+  await expect(dialog.getByText(existing.name, { exact: true })).toBeVisible()
+  await expect.poll(() => directories).toContain(directory)
+  expect(directories.every((item) => item === directory)).toBe(true)
 })

@@ -503,6 +503,14 @@ describe("Mac runtime soak fixture", () => {
       expect(auxiliary.status).toBe(200)
       expect(await auxiliary.text()).toContain("Auxiliary request completed")
 
+      const realTitleSequence = await completion(fixture.endpoint, fixture.token, fixture.model, [
+        { role: "user", content: "Generate a title for this conversation:\n" },
+        { role: "user", content: requiredPrompt },
+      ])
+      expect(realTitleSequence.status).toBe(200)
+      expect(realTitleSequence.headers.get("x-mac-runtime-soak-run-id")).toBeNull()
+      expect(await realTitleSequence.text()).toContain("Auxiliary request completed")
+
       const historical = await completion(fixture.endpoint, fixture.token, fixture.model, [
         { role: "user", content: requiredPrompt },
         { role: "assistant", content: "The task is still running" },
@@ -513,7 +521,13 @@ describe("Mac runtime soak fixture", () => {
       expect(await historical.text()).toContain("Auxiliary request completed")
 
       const primary = await completion(fixture.endpoint, fixture.token, fixture.model, [
-        { role: "system", content: "system" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Generate a title for this conversation:\n" },
+            { type: "text", text: "This is a normal user message" },
+          ],
+        },
         { role: "user", content: [{ type: "text", text: requiredPrompt }] },
       ])
       expect(primary.headers.get("x-mac-runtime-soak-run-id")).toBe(fixture.runID)
