@@ -31,6 +31,10 @@ export function createInternalMacArtifactPlan(packageDir: string, version: strin
   }
 }
 
+export function getInternalMacElectronDist(packageDir: string) {
+  return path.join(packageDir, "node_modules", "electron", "dist")
+}
+
 async function packageInternalMac() {
   assertInternalMacHost(process.platform, process.arch)
   const packageDir = path.resolve(import.meta.dirname, "..")
@@ -53,7 +57,7 @@ async function packageInternalMac() {
 
   await $`bun ./scripts/prebuild.ts`.cwd(packageDir)
   await $`./node_modules/.bin/electron-vite build`.cwd(packageDir)
-  await $`./node_modules/.bin/electron-builder --mac dmg zip --publish never --config electron-builder.config.ts`.cwd(
+  await $`./node_modules/.bin/electron-builder --mac dmg zip --publish never --config electron-builder.config.ts --config.electronDist=${getInternalMacElectronDist(packageDir)}`.cwd(
     packageDir,
   )
 

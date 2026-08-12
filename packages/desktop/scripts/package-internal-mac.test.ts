@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { formatChecksumManifest } from "./internal-package"
-import { assertInternalMacHost, createInternalMacArtifactPlan } from "./package-internal-mac"
+import { assertInternalMacHost, createInternalMacArtifactPlan, getInternalMacElectronDist } from "./package-internal-mac"
 
 describe("internal Mac package", () => {
   test("plans versioned Apple Silicon artifacts", () => {
@@ -23,6 +23,12 @@ describe("internal Mac package", () => {
     expect(() => assertInternalMacHost("darwin", "arm64")).not.toThrow()
     expect(() => assertInternalMacHost("darwin", "x64")).toThrow("Apple Silicon")
     expect(() => assertInternalMacHost("win32", "arm64")).toThrow("macOS")
+  })
+
+  test("uses the installed Electron runtime without a release download", () => {
+    expect(getInternalMacElectronDist("/repo/packages/desktop")).toBe(
+      path.join("/repo/packages/desktop", "node_modules", "electron", "dist"),
+    )
   })
 
   test("formats a stable checksum manifest", () => {
