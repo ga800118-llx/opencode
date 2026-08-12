@@ -47,6 +47,7 @@ export async function createMacRuntimeSoakFixture(input?: {
   port?: number
   token?: string
   runID?: string
+  requiredPrompt?: string
 }) {
   const durationMs = input?.durationMs ?? DEFAULT_MAC_RUNTIME_SOAK_DURATION_MS
   const intervalMs = input?.intervalMs ?? DEFAULT_MAC_RUNTIME_SOAK_INTERVAL_MS
@@ -70,6 +71,12 @@ export async function createMacRuntimeSoakFixture(input?: {
   if (!/^[a-zA-Z0-9-]{1,128}$/.test(runID)) throw new Error("Soak runID is invalid")
   if (!chunkContent || Buffer.byteLength(chunkContent) > 512 * 1024) {
     throw new Error("Soak chunk content must contain between 1 and 524288 bytes")
+  }
+  if (
+    input?.requiredPrompt !== undefined &&
+    (!input.requiredPrompt.trim() || Buffer.byteLength(input.requiredPrompt) > 16 * 1024)
+  ) {
+    throw new Error("Soak required prompt must contain between 1 and 16384 bytes")
   }
   if (input?.midSilence) {
     requirePositiveInteger(input.midSilence.afterChunks, "Soak mid-silence chunk count")
@@ -209,17 +216,6 @@ export async function createMacRuntimeSoakFixture(input?: {
       sendJson(response, 404, { error: { message: "Not found" } })
       return
     }
-    if (settled) {
-      request.resume()
-      sendJson(response, 410, { error: { message: "Soak run already settled" } })
-      return
-    }
-    if (active) {
-      request.resume()
-      sendJson(response, 409, { error: { message: "Soak stream already active" } })
-      return
-    }
-
     const body = await readRequestBody(request, maxRequestBodyBytes)
     if (!body.ok) {
       sendJson(response, body.status, { error: { message: body.message } })
@@ -241,6 +237,10 @@ export async function createMacRuntimeSoakFixture(input?: {
     const messageError = validateMessages(parsed.value.messages)
     if (messageError) {
       sendJson(response, 400, { error: { message: messageError } })
+      return
+    }
+    if (input?.requiredPrompt && !hasExactUserPrompt(parsed.value.messages, input.requiredPrompt)) {
+      sendAuxiliaryCompletion(response, runID, model)
       return
     }
     if (settled || active) {
@@ -594,6 +594,15 @@ function validContent(value: unknown) {
   })
 }
 
+function hasExactUserPrompt(value: unknown, requiredPrompt: string) {
+  if (!Array.isArray(value)) return false
+  const message = value.filter((item) => isRecord(item) && item.role === "user").at(-1)
+  if (!message) return false
+  if (typeof message.content === "string") return message.content === requiredPrompt
+  if (!Array.isArray(message.content)) return false
+  return message.content.some((part) => isRecord(part) && part.type === "text" && part.text === requiredPrompt)
+}
+
 function validToolCalls(value: unknown[]) {
   if (value.length > 64) return false
   return value.every((call) => {
@@ -670,6 +679,19 @@ function sendJson(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value))
 }
 
+function sendAuxiliaryCompletion(response: ServerResponse, runID: string, model: string) {
+  const chunk = (content: string | undefined, finish: string | null) =>
+    sse({
+      id: `chatcmpl-${runID}-auxiliary`,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1_000),
+      model,
+      choices: [{ index: 0, delta: content ? { content } : {}, finish_reason: finish }],
+    })
+  response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+  response.end(`${chunk("Auxiliary request completed", null)}${chunk(undefined, "stop")}data: [DONE]\n\n`)
+}
+
 function sse(value: unknown) {
   return `data: ${JSON.stringify(value)}\n\n`
 }
@@ -728,6 +750,7 @@ async function main() {
     port,
     token: option("--token"),
     runID: option("--run-id"),
+    requiredPrompt: option("--required-prompt"),
   })
   console.log(
     `SOAK_READY ${JSON.stringify({

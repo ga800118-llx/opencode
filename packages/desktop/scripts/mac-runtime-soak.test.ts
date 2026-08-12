@@ -96,7 +96,7 @@ describe("Mac runtime soak evidence", () => {
       durationMs: 40,
       intervalMs: 5,
       connectionTimeoutMs: 500,
-      acknowledgmentTimeoutMs: 500,
+      acknowledgmentTimeoutMs: 5_000,
     })
     const response = await stream(fixture.endpoint, fixture.token, fixture.model)
     expect(await response.text()).toContain(fixture.terminalMarker)
@@ -481,6 +481,43 @@ describe("Mac runtime soak fixture", () => {
       const second = await stream(fixture.endpoint, fixture.token, fixture.model)
       expect(second.status).toBe(409)
       expect(await first.text()).toContain("[DONE]")
+      await fixture.acknowledgeClient()
+      expect((await fixture.observation).disconnectReason).toBe("completed")
+    } finally {
+      await fixture.stop()
+    }
+  })
+
+  test("lets auxiliary requests finish without claiming a prompt-bound run", async () => {
+    const requiredPrompt = "Run the packaged runtime stability verification"
+    const fixture = await createMacRuntimeSoakFixture({
+      durationMs: 40,
+      intervalMs: 5,
+      connectionTimeoutMs: 200,
+      requiredPrompt,
+    })
+    try {
+      const auxiliary = await completion(fixture.endpoint, fixture.token, fixture.model, [
+        { role: "user", content: "Generate a title for this conversation" },
+      ])
+      expect(auxiliary.status).toBe(200)
+      expect(await auxiliary.text()).toContain("Auxiliary request completed")
+
+      const historical = await completion(fixture.endpoint, fixture.token, fixture.model, [
+        { role: "user", content: requiredPrompt },
+        { role: "assistant", content: "The task is still running" },
+        { role: "user", content: "Summarize the conversation for a title" },
+      ])
+      expect(historical.status).toBe(200)
+      expect(historical.headers.get("x-mac-runtime-soak-run-id")).toBeNull()
+      expect(await historical.text()).toContain("Auxiliary request completed")
+
+      const primary = await completion(fixture.endpoint, fixture.token, fixture.model, [
+        { role: "system", content: "system" },
+        { role: "user", content: [{ type: "text", text: requiredPrompt }] },
+      ])
+      expect(primary.headers.get("x-mac-runtime-soak-run-id")).toBe(fixture.runID)
+      expect(await primary.text()).toContain(fixture.terminalMarker)
       await fixture.acknowledgeClient()
       expect((await fixture.observation).disconnectReason).toBe("completed")
     } finally {

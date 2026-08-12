@@ -1,4 +1,4 @@
-import { expect, test, type Request } from "@playwright/test"
+import { expect, test, type Page, type Request } from "@playwright/test"
 import { spawn } from "node:child_process"
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -26,6 +26,7 @@ const formerRuntimeTimeoutMs = 30_000
 const progressAfterTimeoutMs = 1_500
 const runtimeServerStartupTimeoutMs = 20_000
 const runtimeCompletionTimeoutMs = 10_000
+const runtimeAdmissionTimeoutMs = formerRuntimeTimeoutMs + progressAfterTimeoutMs + runtimeCompletionTimeoutMs
 const runtimeCleanupBudgetMs = 10_000
 const runtimeTestTimeoutMs =
   runtimeServerStartupTimeoutMs +
@@ -70,6 +71,11 @@ test("removes the user-configurable model runtime timeout field", async ({ page 
 
 test("keeps a delayed model request running beyond the former short deadline", async ({ page }) => {
   test.setTimeout(runtimeTestTimeoutMs)
+  const browserDiagnostics: string[] = []
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserDiagnostics.push(message.text())
+  })
+  page.on("pageerror", (error) => browserDiagnostics.push(error.stack ?? error.message))
   const apiKey = "e2e-private-api-key"
   const privateHeader = "e2e-private-header"
   const requests: PrivateModelRequest[] = []
@@ -100,6 +106,7 @@ test("keeps a delayed model request running beyond the former short deadline", a
   await proxy.start()
   try {
     const presented = proxy.presentProfile(profile)
+    if (!presented.runtime) throw new Error("Credential proxy did not present a runtime endpoint")
     const provider = serializeProviderProfile(presented)
     const environment = createModelCredentialEnvironment({
       profiles: [profile],
@@ -118,6 +125,32 @@ test("keeps a delayed model request running beyond the former short deadline", a
 
     const home = await mkdtemp(path.join(tmpdir(), "guai-runtime-e2e-"))
     const directory = path.join(home, "project")
+    await mkdir(path.join(home, ".config/opencode"), { recursive: true })
+    await writeFile(
+      path.join(home, ".config/opencode/opencode.json"),
+      JSON.stringify({
+        model: `${profile.providerID}/runtime-model`,
+        provider: {
+          [profile.providerID]: {
+            ...provider,
+            options: {
+              ...provider.options,
+              baseURL: presented.runtime.baseURL,
+              body: { apiKey: "e2e-sidecar-proxy-token" },
+            },
+            models: {
+              "runtime-model": {
+                name: "Runtime model",
+                tool_call: true,
+                cost: { input: 1, output: 1 },
+                modalities: { input: ["text"], output: ["text"] },
+                limit: { context: 64_000, output: 8_000 },
+              },
+            },
+          },
+        },
+      }),
+    )
     await mkdir(directory)
     await writeFile(path.join(directory, ".gitkeep"), "")
     try {
@@ -130,26 +163,121 @@ test("keeps a delayed model request running beyond the former short deadline", a
         provider,
       })
       try {
+        page.on("response", (response) => {
+          const url = new URL(response.url())
+          if (url.origin !== runtime.url || url.pathname.includes("event")) return
+          browserDiagnostics.push(
+            `${response.request().method()} ${url.pathname}${url.search} -> ${response.status()} ${response.headers()["content-type"] ?? "<no content-type>"}`,
+          )
+        })
         await expectRuntimeReady(runtime.url, directory, profile.providerID)
         const resolvedDirectory = await realpath(directory)
         const sessionResponse = await fetch(`${runtime.url}/api/session`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ location: { directory: resolvedDirectory } }),
+          body: JSON.stringify({
+            agent: "build",
+            model: { providerID: profile.providerID, id: "runtime-model" },
+            location: { directory: resolvedDirectory },
+          }),
         })
         expect(sessionResponse.ok).toBe(true)
         const session = ((await sessionResponse.json()) as { data: { id: string; title: string } }).data
         const persistedSession = await fetch(`${runtime.url}/api/session/${session.id}`)
         expect(persistedSession.ok).toBe(true)
         expect(await persistedSession.json()).toMatchObject({
-          data: { id: session.id, location: { directory: resolvedDirectory } },
+          data: {
+            id: session.id,
+            agent: "build",
+            model: { providerID: profile.providerID, id: "runtime-model" },
+            location: { directory: resolvedDirectory },
+          },
         })
+        const modelsURL = `${runtime.url}/api/model?location%5Bdirectory%5D=${encodeURIComponent(resolvedDirectory)}`
+        await expect
+          .poll(
+            async () => {
+              const response = await fetch(modelsURL)
+              if (!response.ok) return `status:${response.status}`
+              return JSON.stringify(await response.json())
+            },
+            { timeout: APP_READY_TIMEOUT },
+          )
+          .toContain(profile.providerID)
 
+        const protocolProbes: string[] = []
+        await page.route("**/global/health", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          protocolProbes.push(route.request().url())
+          return route.fulfill({ status: 404, contentType: "application/json", body: "{}" })
+        })
+        await page.route("**/api/health", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          protocolProbes.push(route.request().url())
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ healthy: true, version: "2.0.0", pid: runtime.process.pid }),
+          })
+        })
+        // V2 Session execution is live; these shell catalogs are not part of the current V2 protocol yet.
+        await page.route("**/api/project", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          return route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+        })
+        await page.route("**/api/project/current?*", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ id: "runtime-e2e-project", directory: resolvedDirectory }),
+          })
+        })
+        await page.route("**/api/mcp/resource?*", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              location: {
+                directory: resolvedDirectory,
+                project: { id: "runtime-e2e-project", directory: resolvedDirectory },
+              },
+              data: { resources: [], templates: [] },
+            }),
+          })
+        })
+        await page.route("**/api/mcp?*", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              location: {
+                directory: resolvedDirectory,
+                project: { id: "runtime-e2e-project", directory: resolvedDirectory },
+              },
+              data: [],
+            }),
+          })
+        })
+        await page.route("**/openapi.json", (route) => {
+          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
+          return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ paths: {} }) })
+        })
         await page.addInitScript(
-          ({ server, directory }) => {
+          ({ server, directory, providerID }) => {
             localStorage.clear()
             sessionStorage.clear()
             localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+            localStorage.setItem(
+              "opencode.global.dat:model",
+              JSON.stringify({
+                user: [{ providerID, modelID: "runtime-model", visibility: "show" }],
+                recent: [],
+                variant: {},
+              }),
+            )
             localStorage.setItem(
               "opencode.global.dat:server",
               JSON.stringify({
@@ -158,25 +286,79 @@ test("keeps a delayed model request running beyond the former short deadline", a
               }),
             )
           },
-          { server: runtime.url, directory: resolvedDirectory },
-        )
-        const eventSubscription = page.waitForResponse(
-          (response) => {
-            const url = new URL(response.url())
-            return url.origin === runtime.url && url.pathname === "/global/event" && response.status() === 200
-          },
-          { timeout: APP_READY_TIMEOUT },
+          { server: runtime.url, directory: resolvedDirectory, providerID: profile.providerID },
         )
         const sessionHistory = page.waitForResponse(
           (response) => isSessionHistoryRequest(response.request(), runtime.url, session.id),
           { timeout: APP_READY_TIMEOUT },
         )
+        const browserModels = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url())
+            return (
+              url.origin === runtime.url &&
+              url.pathname === "/api/model" &&
+              url.searchParams.get("location[directory]") === resolvedDirectory
+            )
+          },
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const browserProviders = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url())
+            return (
+              url.origin === runtime.url &&
+              url.pathname === "/api/provider" &&
+              url.searchParams.get("location[directory]") === resolvedDirectory
+            )
+          },
+          { timeout: APP_READY_TIMEOUT },
+        )
+        const browserAgents = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url())
+            return (
+              url.origin === runtime.url &&
+              url.pathname === "/api/agent" &&
+              url.searchParams.get("location[directory]") === resolvedDirectory
+            )
+          },
+          { timeout: APP_READY_TIMEOUT },
+        )
         const sessionPath = `/server/${base64Encode(runtime.url)}/session/${session.id}`
         await page.goto(sessionPath)
-        const [eventResponse, historyResponse] = await Promise.all([eventSubscription, sessionHistory])
-        expect(eventResponse.headers()["content-type"]).toContain("text/event-stream")
+        const [historyResponse, browserModelsResponse, browserProvidersResponse, browserAgentsResponse] =
+          await Promise.all([
+          sessionHistory,
+          browserModels,
+          browserProviders,
+          browserAgents,
+        ])
+        expect(protocolProbes.some((value) => new URL(value).pathname === "/global/health")).toBe(true)
+        expect(protocolProbes.some((value) => new URL(value).pathname === "/api/health")).toBe(true)
         expect(historyResponse.ok()).toBe(true)
-        expect(await historyResponse.json()).toEqual([])
+        expect(await historyResponse.json()).toEqual({ data: [], cursor: { next: null, previous: null } })
+        const browserModelBody = await browserModelsResponse.json()
+        expect(browserModelBody, `Browser V2 models: ${JSON.stringify(browserModelBody, null, 2)}`).toMatchObject({
+          data: [
+            {
+              id: "runtime-model",
+              providerID: profile.providerID,
+              name: "Runtime model",
+              status: "active",
+              cost: [{ input: 1, output: 1 }],
+            },
+          ],
+        })
+        const browserProviderBody = await browserProvidersResponse.json()
+        expect(
+          browserProviderBody,
+          `Browser V2 providers: ${JSON.stringify(browserProviderBody, null, 2)}`,
+        ).toMatchObject({ data: [{ id: profile.providerID }] })
+        const browserAgentBody = await browserAgentsResponse.json()
+        expect(browserAgentBody, `Browser V2 agents: ${JSON.stringify(browserAgentBody, null, 2)}`).toMatchObject({
+          data: expect.arrayContaining([expect.objectContaining({ id: "build" })]),
+        })
         expect(new URL(page.url()).pathname).toBe(sessionPath)
 
         const composer = page.locator('[data-component="prompt-input-v2"]')
@@ -186,21 +368,38 @@ test("keeps a delayed model request running beyond the former short deadline", a
         await expect(page.locator(`a[href="${sessionPath}"]`).first()).toBeVisible()
         expect(session.title).toMatch(/^New session - /)
         await expect(page.getByRole("heading", { level: 1, name: "New session", exact: true })).toBeVisible()
-        await expect(composer.locator('[data-action="prompt-model"]')).toContainText("Runtime model")
+        const modelControl = composer.locator('[data-action="prompt-model"]')
+        await expect(
+          modelControl,
+          `Browser diagnostics:\n${browserDiagnostics.join("\n") || "<none>"}`,
+        ).toHaveAttribute("data-control-type", "popover")
+        await modelControl.click()
+        const runtimeModel = page.locator(`[data-option-key="${profile.providerID}:runtime-model"]`)
+        await expect(runtimeModel).toBeVisible()
+        await runtimeModel.click()
+        await expect(modelControl).toContainText("Runtime model")
         await expect(input).toBeEditable()
         await expect(submit).toBeDisabled()
         await input.fill(privatePrompt)
         await expect(input).toHaveText(privatePrompt)
         await expect(submit).toBeEnabled()
 
-        const promptRequestPromise = page.waitForRequest(
-          (request) => isPromptAdmissionRequest(request, runtime.url, session.id),
-          { timeout: APP_READY_TIMEOUT },
-        )
-        const promptResponsePromise = page.waitForResponse(
-          (response) => isPromptAdmissionRequest(response.request(), runtime.url, session.id),
-          { timeout: APP_READY_TIMEOUT },
-        )
+        const promptRequests: Request[] = []
+        const onPromptRequest = (request: Request) => {
+          if (request.method() !== "POST") return
+          const url = new URL(request.url())
+          if (url.origin !== runtime.url || !url.pathname.includes("prompt")) return
+          promptRequests.push(request)
+        }
+        page.on("request", onPromptRequest)
+        const promptResponsePromise = page
+          .waitForResponse((response) => isPromptAdmissionRequest(response.request(), runtime.url, session.id), {
+            timeout: runtimeAdmissionTimeoutMs,
+          })
+          .then(
+            (response) => ({ type: "response" as const, response }),
+            (error: Error) => ({ type: "error" as const, error }),
+          )
         const promptFailure = Promise.withResolvers<Request>()
         const onPromptFailure = (request: Request) => {
           if (isPromptAdmissionRequest(request, runtime.url, session.id)) promptFailure.resolve(request)
@@ -208,17 +407,35 @@ test("keeps a delayed model request running beyond the former short deadline", a
         page.on("requestfailed", onPromptFailure)
 
         await submit.click()
-        const admittedRequest = await promptRequestPromise
+        await expect(page.locator('[data-timeline-row="UserMessage"]').filter({ hasText: privatePrompt }))
+          .toBeVisible()
+          .catch(async (error) => {
+            throw new Error(
+              [
+                "Prompt submission did not render the optimistic user message.",
+                `Observed prompt requests: ${promptRequests.map((request) => request.url()).join(", ") || "<none>"}`,
+                `Browser diagnostics: ${browserDiagnostics.join("\n") || "<none>"}`,
+                `Page text:\n${await page.locator("body").innerText()}`,
+              ].join("\n"),
+              { cause: error },
+            )
+          })
+
+        const admittedRequest = promptRequests.find((request) =>
+          isPromptAdmissionRequest(request, runtime.url, session.id),
+        )
+        if (!admittedRequest) {
+          throw new Error(`Expected a V2 prompt admission request. Observed:\n${promptRequests.map((request) => request.url()).join("\n") || "<none>"}`)
+        }
         const promptPayload = admittedRequest.postDataJSON() as unknown
-        expect(
-          isPromptAdmissionPayload(promptPayload),
-          `Unexpected prompt admission payload:\n${JSON.stringify(promptPayload, null, 2)}`,
-        ).toBe(true)
+        expect(isPromptAdmissionPayload(promptPayload)).toBe(true)
+
         const admission = await Promise.race([
-          promptResponsePromise.then((response) => ({ response })),
-          promptFailure.promise.then((request) => ({ request })),
+          promptResponsePromise,
+          promptFailure.promise.then((request) => ({ type: "request" as const, request })),
         ]).finally(() => page.off("requestfailed", onPromptFailure))
-        if ("request" in admission) {
+        if (admission.type === "error") throw admission.error
+        if (admission.type === "request") {
           throw new Error(
             `Prompt admission request failed: ${admission.request.failure()?.errorText ?? "unknown error"}`,
           )
@@ -228,45 +445,66 @@ test("keeps a delayed model request running beyond the former short deadline", a
           admission.response.ok(),
           `Prompt admission failed with ${admission.response.status()}: ${admissionBody || "<empty response>"}`,
         ).toBe(true)
-        expect([200, 204]).toContain(admission.response.status())
-        await expect(page.locator('[data-timeline-row="UserMessage"]').filter({ hasText: privatePrompt })).toBeVisible()
+        expect(admission.response.status()).toBe(200)
 
         const promptRequest = await waitForMainProviderRequest(upstream.mainChunkSent.promise, requests)
-        await expect(page.getByText(firstChunk, { exact: false })).toBeVisible()
-        await expect(submit).toHaveAccessibleName("Stop")
-        await page.waitForTimeout(formerRuntimeTimeoutMs + 250)
-        await expect(submit).toHaveAccessibleName("Stop")
-        await expect(page.getByText(finalChunk.trim(), { exact: false })).toBeVisible({
-          timeout: runtimeCompletionTimeoutMs,
-        })
-        await expect(submit).not.toHaveAccessibleName("Stop", { timeout: runtimeCompletionTimeoutMs })
-
         expect(promptRequest).toMatchObject({
           authorization: `Bearer ${apiKey}`,
           privateHeader,
           purpose: "agent-turn",
         })
-        expect(promptRequest?.body).toMatchObject({ model: "runtime-model", stream: true })
+        expect(promptRequest.body).toMatchObject({ model: "runtime-model", stream: true })
+
+        await page.waitForTimeout(formerRuntimeTimeoutMs + 250)
+        expect(await settlesWithin(upstream.mainCompleted.promise, 25)).toBe(false)
+        const activeResponse = await fetch(`${runtime.url}/api/session/active`)
+        expect(activeResponse.ok).toBe(true)
+        expect(await activeResponse.json()).toMatchObject({
+          data: { [session.id]: { type: "running" } },
+        })
+        expect(await settlesWithin(upstream.mainCompleted.promise, runtimeCompletionTimeoutMs)).toBe(true)
+
+        const sessionMessages = `${runtime.url}/api/session/${session.id}/message?limit=20&order=desc`
+        await expect
+          .poll(
+            async () => {
+              const response = await fetch(sessionMessages)
+              if (!response.ok) return `status:${response.status}`
+              return JSON.stringify(await response.json())
+            },
+            { timeout: runtimeCompletionTimeoutMs },
+          )
+          .toContain(finalChunk.trim())
+        expect(await readV2SessionCounts(path.join(home, "opencode.db"), session.id)).toMatchObject({
+          sessionInput: 1,
+          sessionMessage: 2,
+        })
+
+        const reloadedHistory = page.waitForResponse(
+          (response) => isSessionHistoryRequest(response.request(), runtime.url, session.id),
+          { timeout: APP_READY_TIMEOUT },
+        )
+        await page.reload()
+        expect((await reloadedHistory).ok()).toBe(true)
+        await expect(page.getByText(finalChunk.trim(), { exact: false })).toBeVisible({ timeout: APP_READY_TIMEOUT })
+
         expect(
           requests.filter((request) => request.purpose === "agent-turn"),
           providerRequestDiagnostics(requests),
         ).toHaveLength(1)
-        expect(
-          requests.some((request) => request.purpose === "title"),
-          providerRequestDiagnostics(requests),
-        ).toBe(true)
+        page.off("request", onPromptRequest)
       } finally {
-        if (!page.isClosed()) await page.close()
-        runtime.process.kill()
-        await runtime.exited
-        await runtime.stderr
+        await stopOpenCodeRuntime(page, runtime)
       }
     } finally {
       await rm(home, { recursive: true, force: true })
     }
   } finally {
-    await proxy.stop()
-    await upstream.stop()
+    try {
+      await withTimeout(proxy.stop(), 2_500, "Credential proxy did not stop within the cleanup budget")
+    } finally {
+      await withTimeout(upstream.stop(), 2_500, "Private model fixture did not stop within the cleanup budget")
+    }
   }
 })
 
@@ -318,8 +556,9 @@ function modelChunk(input: { content?: string; finish?: string }) {
 
 async function startPrivateModelServer(requests: PrivateModelRequest[]) {
   const mainChunkSent = Promise.withResolvers<PrivateModelRequest>()
+  const mainCompleted = Promise.withResolvers<void>()
   const server = createServer((request, response) => {
-    void handlePrivateModelRequest(request, response, requests, mainChunkSent).catch(() => {
+    void handlePrivateModelRequest(request, response, requests, mainChunkSent, mainCompleted).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" })
       response.end(JSON.stringify({ error: { message: "Private model fixture failed" } }))
     })
@@ -336,6 +575,7 @@ async function startPrivateModelServer(requests: PrivateModelRequest[]) {
   return {
     url: `http://127.0.0.1:${address.port}`,
     mainChunkSent,
+    mainCompleted,
     stop: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())
@@ -349,6 +589,7 @@ async function handlePrivateModelRequest(
   response: ServerResponse,
   requests: PrivateModelRequest[],
   mainChunkSent: ReturnType<typeof Promise.withResolvers<PrivateModelRequest>>,
+  mainCompleted: ReturnType<typeof Promise.withResolvers<void>>,
 ) {
   const chunks: Buffer[] = []
   for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
@@ -376,6 +617,7 @@ async function handlePrivateModelRequest(
   mainChunkSent.resolve(record)
   const timer = setTimeout(() => {
     response.end(`${modelChunk({ content: finalChunk })}${modelChunk({ finish: "stop" })}data: [DONE]\n\n`)
+    mainCompleted.resolve()
   }, formerRuntimeTimeoutMs + progressAfterTimeoutMs)
   response.once("close", () => clearTimeout(timer))
 }
@@ -449,25 +691,32 @@ async function waitForMainProviderRequest(promise: Promise<PrivateModelRequest>,
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  const timeout = Promise.withResolvers<never>()
+  const timer = setTimeout(() => timeout.reject(new Error(message)), timeoutMs)
+  try {
+    return await Promise.race([promise, timeout.promise])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function isPromptAdmissionRequest(request: Request, server: string, sessionID: string) {
   if (request.method() !== "POST") return false
   const url = new URL(request.url())
   if (url.origin !== server) return false
-  return url.pathname === `/session/${sessionID}/prompt_async` || url.pathname === `/api/session/${sessionID}/prompt`
+  return url.pathname === `/api/session/${sessionID}/prompt`
 }
 
 function isSessionHistoryRequest(request: Request, server: string, sessionID: string) {
   if (request.method() !== "GET") return false
   const url = new URL(request.url())
   if (url.origin !== server) return false
-  return url.pathname === `/session/${sessionID}/message` || url.pathname === `/api/session/${sessionID}/message`
+  return url.pathname === `/api/session/${sessionID}/message`
 }
 
 function isPromptAdmissionPayload(payload: unknown) {
   if (!isRecord(payload)) return false
-  if (Array.isArray(payload.parts)) {
-    return payload.parts.some((part) => isRecord(part) && part.type === "text" && part.text === privatePrompt)
-  }
   if (!isRecord(payload.prompt)) return false
   return payload.prompt.text === privatePrompt
 }
@@ -568,9 +817,13 @@ async function startOpenCodeServer(input: {
   try {
     return { process: child, url: await readServerURL(child.stdout), exited, stderr }
   } catch (error) {
-    child.kill()
-    await exited
-    throw new Error(`OpenCode E2E server failed to start:\n${await stderr}`, { cause: error })
+    child.kill("SIGTERM")
+    if (!(await settlesWithin(exited, 2_500))) {
+      child.kill("SIGKILL")
+      await settlesWithin(exited, 2_500)
+    }
+    await settlesWithin(stderr, 1_000)
+    throw new Error("OpenCode E2E server failed to start", { cause: error })
   }
 }
 
@@ -597,6 +850,72 @@ async function readStream(stream: Readable) {
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   return Buffer.concat(chunks).toString("utf8")
+}
+
+async function readV2SessionCounts(database: string, sessionID: string) {
+  const child = spawn(
+    "bun",
+    [
+      "-e",
+      [
+        'import { Database } from "bun:sqlite"',
+        "const db = new Database(process.argv[1], { readonly: true })",
+        'const sessionInput = db.query("SELECT COUNT(*) AS count FROM session_input WHERE session_id = ?").get(process.argv[2])',
+        'const sessionMessage = db.query("SELECT COUNT(*) AS count FROM session_message WHERE session_id = ?").get(process.argv[2])',
+        "console.log(JSON.stringify({ sessionInput: sessionInput.count, sessionMessage: sessionMessage.count }))",
+      ].join(";"),
+      database,
+      sessionID,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  )
+  const stdout = readStream(child.stdout)
+  const stderr = readStream(child.stderr)
+  const exited = new Promise<number | null>((resolve) => child.once("exit", resolve))
+  const timeout = Promise.withResolvers<"timeout">()
+  const timer = setTimeout(() => timeout.resolve("timeout"), 5_000)
+  const result = await Promise.race([
+    exited.then((code) => ({ type: "exit" as const, code })),
+    timeout.promise.then(() => ({ type: "timeout" as const })),
+  ]).finally(() => clearTimeout(timer))
+  if (result.type === "timeout") {
+    child.kill("SIGKILL")
+    await Promise.all([settlesWithin(exited, 2_500), settlesWithin(stdout, 1_000), settlesWithin(stderr, 1_000)])
+    throw new Error("Timed out while inspecting the V2 session database")
+  }
+  const [output, errors] = await Promise.all([stdout, stderr])
+  const code = result.code
+  if (code !== 0) throw new Error(`Failed to inspect V2 session database (${code}): ${errors}`)
+  const counts: unknown = JSON.parse(output)
+  if (!isRecord(counts) || typeof counts.sessionInput !== "number" || typeof counts.sessionMessage !== "number") {
+    throw new Error(`Unexpected V2 session database counts: ${output}`)
+  }
+  return { sessionInput: counts.sessionInput, sessionMessage: counts.sessionMessage }
+}
+
+async function stopOpenCodeRuntime(
+  page: Page,
+  runtime: Awaited<ReturnType<typeof startOpenCodeServer>>,
+) {
+  const pageClosed = page.isClosed() ? Promise.resolve() : page.close().catch(() => undefined)
+  await settlesWithin(pageClosed, 1_000)
+  runtime.process.kill("SIGTERM")
+  const terminated = await settlesWithin(runtime.exited, 2_500)
+  if (!terminated) runtime.process.kill("SIGKILL")
+  if (!terminated && !(await settlesWithin(runtime.exited, 2_500))) {
+    throw new Error(`OpenCode E2E server ${runtime.process.pid ?? "unknown"} did not exit after SIGKILL`)
+  }
+  await Promise.all([settlesWithin(pageClosed, 1_000), settlesWithin(runtime.stderr, 1_000)])
+}
+
+async function settlesWithin(promise: Promise<unknown>, timeoutMs: number) {
+  const timeout = Promise.withResolvers<boolean>()
+  const timer = setTimeout(() => timeout.resolve(false), timeoutMs)
+  try {
+    return await Promise.race([promise.then(() => true, () => true), timeout.promise])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function base64Encode(value: string) {

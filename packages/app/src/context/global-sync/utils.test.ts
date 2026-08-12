@@ -41,6 +41,39 @@ describe("normalizeAgentList", () => {
       },
     ])
   })
+
+  test("adapts current agents whose provider request has no legacy settings", () => {
+    const result = normalizeAgentList([
+      {
+        id: "build",
+        mode: "primary",
+        hidden: false,
+        request: {
+          headers: { "x-agent": "private" },
+          body: { temperature: 0.4, topP: 0.7, reasoningEffort: "high" },
+        },
+        permissions: [],
+      },
+    ] as unknown as AgentListOutput["data"])
+
+    expect(result).toEqual([
+      {
+        name: "build",
+        description: undefined,
+        mode: "primary",
+        hidden: false,
+        temperature: 0.4,
+        topP: 0.7,
+        color: undefined,
+        permission: [],
+        model: undefined,
+        variant: undefined,
+        prompt: undefined,
+        options: { temperature: 0.4, topP: 0.7, reasoningEffort: "high" },
+        steps: undefined,
+      },
+    ])
+  })
 })
 
 describe("normalizePermissionRequest", () => {

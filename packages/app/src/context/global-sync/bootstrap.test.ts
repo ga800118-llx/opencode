@@ -315,9 +315,8 @@ describe("query keys", () => {
           calls.push(["model", input])
           return { location: {}, data: [] }
         },
-        default: async (input: unknown) => {
-          calls.push(["default", input])
-          return { location: {}, data: null }
+        default: async () => {
+          throw new Error("The current server protocol does not expose model.default")
         },
       },
     } as unknown as CatalogApi
@@ -327,7 +326,6 @@ describe("query keys", () => {
     expect(calls).toEqual([
       ["provider", { location: { directory: "/repo" } }],
       ["model", { location: { directory: "/repo" } }],
-      ["default", { location: { directory: "/repo" } }],
     ])
     expect(result.connected).toEqual(["openai"])
   })
