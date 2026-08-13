@@ -3,6 +3,7 @@ export * as ConfigProviderPlugin from "./provider"
 import { define } from "../../plugin/internal"
 import { Effect } from "effect"
 import { Config } from "../../config"
+import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
 import { ProviderV2 } from "../../provider"
 
@@ -13,12 +14,15 @@ export const Plugin = define({
     yield* ctx.integration.transform(
       Effect.fn(function* (integrations) {
         const files = (yield* config.entries()).filter((entry): entry is Config.Document => entry.type === "document")
-        const configuredIntegrations = new Set(
+        const configuredEnv = new Map(
           files.flatMap((file) =>
             Object.entries(file.info.providers ?? {}).flatMap(([id, provider]) =>
-              provider.env?.length ? [id] : [],
+              provider.env !== undefined ? [[id, provider.env] as const] : [],
             ),
           ),
+        )
+        const configuredIntegrations = new Set(
+          Array.from(configuredEnv).flatMap(([id, names]) => (names.length ? [id] : [])),
         )
         for (const file of files) {
           for (const [id, item] of Object.entries(file.info.providers ?? {})) {
@@ -27,13 +31,16 @@ export const Plugin = define({
             integrations.update(integrationID, (integration) => {
               integration.name = item.name ?? integration.name
             })
-            if (item.env?.length) {
-              integrations.method.update({
-                integrationID,
-                method: { type: "env", names: [...item.env] },
-              })
-            }
           }
+        }
+        for (const [id, names] of configuredEnv) {
+          const integrationID = Integration.ID.make(id)
+          if (names.length) {
+            integrations.method.update({ integrationID, method: { type: "env", names: [...names] } })
+            continue
+          }
+          integrations.method.remove(integrationID, { type: "env", names: [] })
+          if (integrations.method.list(integrationID).length === 0) integrations.remove(integrationID)
         }
       }),
     )

@@ -266,4 +266,66 @@ describe("ConfigProviderPlugin.Plugin", () => {
       }),
     ),
   )
+
+  it.effect("lets a higher-priority empty env remove only inherited environment authentication", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const integrationID = Integration.ID.make("custom")
+      yield* integrations.transform((editor) => {
+        editor.method.update({ integrationID, method: { type: "key", label: "API key" } })
+      })
+      const config = Config.Service.of({
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { custom: { env: ["CUSTOM_API_KEY"] } } }),
+            }),
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { custom: { env: [] } } }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config)
+
+      expect((yield* integrations.get(integrationID))?.methods).toEqual([{ type: "key", label: "API key" }])
+    }),
+  )
+
+  it.effect("makes a layered provider credential-free when the final env is empty", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const integrations = yield* Integration.Service
+      const providerID = ProviderV2.ID.make("credential-free")
+      const config = Config.Service.of({
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { "credential-free": { env: ["PRIVATE_API_KEY"] } } }),
+            }),
+            new Config.Document({
+              type: "document",
+              info: decode({
+                providers: {
+                  "credential-free": {
+                    env: [],
+                    api: { type: "aisdk", package: "@ai-sdk/openai-compatible", url: "https://example.test" },
+                    models: { chat: { name: "Chat" } },
+                  },
+                },
+              }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config)
+
+      expect(yield* integrations.get(Integration.ID.make(providerID))).toBeUndefined()
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toContain(providerID)
+      expect((yield* catalog.model.available()).map((model) => model.id)).toContain(ModelV2.ID.make("chat"))
+    }),
+  )
 })

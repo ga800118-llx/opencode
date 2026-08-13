@@ -1,5 +1,6 @@
 import { afterEach, describe, expect } from "bun:test"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { Global } from "@opencode-ai/core/global"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Deferred, Effect, Layer } from "effect"
 import type * as Scope from "effect/Scope"
@@ -253,6 +254,31 @@ function withFakeLlm<A, E>(serverPath: ServerPath, run: (input: LlmProjectFixtur
     const llm = yield* TestLLMServer
     return yield* withProject(serverPath, { config: testProviderConfig(llm.url) }, (input) => run({ ...input, llm }))
   }).pipe(Effect.provide(TestLLMServer.layer))
+}
+
+function withGlobalConfigSnapshot<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  const files = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
+    path.join(Global.Path.config, file),
+  )
+  return Effect.acquireUseRelease(
+    FSUtil.Service.use((fs) =>
+      Effect.forEach(files, (file) =>
+        fs.readFileStringSafe(file).pipe(Effect.map((content) => ({ file, content }))),
+      ),
+    ),
+    () => effect,
+    (snapshots) =>
+      FSUtil.Service.use((fs) =>
+        Effect.forEach(
+          snapshots,
+          (snapshot) =>
+            snapshot.content === undefined
+              ? fs.remove(snapshot.file, { force: true })
+              : fs.writeWithDirs(snapshot.file, snapshot.content),
+          { discard: true },
+        ),
+      ).pipe(Effect.andThen(InstanceStore.use.disposeAll())),
+  )
 }
 
 function withFakeLlmProject<A, E>(
@@ -802,6 +828,117 @@ describe("HttpApi SDK", () => {
           userText: JSON.stringify(messages.data).includes("hello llm"),
         }
       }),
+    ),
+  )
+
+  serverPathParity("runs a new v2 task immediately after selecting a saved compatible model", (serverPath) =>
+    withGlobalConfigSnapshot(
+      Effect.gen(function* () {
+        const llm = yield* TestLLMServer
+        return yield* withProject(serverPath, {}, ({ sdk, directory }) =>
+          Effect.gen(function* () {
+            const providerID = "agent-profile-runtime-e2e"
+            const modelID = "runtime-model"
+            const saved = yield* capture(() =>
+              sdk.global.config.update({
+                config: {
+                  provider: {
+                    [providerID]: {
+                      name: "Runtime E2E private model",
+                      npm: "@ai-sdk/openai-compatible",
+                      env: [],
+                      options: {
+                        apiKey: "test-key",
+                        baseURL: llm.url,
+                        timeout: false,
+                        headerTimeout: false,
+                      },
+                      models: {
+                        [modelID]: {
+                          name: "Runtime model",
+                          tool_call: true,
+                          modalities: { input: ["text"], output: ["text"] },
+                          limit: { context: 64_000, output: 8_000 },
+                          cost: { input: 0, output: 0 },
+                        },
+                      },
+                    },
+                  },
+                },
+              }),
+            )
+            const providers = yield* pollWithTimeout(
+              capture(() => sdk.v2.provider.list({ location: { directory } })).pipe(
+                Effect.map((result) =>
+                  array(record(result.data).data).some((provider) => record(provider).id === providerID)
+                    ? result
+                    : undefined,
+                ),
+              ),
+              "Saved provider was not visible to the V2 catalog",
+              "10 seconds",
+            )
+            const models = yield* pollWithTimeout(
+              capture(() => sdk.v2.model.list({ location: { directory } })).pipe(
+                Effect.map((result) =>
+                  array(record(result.data).data).some(
+                    (model) => record(model).id === modelID && record(model).providerID === providerID,
+                  )
+                    ? result
+                    : undefined,
+                ),
+              ),
+              "Saved model was not visible to the V2 catalog",
+              "10 seconds",
+            )
+            const selected = yield* capture(() =>
+              sdk.global.config.update({ config: { model: `${providerID}/${modelID}` } }),
+            )
+
+            yield* llm.text("runtime model completed", { usage: { input: 11, output: 7 } })
+            const created = yield* capture(() =>
+              sdk.v2.session.create({
+                agent: "build",
+                model: { providerID, id: modelID },
+                permissionMode: "auto",
+                location: { directory },
+              }),
+            )
+            const sessionID = String(record(record(created.data).data).id)
+            const prompt = yield* capture(() =>
+              sdk.v2.session.prompt({ sessionID, prompt: { text: "run immediately after model selection" } }),
+            )
+            const messages = yield* pollWithTimeout(
+              capture(() => sdk.v2.session.messages({ sessionID })).pipe(
+                Effect.map((result) =>
+                  JSON.stringify(result.data).includes("runtime model completed") ? result : undefined,
+                ),
+              ),
+              "V2 task did not complete with the newly saved model",
+              "10 seconds",
+            )
+            const inputs = yield* llm.inputs
+
+            expect(statuses({ saved, providers, models, selected, created, prompt, messages })).toEqual({
+              saved: 200,
+              providers: 200,
+              models: 200,
+              selected: 200,
+              created: 200,
+              prompt: 200,
+              messages: 200,
+            })
+            expect(array(record(providers.data).data)).toContainEqual(expect.objectContaining({ id: providerID }))
+            expect(array(record(models.data).data)).toContainEqual(
+              expect.objectContaining({ id: modelID, providerID }),
+            )
+            expect(record(selected.data).model).toBe(`${providerID}/${modelID}`)
+            expect(record(record(created.data).data).model).toMatchObject({ providerID, id: modelID })
+            expect(inputs).toHaveLength(1)
+            expect(inputs[0]?.model).toBe(modelID)
+          }),
+        )
+      }).pipe(Effect.provide(TestLLMServer.layer)),
     ),
   )
 
