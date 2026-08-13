@@ -18,6 +18,7 @@ import {
 import { homedir, hostname, tmpdir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
+import opencodePkg from "../../opencode/package.json"
 import { formatChecksumManifest, sha256 } from "./internal-package"
 
 export { formatChecksumManifest, sha256 } from "./internal-package"
@@ -1090,6 +1091,7 @@ export function createInternalMacBuildEnvironment(
     ELECTRON_SKIP_BINARY_DOWNLOAD: "1",
     BUN_INSTALL_CACHE_DIR: path.join(homedir(), ".bun", "install", "cache"),
     OPENCODE_CHANNEL: "beta",
+    OPENCODE_VERSION: opencodePkg.version,
     OPENCODE_UPDATER_ENABLED: "false",
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
     MODELS_DEV_API_JSON: input.modelsSnapshot,

@@ -587,6 +587,7 @@ describe("internal Mac package", () => {
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1",
       BUN_INSTALL_CACHE_DIR: path.join(homedir(), ".bun", "install", "cache"),
       OPENCODE_CHANNEL: "beta",
+      OPENCODE_VERSION: "1.18.10",
       OPENCODE_UPDATER_ENABLED: "false",
       CSC_IDENTITY_AUTO_DISCOVERY: "false",
       MODELS_DEV_API_JSON: "/tmp/models.json",

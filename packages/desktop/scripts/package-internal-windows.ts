@@ -6,6 +6,7 @@ import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
+import opencodePkg from "../../opencode/package.json"
 import { formatChecksumManifest, sha256 } from "./internal-package"
 
 export const MINGIT_RELEASE = "v2.55.0.windows.3"
@@ -234,6 +235,7 @@ export async function packageInternalWindows() {
   await requireFile(guide, "Windows tester guide is required")
 
   process.env.OPENCODE_CHANNEL = "beta"
+  process.env.OPENCODE_VERSION = opencodePkg.version
   process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false"
   if (!process.env.MODELS_DEV_API_JSON && (await Bun.file(cachedModels).exists())) {
     process.env.MODELS_DEV_API_JSON = cachedModels
