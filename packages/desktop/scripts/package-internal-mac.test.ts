@@ -11,6 +11,7 @@ import {
   assertInternalMacSourceUnchanged,
   assertMacGitArchive,
   assertMacGitLicense,
+  assertMacDmgbuildArchive,
   buildInternalMacArtifacts,
   createMacGitDownloadCommand,
   createInternalMacArtifactPlan,
@@ -44,6 +45,12 @@ import {
   MAC_GIT_SIZE_BYTES,
   MAC_GIT_URL,
   MAC_GIT_VERSION,
+  MAC_DMGBUILD_ASSET,
+  MAC_DMGBUILD_RELEASE,
+  MAC_DMGBUILD_SHA256,
+  MAC_DMGBUILD_SIZE_BYTES,
+  MAC_DMGBUILD_URL,
+  MAC_DMGBUILD_VERSION,
 } from "./package-internal-mac"
 
 const guidePath = path.join(import.meta.dir, "..", "..", "..", "docs", "product", "internal-beta-testing.md")
@@ -114,6 +121,17 @@ describe("internal Mac package", () => {
       "/tmp/git.tar.gz",
       MAC_GIT_URL,
     ])
+  })
+
+  test("pins and verifies the official Mac dmgbuild distribution", () => {
+    expect(MAC_DMGBUILD_RELEASE).toBe("dmg-builder@1.2.5")
+    expect(MAC_DMGBUILD_ASSET).toBe("dmgbuild-bundle-arm64-75c8a6c.tar.gz")
+    expect(MAC_DMGBUILD_URL).toBe(
+      "https://github.com/electron-userland/electron-builder-binaries/releases/download/dmg-builder@1.2.5/dmgbuild-bundle-arm64-75c8a6c.tar.gz",
+    )
+    expect(() => assertMacDmgbuildArchive(MAC_DMGBUILD_SIZE_BYTES, MAC_DMGBUILD_SHA256)).not.toThrow()
+    expect(() => assertMacDmgbuildArchive(MAC_DMGBUILD_SIZE_BYTES + 1, MAC_DMGBUILD_SHA256)).toThrow("size mismatch")
+    expect(() => assertMacDmgbuildArchive(MAC_DMGBUILD_SIZE_BYTES, "0".repeat(64))).toThrow("checksum mismatch")
   })
 
   test("promotes only verified Mac Git downloads and cleans failed temporary files", async () => {
@@ -236,10 +254,13 @@ describe("internal Mac package", () => {
           gitVersion: MAC_GIT_VERSION,
           gitSha256: MAC_GIT_SHA256,
           gitSizeBytes: MAC_GIT_SIZE_BYTES,
+          dmgbuildVersion: MAC_DMGBUILD_VERSION,
+          dmgbuildSha256: MAC_DMGBUILD_SHA256,
+          dmgbuildSizeBytes: MAC_DMGBUILD_SIZE_BYTES,
         },
       }),
     ).toEqual({
-      schemaVersion: 4,
+      schemaVersion: 5,
       product: "Guai Code Beta",
       channel: "beta",
       version: "0.1.0-alpha.2",
@@ -275,6 +296,13 @@ describe("internal Mac package", () => {
           sha256: MAC_GIT_SHA256,
           sizeBytes: MAC_GIT_SIZE_BYTES,
         },
+        dmgbuild: {
+          distribution: "electron-userland/electron-builder-binaries",
+          release: MAC_DMGBUILD_RELEASE,
+          version: MAC_DMGBUILD_VERSION,
+          sha256: MAC_DMGBUILD_SHA256,
+          sizeBytes: MAC_DMGBUILD_SIZE_BYTES,
+        },
       },
       buildTimestamp: "2026-08-12T01:02:03.000Z",
     })
@@ -301,6 +329,9 @@ describe("internal Mac package", () => {
             gitVersion: MAC_GIT_VERSION,
             gitSha256: MAC_GIT_SHA256,
             gitSizeBytes: MAC_GIT_SIZE_BYTES,
+            dmgbuildVersion: MAC_DMGBUILD_VERSION,
+            dmgbuildSha256: MAC_DMGBUILD_SHA256,
+            dmgbuildSizeBytes: MAC_DMGBUILD_SIZE_BYTES,
           },
         }),
       ),
@@ -349,6 +380,9 @@ describe("internal Mac package", () => {
       gitVersion: MAC_GIT_VERSION,
       gitSha256: MAC_GIT_SHA256,
       gitSizeBytes: MAC_GIT_SIZE_BYTES,
+      dmgbuildVersion: MAC_DMGBUILD_VERSION,
+      dmgbuildSha256: MAC_DMGBUILD_SHA256,
+      dmgbuildSizeBytes: MAC_DMGBUILD_SIZE_BYTES,
     })
     expect(await sha256Directory(electron)).toBe(first.electronSha256)
 
@@ -538,6 +572,7 @@ describe("internal Mac package", () => {
         bundledGitDirectory: "/tmp/git",
         home: "/tmp/home",
         sourceDateEpoch: 1_786_499_323,
+        dmgbuildExecutable: "/tmp/dmgbuild/dmgbuild",
         bunExecutable: "/toolchain/bin/bun",
       },
     )
@@ -556,6 +591,7 @@ describe("internal Mac package", () => {
       CSC_IDENTITY_AUTO_DISCOVERY: "false",
       MODELS_DEV_API_JSON: "/tmp/models.json",
       GUAI_CODE_BUNDLED_GIT_DIR: "/tmp/git",
+      CUSTOM_DMGBUILD_PATH: "/tmp/dmgbuild/dmgbuild",
     })
     expect(() =>
       createInternalMacBuildEnvironment(
@@ -565,6 +601,19 @@ describe("internal Mac package", () => {
           bundledGitDirectory: "/tmp/git",
           home: "/tmp/home",
           sourceDateEpoch: 0,
+          dmgbuildExecutable: "/tmp/dmgbuild/dmgbuild",
+        },
+      ),
+    ).toThrow("not allowed")
+    expect(() =>
+      createInternalMacBuildEnvironment(
+        { CUSTOM_DMGBUILD_PATH: "/private/dmgbuild" },
+        {
+          modelsSnapshot: "/tmp/models.json",
+          bundledGitDirectory: "/tmp/git",
+          home: "/tmp/home",
+          sourceDateEpoch: 0,
+          dmgbuildExecutable: "/tmp/dmgbuild/dmgbuild",
         },
       ),
     ).toThrow("not allowed")

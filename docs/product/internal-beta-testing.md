@@ -21,7 +21,7 @@
 ## 安装包来源
 
 - `BUILD-INFO.json` 记录构建所用的完整 Git commit 和 tree 标识；源码从该提交导出到隔离目录后编译。
-- 同一文件还记录模型目录快照、完整 Electron 运行时（包括权限位）、Bun 构建工具和内置 Git 的版本与 SHA-256，构建期间输入发生变化会终止打包。
+- 同一文件还记录模型目录快照、完整 Electron 运行时（包括权限位）、Bun 构建工具、内置 Git 和 DMG 构建工具的版本与 SHA-256，构建期间输入发生变化会终止打包。
 - `trackedClean: true` 表示打包前后均没有 staged 或 unstaged 的 tracked 文件改动；否则打包脚本会拒绝产出交付目录。
 - `untrackedFilesPresent` 只说明构建工作区是否存在未跟踪文件，不记录这些文件的名称或路径，也不把它们误报为 tracked 源码改动。
 - `SHA256SUMS.txt` 同时覆盖 DMG、ZIP、`BUILD-INFO.json`、试用说明和许可证，可用于检查交付文件是否被修改。

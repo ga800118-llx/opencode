@@ -33,6 +33,12 @@ export const MAC_GIT_DOWNLOAD_RETRY_DELAY_MS = 5_000
 export const MAC_GIT_LICENSE_URL = "https://raw.githubusercontent.com/git/git/v2.53.0/COPYING"
 export const MAC_GIT_LICENSE_SHA256 = "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e"
 export const MAC_GIT_LICENSE_SIZE_BYTES = 18_765
+export const MAC_DMGBUILD_RELEASE = "dmg-builder@1.2.5"
+export const MAC_DMGBUILD_VERSION = "1.2.5"
+export const MAC_DMGBUILD_ASSET = "dmgbuild-bundle-arm64-75c8a6c.tar.gz"
+export const MAC_DMGBUILD_URL = `https://github.com/electron-userland/electron-builder-binaries/releases/download/${MAC_DMGBUILD_RELEASE}/${MAC_DMGBUILD_ASSET}`
+export const MAC_DMGBUILD_SHA256 = "793404d0c96687e27d5ee40a668d498c92e36a64d6c2906df511031adb33cbeb"
+export const MAC_DMGBUILD_SIZE_BYTES = 22_995_919
 
 export function assertInternalMacHost(platform: NodeJS.Platform, arch: string) {
   if (platform !== "darwin") throw new Error("The internal Mac package must be built on macOS.")
@@ -91,6 +97,9 @@ export function createInternalMacBuildMetadata(input: {
     gitVersion: string
     gitSha256: string
     gitSizeBytes: number
+    dmgbuildVersion: string
+    dmgbuildSha256: string
+    dmgbuildSizeBytes: number
   }
 }) {
   assertGitObjectID(input.source.commit, "commit")
@@ -99,9 +108,11 @@ export function createInternalMacBuildMetadata(input: {
   assertSha256(input.inputs.electronSha256, "Electron runtime")
   assertSha256(input.inputs.bunSha256, "Bun runtime")
   assertSha256(input.inputs.gitSha256, "bundled Git")
+  assertSha256(input.inputs.dmgbuildSha256, "dmgbuild")
   if (!input.inputs.electronVersion.trim()) throw new Error("Electron runtime version is required")
   if (!input.inputs.bunVersion.trim()) throw new Error("Bun runtime version is required")
   if (!input.inputs.gitVersion.trim()) throw new Error("Bundled Git version is required")
+  if (!input.inputs.dmgbuildVersion.trim()) throw new Error("dmgbuild version is required")
   if (!Number.isSafeInteger(input.inputs.gitSizeBytes) || input.inputs.gitSizeBytes <= 0) {
     throw new Error("Bundled Git size is required")
   }
@@ -112,12 +123,19 @@ export function createInternalMacBuildMetadata(input: {
   ) {
     throw new Error("Bundled Git metadata does not match the pinned Mac Git distribution")
   }
+  if (
+    input.inputs.dmgbuildVersion !== MAC_DMGBUILD_VERSION ||
+    input.inputs.dmgbuildSha256 !== MAC_DMGBUILD_SHA256 ||
+    input.inputs.dmgbuildSizeBytes !== MAC_DMGBUILD_SIZE_BYTES
+  ) {
+    throw new Error("dmgbuild metadata does not match the pinned Mac distribution")
+  }
   if (input.buildTimestamp !== input.source.commitTimestamp) {
     throw new Error("Build timestamp must match the source commit timestamp")
   }
   assertInternalMacSourceReady(input.source)
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     product: "Guai Code Beta",
     channel: "beta",
     version: input.version,
@@ -152,6 +170,13 @@ export function createInternalMacBuildMetadata(input: {
         version: input.inputs.gitVersion,
         sha256: input.inputs.gitSha256,
         sizeBytes: input.inputs.gitSizeBytes,
+      },
+      dmgbuild: {
+        distribution: "electron-userland/electron-builder-binaries",
+        release: MAC_DMGBUILD_RELEASE,
+        version: input.inputs.dmgbuildVersion,
+        sha256: input.inputs.dmgbuildSha256,
+        sizeBytes: input.inputs.dmgbuildSizeBytes,
       },
     },
     buildTimestamp: input.buildTimestamp,
@@ -814,6 +839,15 @@ export function assertMacGitLicense(size: number, checksum: string) {
   }
 }
 
+export function assertMacDmgbuildArchive(size: number, checksum: string) {
+  if (size !== MAC_DMGBUILD_SIZE_BYTES) {
+    throw new Error(`Mac dmgbuild size mismatch: expected ${MAC_DMGBUILD_SIZE_BYTES}, received ${size}`)
+  }
+  if (checksum !== MAC_DMGBUILD_SHA256) {
+    throw new Error(`Mac dmgbuild checksum mismatch: expected ${MAC_DMGBUILD_SHA256}, received ${checksum}`)
+  }
+}
+
 export function createMacGitDownloadCommand(destination: string, source = MAC_GIT_URL) {
   return [
     "/usr/bin/curl",
@@ -954,17 +988,39 @@ export async function prepareInternalMacGit(input: { cacheDirectory: string; des
   return { archive, license }
 }
 
+export async function prepareInternalMacDmgbuild(input: { cacheDirectory: string; destination: string }) {
+  const archive = await downloadVerifiedInternalMacFile({
+    archive: path.join(input.cacheDirectory, MAC_DMGBUILD_ASSET),
+    url: MAC_DMGBUILD_URL,
+    size: MAC_DMGBUILD_SIZE_BYTES,
+    checksum: MAC_DMGBUILD_SHA256,
+    label: "Mac dmgbuild",
+  })
+  await mkdir(input.destination, { recursive: true })
+  await runCommand(["/usr/bin/tar", "-xzf", archive, "-C", input.destination])
+  const executable = path.join(input.destination, "dmgbuild")
+  const python = path.join(input.destination, "python", "bin", "python3")
+  if (!(await Bun.file(executable).exists()) || !(await Bun.file(python).exists())) {
+    throw new Error("Mac dmgbuild distribution is incomplete")
+  }
+  return { archive, executable }
+}
+
 export async function readInternalMacBuildInputs(
   modelsSnapshot: string,
   electronDist: string,
   gitArchive?: string,
   bunExecutable = process.execPath,
+  dmgbuildArchive?: string,
 ) {
   const electronVersion = (await Bun.file(path.join(electronDist, "version")).text()).trim()
   if (!electronVersion) throw new Error("Electron runtime version is required")
   const gitSizeBytes = gitArchive ? (await stat(gitArchive)).size : MAC_GIT_SIZE_BYTES
   const gitSha256 = gitArchive ? await sha256(gitArchive) : MAC_GIT_SHA256
   assertMacGitArchive(gitSizeBytes, gitSha256)
+  const dmgbuildSizeBytes = dmgbuildArchive ? (await stat(dmgbuildArchive)).size : MAC_DMGBUILD_SIZE_BYTES
+  const dmgbuildSha256 = dmgbuildArchive ? await sha256(dmgbuildArchive) : MAC_DMGBUILD_SHA256
+  assertMacDmgbuildArchive(dmgbuildSizeBytes, dmgbuildSha256)
   return {
     modelsSha256: await sha256(modelsSnapshot),
     electronVersion,
@@ -974,6 +1030,9 @@ export async function readInternalMacBuildInputs(
     gitVersion: MAC_GIT_VERSION,
     gitSha256,
     gitSizeBytes,
+    dmgbuildVersion: MAC_DMGBUILD_VERSION,
+    dmgbuildSha256,
+    dmgbuildSizeBytes,
   }
 }
 
@@ -989,7 +1048,10 @@ export function assertInternalMacBuildInputsUnchanged(
     before.bunSha256 !== after.bunSha256 ||
     before.gitVersion !== after.gitVersion ||
     before.gitSha256 !== after.gitSha256 ||
-    before.gitSizeBytes !== after.gitSizeBytes
+    before.gitSizeBytes !== after.gitSizeBytes ||
+    before.dmgbuildVersion !== after.dmgbuildVersion ||
+    before.dmgbuildSha256 !== after.dmgbuildSha256 ||
+    before.dmgbuildSizeBytes !== after.dmgbuildSizeBytes
   ) {
     throw new Error("Mac package build inputs changed while the package was being built.")
   }
@@ -1002,11 +1064,15 @@ export function createInternalMacBuildEnvironment(
     bundledGitDirectory: string
     home: string
     sourceDateEpoch: number
+    dmgbuildExecutable: string
     bunExecutable?: string
   },
 ) {
   if (env.GUAI_CODE_BUNDLED_GIT_DIR?.trim()) {
     throw new Error("GUAI_CODE_BUNDLED_GIT_DIR is not allowed for internal Mac packages.")
+  }
+  if (env.CUSTOM_DMGBUILD_PATH?.trim()) {
+    throw new Error("CUSTOM_DMGBUILD_PATH is not allowed for internal Mac packages.")
   }
   const inherited = ["SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY"]
   return {
@@ -1025,6 +1091,7 @@ export function createInternalMacBuildEnvironment(
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
     MODELS_DEV_API_JSON: input.modelsSnapshot,
     GUAI_CODE_BUNDLED_GIT_DIR: input.bundledGitDirectory,
+    CUSTOM_DMGBUILD_PATH: input.dmgbuildExecutable,
   }
 }
 
@@ -1222,6 +1289,7 @@ async function packageInternalMac() {
   const isolatedPackageDir = path.join(isolatedRoot, "packages", "desktop")
   const modelsSnapshot = path.join(buildDirectory, "inputs", "models.json")
   const bundledGitDirectory = path.join(buildDirectory, "inputs", "git")
+  const dmgbuildDirectory = path.join(buildDirectory, "inputs", "dmgbuild")
   const buildBunExecutable = path.join(buildDirectory, "inputs", "bun", "bun")
   const buildHome = path.join(buildDirectory, "home")
   const plan = createInternalMacArtifactPlan(isolatedPackageDir, pkg.version, process.arch, packageDir)
@@ -1253,9 +1321,14 @@ async function packageInternalMac() {
         cacheDirectory: path.join(homedir(), ".cache", "guai-code", "internal-package"),
         destination: bundledGitDirectory,
       })
+      const dmgbuild = await prepareInternalMacDmgbuild({
+        cacheDirectory: path.join(homedir(), ".cache", "guai-code", "internal-package"),
+        destination: dmgbuildDirectory,
+      })
       await Promise.all([
         normalizeInternalMacTimestamps(modelsSnapshot, buildTimestamp),
         normalizeInternalMacTimestamps(bundledGitDirectory, buildTimestamp),
+        normalizeInternalMacTimestamps(dmgbuildDirectory, buildTimestamp),
         normalizeInternalMacTimestamps(buildBunExecutable, buildTimestamp),
       ])
       const guideTemplate = path.join(isolatedRoot, "docs", "product", "internal-beta-testing.md")
@@ -1267,6 +1340,7 @@ async function packageInternalMac() {
         bundledGitDirectory,
         home: buildHome,
         sourceDateEpoch: Math.floor(Date.parse(sourceBeforeBuild.commitTimestamp) / 1000),
+        dmgbuildExecutable: dmgbuild.executable,
         bunExecutable: buildBunExecutable,
       })
 
@@ -1289,6 +1363,7 @@ async function packageInternalMac() {
         getInternalMacElectronDist(isolatedPackageDir),
         git.archive,
         buildBunExecutable,
+        dmgbuild.archive,
       )
       await runCommand([buildBunExecutable, "./scripts/prebuild.ts"], {
         cwd: isolatedPackageDir,
@@ -1321,6 +1396,7 @@ async function packageInternalMac() {
           getInternalMacElectronDist(isolatedPackageDir),
           git.archive,
           buildBunExecutable,
+          dmgbuild.archive,
         ),
       )
       assertInternalMacSourceUnchanged(sourceBeforeBuild, await readInternalMacSourceProvenance(root))
