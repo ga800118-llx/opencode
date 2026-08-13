@@ -10,6 +10,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { Location } from "@opencode-ai/core/location"
+import { Integration } from "@opencode-ai/core/integration"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProjectV2 } from "@opencode-ai/core/project"
@@ -209,6 +210,75 @@ describe("LocationServiceMap", () => {
             _tag: "SessionRunnerModel.ModelUnavailableError",
             providerID: "unavailable",
             modelID: "chat",
+          })
+        }),
+      ),
+    ),
+  )
+
+  it.live("resolves credential-free v1 OpenAI-compatible providers through the location catalog", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          yield* Effect.promise(() =>
+            fs.writeFile(
+              path.join(dir.path, "opencode.json"),
+              JSON.stringify({
+                model: "agent-profile-test/qa-context-model",
+                provider: {
+                  "agent-profile-test": {
+                    name: "QA Context Model",
+                    env: [],
+                    npm: "@ai-sdk/openai-compatible",
+                    options: {
+                      baseURL: "http://127.0.0.1:57042/v1",
+                      timeout: false,
+                      headerTimeout: false,
+                    },
+                    models: {
+                      "qa-context-model": {
+                        name: "QA Context Model",
+                        limit: { context: 128_000, output: 4_096 },
+                      },
+                    },
+                  },
+                },
+              }),
+            ),
+          )
+
+          const resolved = yield* Effect.gen(function* () {
+            const plugin = yield* PluginV2.Service
+            yield* plugin.wait(PluginV2.ID.make("config-provider"))
+            yield* (yield* Integration.Service).reload()
+            yield* (yield* Catalog.Service).reload()
+            return yield* SessionRunnerModel.Service.use((models) =>
+              models.resolve(
+                SessionV2.Info.make({
+                  id: SessionV2.ID.make("ses_v1_openai_compatible"),
+                  projectID: ProjectV2.ID.global,
+                  title: "test",
+                  model: {
+                    id: ModelV2.ID.make("qa-context-model"),
+                    providerID: ProviderV2.ID.make("agent-profile-test"),
+                  },
+                  cost: 0,
+                  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                  time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+                  location,
+                }),
+              ),
+            )
+          }).pipe(Effect.provide(LocationServiceMap.Service.get(location)))
+
+          expect(resolved).toMatchObject({ id: "qa-context-model", provider: "agent-profile-test" })
+          expect(resolved.route).toMatchObject({
+            id: "openai-compatible-chat",
+            endpoint: { baseURL: "http://127.0.0.1:57042/v1" },
           })
         }),
       ),
