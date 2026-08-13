@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { expectAppVisible } from "../utils/waits"
 import {
   fulfillJson,
@@ -143,137 +144,209 @@ for (const protocol of protocols) {
   })
 }
 
-test("submits immediately after a transient empty V2 agent registry recovers", async ({ page }) => {
-  const sessionID = "ses_immediate_task_submit"
-  const prompt = "Submit without restarting after adding the project"
-  const agentGate = Promise.withResolvers<void>()
-  const backgroundGate = Promise.withResolvers<void>()
-  const recoveryGate = Promise.withResolvers<void>()
-  let agentRequests = 0
-  let backgroundRefresh = false
-  let backgroundRequests = 0
-  await setup(page, "v2", async (input) => {
-    if (input.directory !== directory) return selectableAgents("v2")
-    agentRequests++
-    if (backgroundRefresh) {
-      backgroundRequests++
-      if (backgroundRequests === 1) await backgroundGate.promise
-      if (backgroundRequests <= 6) return []
-      await recoveryGate.promise
-      return selectableAgents("v2")
-    }
-    if (agentRequests === 1) return []
-    await agentGate.promise
-    return selectableAgents("v2")
-  })
-  const transport = await installSseTransport(page, { server: mockServer })
-  const sessionRequests: unknown[] = []
-  const promptRequests: unknown[] = []
-  await page.route("**/api/session**", async (route) => {
-    const url = new URL(route.request().url())
-    if (route.request().method() === "POST" && url.pathname === "/api/session") {
-      sessionRequests.push(route.request().postDataJSON())
-      return fulfillJson(route, {
-        data: {
-          id: sessionID,
-          projectID: project.id,
-          agent: "build",
-          model: { id: "mock-model", providerID: "mock-provider" },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          time: { created: 1_700_000_000_000, updated: 1_700_000_000_000 },
-          title: "Immediate task submit",
-          location: { directory },
-        },
+const submissionScenarios = [
+  { name: "V1", protocol: "v1", legacy: false },
+  { name: "V2", protocol: "v2", legacy: false },
+  { name: "Legacy V1", protocol: "v1", legacy: true },
+] as const
+
+for (const scenario of submissionScenarios) {
+  test(`${scenario.name} blocks submission until a transient empty agent registry recovers`, async ({ page }) => {
+    const sessionID = `ses_immediate_task_submit_${scenario.name.toLowerCase().replaceAll(" ", "_")}`
+    const prompt = `Submit without restarting through ${scenario.name}`
+    const agentGate = Promise.withResolvers<void>()
+    const backgroundGate = Promise.withResolvers<void>()
+    const recoveryGate = Promise.withResolvers<void>()
+    let agentRequests = 0
+    let backgroundRefresh = false
+    let backgroundRequests = 0
+    await setup(
+      page,
+      scenario.protocol,
+      async (input) => {
+        if (input.directory !== directory) return selectableAgents(scenario.protocol)
+        agentRequests++
+        if (backgroundRefresh) {
+          backgroundRequests++
+          if (backgroundRequests === 1) await backgroundGate.promise
+          if (backgroundRequests <= 6) return []
+          await recoveryGate.promise
+          return selectableAgents(scenario.protocol)
+        }
+        if (scenario.legacy) return selectableAgents(scenario.protocol)
+        if (agentRequests === 1) return []
+        await agentGate.promise
+        return selectableAgents(scenario.protocol)
+      },
+      scenario.legacy ? [{ worktree: directory, expanded: true }] : [],
+    )
+    if (scenario.legacy) {
+      await page.addInitScript(() => {
+        localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: false } }))
+        localStorage.setItem("app-version.v1", JSON.stringify({ version: "1.17.20" }))
       })
     }
-    if (route.request().method() === "POST" && url.pathname === `/api/session/${sessionID}/prompt`) {
-      promptRequests.push(route.request().postDataJSON())
-      return fulfillJson(route, {
-        data: {
-          admittedSeq: 1,
-          id: "msg_immediate_task_submit",
-          sessionID,
-          timeCreated: 1_700_000_000_000,
-          type: "user",
-          data: { text: prompt },
-          delivery: "steer",
-        },
+
+    const transport = await installSseTransport(page, { server: mockServer })
+    const sessionRequests: unknown[] = []
+    const sessionRequestURLs: string[] = []
+    const promptRequests: unknown[] = []
+    const session = sessionResponse(scenario.protocol, sessionID)
+    await page.route("**/*", async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      const createPath = scenario.protocol === "v2" ? "/api/session" : "/session"
+      const promptPath =
+        scenario.protocol === "v2" ? `/api/session/${sessionID}/prompt` : `/session/${sessionID}/prompt_async`
+      const getPath = scenario.protocol === "v2" ? `/api/session/${sessionID}` : `/session/${sessionID}`
+      if (request.method() === "POST" && url.pathname === createPath) {
+        sessionRequests.push(request.postDataJSON())
+        sessionRequestURLs.push(request.url())
+        return fulfillJson(route, session)
+      }
+      if (request.method() === "POST" && url.pathname === promptPath) {
+        promptRequests.push(request.postDataJSON())
+        if (scenario.protocol === "v1")
+          return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } })
+        return fulfillJson(route, {
+          data: {
+            admittedSeq: 1,
+            id: "msg_immediate_task_submit",
+            sessionID,
+            timeCreated: 1_700_000_000_000,
+            type: "user",
+            data: { text: prompt },
+            delivery: "steer",
+          },
+        })
+      }
+      if (request.method() === "GET" && url.pathname === getPath) return fulfillJson(route, session)
+      return route.fallback()
+    })
+
+    const protocolReady = waitForProtocol(page, scenario.protocol)
+    await page.goto(scenario.legacy ? `/${base64Encode(directory)}/session` : "/")
+    await protocolReady
+    await transport.waitForConnection()
+    if (scenario.legacy) {
+      await expect(page).toHaveURL(`/${base64Encode(directory)}/session`)
+    } else {
+      const row = await addProject(page, scenario.protocol)
+      const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
+      await newTask.click()
+      await expect.poll(() => agentRequests).toBe(2)
+      expect(await persistedDraftTabs(page)).toHaveLength(0)
+      agentGate.resolve()
+      await expect(page).toHaveURL(/\/new-session\?draftId=/)
+    }
+    const composer = page.locator('[data-component="prompt-input-v2"]')
+    if (!scenario.legacy) await expectAppVisible(composer)
+    const editor = scenario.legacy
+      ? page.locator('[data-component="prompt-input"]')
+      : composer.locator('[data-component="prompt-input"]')
+    await expectAppVisible(editor)
+    await editor.fill(prompt)
+    const submit = scenario.legacy
+      ? page.locator('[data-action="prompt-submit"]')
+      : composer.locator('[data-action="prompt-submit"]')
+    await expect(submit).toBeEnabled()
+
+    backgroundRefresh = true
+    await transport.send({
+      directory,
+      payload: { id: `evt_agent_background_recovery_${scenario.protocol}`, type: "agent.updated", properties: {} },
+    })
+    await expect.poll(() => backgroundRequests).toBe(1)
+    if (!scenario.legacy) await expect(editor).toHaveAttribute("contenteditable", "false")
+    await expect(submit).toBeDisabled()
+    await submit.evaluate((button) => (button as HTMLButtonElement).click())
+    await submit.locator("xpath=ancestor::form").evaluate((form) =>
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true })),
+    )
+    await editor.evaluate((element) =>
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    )
+    await expect.poll(() => sessionRequests).toHaveLength(0)
+    expect(promptRequests).toHaveLength(0)
+    await expect(editor).toHaveText(prompt)
+
+    backgroundGate.resolve()
+    await expect.poll(() => backgroundRequests, { timeout: 10_000 }).toBe(7)
+    if (!scenario.legacy) await expect(editor).toHaveAttribute("contenteditable", "false")
+    await expect(submit).toBeDisabled()
+    expect(sessionRequests).toHaveLength(0)
+    expect(promptRequests).toHaveLength(0)
+    await expect(editor).toHaveText(prompt)
+
+    recoveryGate.resolve()
+    await expect(editor).toHaveAttribute("contenteditable", "true")
+    await expect(submit).toBeEnabled()
+    await submit.click()
+
+    await expect(page).toHaveURL(new RegExp(`/session/${sessionID}$`))
+    await expect.poll(() => sessionRequests).toHaveLength(1)
+    await expect.poll(() => promptRequests).toHaveLength(1)
+    expect(sessionRequests[0]).toMatchObject({ agent: "build" })
+    if (scenario.protocol === "v2") {
+      expect(
+        ((sessionRequests[0] as { location?: { directory?: string } }).location?.directory ?? "").replaceAll(
+          "\\",
+          "/",
+        ),
+      ).toBe(directory)
+      expect(promptRequests[0]).toMatchObject({ prompt: { text: prompt } })
+    } else {
+      expect(new URL(sessionRequestURLs[0]!).searchParams.get("directory")?.replaceAll("\\", "/")).toBe(directory)
+      expect(promptRequests[0]).toMatchObject({
+        parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: prompt })]),
       })
     }
-    return route.fallback()
+    await expect(page.getByText("Select an agent and model", { exact: true })).toHaveCount(0)
   })
+}
 
-  const protocolReady = waitForProtocol(page, "v2")
-  await page.goto("/")
-  await protocolReady
-  await transport.waitForConnection()
-  const row = await addProject(page, "v2")
-  const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
-  await newTask.click()
-
-  await expect.poll(() => agentRequests).toBe(2)
-  expect(await persistedDraftTabs(page)).toHaveLength(0)
-  agentGate.resolve()
-
-  await expect(page).toHaveURL(/\/new-session\?draftId=/)
-  const composer = page.locator('[data-component="prompt-input-v2"]')
-  await expectAppVisible(composer)
-  const editor = composer.locator('[data-component="prompt-input"]')
-  await editor.fill(prompt)
-  const submit = composer.locator('[data-action="prompt-submit"]')
-  await expect(submit).toBeEnabled()
-
-  backgroundRefresh = true
-  await transport.send({
-    directory,
-    payload: { id: "evt_agent_background_recovery", type: "agent.updated", properties: {} },
-  })
-  await expect.poll(() => backgroundRequests).toBe(1)
-  await expect(editor).toHaveAttribute("contenteditable", "false")
-  await expect(submit).toBeDisabled()
-  await submit.evaluate((button) => (button as HTMLButtonElement).click())
-  await editor.evaluate((element) =>
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-  )
-  expect(sessionRequests).toHaveLength(0)
-  expect(promptRequests).toHaveLength(0)
-  await expect(editor).toHaveText(prompt)
-
-  backgroundGate.resolve()
-  await expect.poll(() => backgroundRequests, { timeout: 10_000 }).toBe(7)
-  await expect(editor).toHaveAttribute("contenteditable", "false")
-  await expect(submit).toBeDisabled()
-  expect(sessionRequests).toHaveLength(0)
-  expect(promptRequests).toHaveLength(0)
-  await expect(editor).toHaveText(prompt)
-
-  recoveryGate.resolve()
-  await expect(editor).toHaveAttribute("contenteditable", "true")
-  await expect(submit).toBeEnabled()
-  await submit.click()
-
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionID}$`))
-  await expect.poll(() => sessionRequests).toHaveLength(1)
-  await expect.poll(() => promptRequests).toHaveLength(1)
-  expect(sessionRequests[0]).toMatchObject({ agent: "build" })
-  expect(
-    ((sessionRequests[0] as { location?: { directory?: string } }).location?.directory ?? "").replaceAll("\\", "/"),
-  ).toBe(directory)
-  expect(promptRequests[0]).toMatchObject({ prompt: { text: prompt } })
-  await expect(page.getByText("Select an agent and model", { exact: true })).toHaveCount(0)
-})
+function sessionResponse(protocol: (typeof protocols)[number], sessionID: string) {
+  if (protocol === "v1") {
+    return {
+      id: sessionID,
+      slug: sessionID,
+      projectID: project.id,
+      directory,
+      title: "Immediate task submit",
+      version: "dev",
+      agent: "build",
+      model: { id: "mock-model", providerID: "mock-provider" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1_700_000_000_000, updated: 1_700_000_000_000 },
+    }
+  }
+  return {
+    data: {
+      id: sessionID,
+      projectID: project.id,
+      agent: "build",
+      model: { id: "mock-model", providerID: "mock-provider" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1_700_000_000_000, updated: 1_700_000_000_000 },
+      title: "Immediate task submit",
+      location: { directory },
+    },
+  }
+}
 
 async function setup(
   page: Page,
   protocol: (typeof protocols)[number],
   agents?: import("../utils/mock-server").MockServerConfig["agents"],
+  projects: Array<{ worktree: string; expanded?: boolean }> = [],
 ) {
   await setupMockApp(page, {
     directory,
     protocol,
     project,
-    projects: [],
+    projects,
     agents,
     fileList: (path) => {
       if (protocol === "v1")
