@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test"
 import {
+  assistantID,
   assistantMessage,
   completedAssistantInfo,
+  event,
   messageUpdated,
   partUpdated,
   reasoningPart,
@@ -9,8 +11,30 @@ import {
   shell,
   status,
   textPart,
+  userID,
   userMessage,
 } from "../performance/timeline-stability/fixture"
+
+test("keeps timeline lifecycle reads valid while parts and messages are removed", async ({ page }) => {
+  const errors: string[] = []
+  const partID = "prt_lifecycle_replacement"
+  page.on("pageerror", (error) => errors.push(error.stack ?? error.message))
+  const timeline = await setupTimeline(page, {
+    messages: [userMessage(), assistantMessage([textPart(partID, "Initial lifecycle content")])],
+  })
+
+  await expect(page.locator(`[data-timeline-part-id="${partID}"]`)).toBeVisible()
+  await timeline.send(event("message.part.removed", { sessionID: "ses_timeline_stability", messageID: assistantID, partID }))
+  await expect(page.locator(`[data-timeline-part-id="${partID}"]`)).toHaveCount(0)
+  await timeline.send(partUpdated(textPart(partID, "Replacement lifecycle content")))
+  await expect(page.locator(`[data-timeline-part-id="${partID}"]`)).toContainText("Replacement lifecycle content")
+  await timeline.send(event("message.removed", { sessionID: "ses_timeline_stability", messageID: assistantID }))
+  await timeline.send(event("message.removed", { sessionID: "ses_timeline_stability", messageID: userID }))
+  await timeline.settle()
+
+  expect(errors, "timeline lifecycle events raised browser errors").toEqual([])
+  await expect(page.getByText("Something went wrong", { exact: false })).toHaveCount(0)
+})
 
 for (const expanded of [false, true]) {
   test(`preserves shell user intent from a ${expanded ? "expanded" : "collapsed"} default`, async ({ page }) => {

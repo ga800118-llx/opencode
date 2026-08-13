@@ -1094,19 +1094,19 @@ export function MessageTimeline(props: {
     })
 
     return (
-      <Show when={message()}>
+      <Show when={message()} keyed>
         {(message) => (
-          <Show when={part()}>
+          <Show when={part()} keyed>
             {(part) => (
               <MessagePart
-                part={part()}
-                message={message()}
+                part={part}
+                message={message}
                 showAssistantCopyPartID={assistantCopyPartID(row().userMessageID)}
                 turnDurationMs={turnDurationMs(row().userMessageID)}
                 useV2Actions={settings.general.newLayoutDesigns()}
                 defaultOpen={defaultOpen()}
-                toolOpen={toolOpen[part().id] ?? defaultOpen()}
-                onToolOpenChange={(open) => setToolOpen(part().id, open)}
+                toolOpen={toolOpen[part.id] ?? defaultOpen()}
+                onToolOpenChange={(open) => setToolOpen(part.id, open)}
                 deferToolContent
                 virtualizeDiff={false}
                 onContentRendered={onSizeChange}
@@ -1236,12 +1236,12 @@ export function MessageTimeline(props: {
         })
         return (
           <TimelineRowFrame row={userMessageRow}>
-            <Show when={message()}>
+            <Show when={message()} keyed>
               {(message) => (
                 <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
                   <div data-slot="session-turn-message-content" aria-live="off">
                     <Message
-                      message={message()}
+                      message={message}
                       parts={getMsgParts(userMessageRow().userMessageID)}
                       actions={props.actions}
                       useV2Actions={settings.general.newLayoutDesigns()}
