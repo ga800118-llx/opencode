@@ -9,6 +9,7 @@ import {
   mkdir,
   readdir,
   readlink,
+  realpath,
   rename,
   rm,
   stat,
@@ -480,7 +481,7 @@ export async function verifyInternalMacBundledGit(
       "rev-parse",
       "--show-toplevel",
     ])
-    if (path.resolve(worktreeRoot.stdout) !== path.resolve(worktree)) {
+    if ((await realpath(worktreeRoot.stdout)) !== (await realpath(worktree))) {
       throw new Error(`Bundled Git worktree relocation failed: expected ${worktree}, received ${worktreeRoot.stdout}`)
     }
     const worktreeCommit = await git("resolve the packaged Git worktree commit", [

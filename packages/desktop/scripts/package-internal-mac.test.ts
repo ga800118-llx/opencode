@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chmod, lstat, mkdir, mkdtemp, readlink, readdir, rm, stat, symlink, utimes } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readlink, readdir, realpath, rm, stat, symlink, utimes } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
@@ -836,7 +836,7 @@ describe("internal Mac package", () => {
           await mkdir(worktree, { recursive: true })
           await Bun.write(path.join(worktree, "packaged-git-smoke.txt"), "packaged Git relocation smoke\n")
         }
-        if (command.includes("--show-toplevel")) return { stdout: worktree, stderr: "" }
+        if (command.includes("--show-toplevel")) return { stdout: await realpath(worktree), stderr: "" }
         if (command.includes("rev-parse")) return { stdout: commit, stderr: "" }
         return { stdout: "", stderr: "" }
       },
