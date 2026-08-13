@@ -190,17 +190,6 @@ const main = Effect.gen(function* () {
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
-  const bundledGit = createBundledGitEnvironment({
-    platform: process.platform,
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    inheritedPath: process.env.PATH,
-    exists: existsSync,
-  })
-  if (bundledGit) {
-    process.env.PATH = bundledGit.path
-    logger.log("bundled git enabled", { directory: bundledGit.directory })
-  }
   initCrashReporter()
 
   const wslServers = createWslServersController(
@@ -263,6 +252,20 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
+  const bundledGit = createBundledGitEnvironment({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    inheritedPath: process.env.PATH,
+    exists: existsSync,
+  })
+  if (bundledGit) {
+    process.env.PATH = bundledGit.path
+    if ("gitExecPath" in bundledGit) process.env.GIT_EXEC_PATH = bundledGit.gitExecPath
+    if ("gitConfigSystem" in bundledGit) process.env.GIT_CONFIG_SYSTEM = bundledGit.gitConfigSystem
+    if ("gitTemplateDir" in bundledGit) process.env.GIT_TEMPLATE_DIR = bundledGit.gitTemplateDir
+    logger.log("bundled git enabled", { directory: bundledGit.directory })
+  }
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = normalizeProductDeepLinks(identity, argv)

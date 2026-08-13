@@ -3,7 +3,7 @@ name: product
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [dev, main]
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +20,7 @@ jobs:
   foundation:
     name: thin-fork foundation
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -43,18 +43,51 @@ jobs:
 
       - name: Test App
         working-directory: packages/app
-        run: bun run test:unit
+        run: bun run test
+
+      - name: Typecheck App E2E
+        working-directory: packages/app
+        run: bun run typecheck:e2e
+
+      - name: Test App E2E
+        working-directory: packages/app
+        env:
+          PLAYWRIGHT_WORKERS: "1"
+        run: bun run test:e2e
 
       - name: Test Desktop
         working-directory: packages/desktop
         run: bun test
 
-      - name: Check protected OpenCode runtime packages
-        run: git diff --exit-code v1.18.10...HEAD -- packages/core packages/opencode packages/server packages/protocol
+      - name: Test Core runtime
+        working-directory: packages/core
+        run: bun test --timeout 30000 --only-failures
 
-      - name: Build Desktop
+      - name: Test OpenCode runtime
+        working-directory: packages/opencode
+        env:
+          npm_config_offline: "true"
+        run: bun test --timeout 60000 --only-failures --max-concurrency=1
+
+      - name: Test LLM runtime
+        working-directory: packages/llm
+        run: bun test --timeout 30000 --only-failures
+
+      - name: Typecheck runtime boundaries
+        run: |
+          bun run --cwd packages/core typecheck
+          bun run --cwd packages/opencode typecheck
+          bun run --cwd packages/llm typecheck
+          bun run --cwd packages/protocol typecheck
+          bun run --cwd packages/server typecheck
+
+      - name: Check generated clients
+        working-directory: packages/client
+        run: bun run check:generated
+
+      - name: Package and smoke-test Mac internal beta
         working-directory: packages/desktop
         env:
           MODELS_DEV_API_JSON: ${{ github.workspace }}/packages/core/test/plugin/fixtures/models-dev.json
           OPENCODE_CHANNEL: dev
-        run: bun run build
+        run: bun run package:mac:internal

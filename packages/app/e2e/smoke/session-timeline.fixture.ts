@@ -239,6 +239,13 @@ function orderedParts(message: Message) {
   return message.parts.slice().sort((a, b) => a.id.localeCompare(b.id))
 }
 
+function visibleParts(message: Message) {
+  const parts = orderedParts({ ...message, parts: message.parts.filter(renderable) })
+  if (message.info.role === "user") return parts
+  const start = parts.findLastIndex((part) => part.type !== "text") + 1
+  return parts.slice(start)
+}
+
 export const fixture = {
   directory,
   serverKey,
@@ -290,7 +297,8 @@ export const fixture = {
     targetMessageIDs: targetMessages
       .filter((message) => message.info.role === "user")
       .map((message) => message.info.id),
-    targetPartIDs: targetMessages.flatMap((message) =>
+    targetPartIDs: targetMessages.flatMap((message) => visibleParts(message).map((part) => part.id)),
+    targetAllPartIDs: targetMessages.flatMap((message) =>
       orderedParts(message)
         .filter(renderable)
         .map((part) => part.id),

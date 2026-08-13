@@ -32,6 +32,18 @@ const BREAKDOWN_COLOR: Record<SessionContextBreakdownKey, string> = {
   other: "var(--syntax-comment)",
 }
 
+function contextRawData(message: Message, parts: Part[]) {
+  const visibleMessage =
+    message.role === "assistant"
+      ? (Object.fromEntries(Object.entries(message).filter(([key]) => key !== "cost")) as Message)
+      : message
+  const visibleParts = parts.map((part) => {
+    if (part.type !== "step-finish") return part
+    return Object.fromEntries(Object.entries(part).filter(([key]) => key !== "cost")) as Part
+  })
+  return { message: visibleMessage, parts: visibleParts }
+}
+
 function Stat(props: { label: string; value: JSX.Element }) {
   return (
     <div class="flex flex-col gap-1">
@@ -44,7 +56,7 @@ function Stat(props: { label: string; value: JSX.Element }) {
 function RawMessageContent(props: { message: Message; getParts: (id: string) => Part[]; onRendered: () => void }) {
   const file = createMemo(() => {
     const parts = props.getParts(props.message.id)
-    const contents = JSON.stringify({ message: props.message, parts }, null, 2)
+    const contents = JSON.stringify(contextRawData(props.message, parts), null, 2)
     return {
       name: `${props.message.role}-${props.message.id}.json`,
       contents,

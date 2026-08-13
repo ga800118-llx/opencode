@@ -1,5 +1,5 @@
 import * as pty from "@lydell/node-pty"
-import type { Opts, Proc } from "./pty"
+import { retainEarlyEvents, type Opts, type Proc } from "./pty"
 
 export type { Disp, Exit, Opts, Proc } from "./pty"
 
@@ -8,7 +8,7 @@ export function spawn(file: string, args: string[], opts: Opts): Proc {
     ...opts,
     ...(process.platform === "win32" ? { useConptyDll: true } : {}),
   })
-  return {
+  return retainEarlyEvents({
     pid: proc.pid,
     onData(listener) {
       return proc.onData(listener)
@@ -25,5 +25,5 @@ export function spawn(file: string, args: string[], opts: Opts): Proc {
     kill(signal) {
       proc.kill(signal)
     },
-  }
+  })
 }

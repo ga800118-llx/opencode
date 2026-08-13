@@ -76,6 +76,70 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
+    if (path === "/api/provider") {
+      const provider = typeof config.provider === "function" ? config.provider() : config.provider
+      const catalog = provider as {
+        all?: Array<{
+          id: string
+          name: string
+          models?: Record<
+            string,
+            {
+              id: string
+              name: string
+              limit?: { context?: number; output?: number }
+              variants?: Record<string, unknown>
+            }
+          >
+        }>
+      }
+      return json(route, {
+        location: location(config),
+        data: (catalog.all ?? []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          api: { type: "aisdk", package: "@ai-sdk/openai-compatible" },
+          request: { headers: {}, body: {} },
+        })),
+      })
+    }
+    if (path === "/api/model") {
+      const provider = typeof config.provider === "function" ? config.provider() : config.provider
+      const catalog = provider as {
+        all?: Array<{
+          id: string
+          models?: Record<
+            string,
+            {
+              id: string
+              name: string
+              limit?: { context?: number; output?: number }
+              variants?: Record<string, unknown>
+            }
+          >
+        }>
+      }
+      return json(route, {
+        location: location(config),
+        data: (catalog.all ?? []).flatMap((item) =>
+          Object.values(item.models ?? {}).map((model) => ({
+            id: `${item.id}/${model.id}`,
+            modelID: model.id,
+            providerID: item.id,
+            name: model.name,
+            api: { id: model.id, type: "aisdk", package: "@ai-sdk/openai-compatible" },
+            capabilities: { tools: true, input: ["text"], output: ["text"] },
+            request: { headers: {}, body: {} },
+            variants: Object.keys(model.variants ?? {}).map((id) => ({ id, headers: {}, body: {} })),
+            time: { released: 1_700_000_000_000 },
+            cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+            status: "active",
+            enabled: true,
+            limit: { context: model.limit?.context ?? 200_000, output: model.limit?.output ?? 8_192 },
+          })),
+        ),
+      })
+    }
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
@@ -101,6 +165,11 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (path === "/vcs/diff" && config.vcsDiff) return json(route, config.vcsDiff)
     if (path === "/file" && config.fileList)
       return json(route, await config.fileList(url.searchParams.get("path") ?? ""))
+    if (path === "/api/fs/list" && config.fileList)
+      return json(route, {
+        location: location(config),
+        data: await config.fileList(url.searchParams.get("path") ?? url.searchParams.get("location[directory]") ?? ""),
+      })
     if (path === "/file/content" && config.fileContent)
       return json(route, await config.fileContent(url.searchParams.get("path") ?? ""))
     if (path === "/find/file" && config.findFiles)

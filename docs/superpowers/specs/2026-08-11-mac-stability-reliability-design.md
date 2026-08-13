@@ -124,6 +124,8 @@ Watchdog 的投影规则固定为：
 
 V2 的本地 `projectMeta` 仅保证当前电脑持久化，不承诺跨电脑同步。未来若需要跨设备项目元数据，必须新增服务端协议，本轮不隐含该能力。
 
+创建 Git worktree 时，V1 继续使用服务器现有项目配置；V2 在公开的 Worktree create 请求中增加可选 `projectStartCommandOverride`，把当前电脑已持久化的项目启动命令传给工作区创建流程。该字段只影响本次创建，不承担项目元数据跨设备同步。由于这是公开协议变更，必须重新生成 OpenAPI 快照与 JavaScript SDK，禁止手改生成文件。
+
 ## 三、工作区就绪边界
 
 `Workspace Readiness` 以 server scope 和规范化目录作为键，状态为：
@@ -246,8 +248,10 @@ Skill：
 ### 发布门槛
 
 - 相关 package 的定向测试和 typecheck 全部通过。
+- Product CI 不再以旧版本标签禁止 Core、OpenCode、Server、Protocol 的所有改动；这些运行时包改由各自全量测试和架构依赖规则把关，以允许本轮已审查的超时、Skill 与 Worktree 修复进入发布版本。
 - App 单元测试、browser tests 和新增 Playwright 回归通过。
 - Desktop 构建和 Mac internal package 成功。
+- Mac internal package 固定并校验可重定位 Git，安装后的应用不依赖用户预装 Git、Bun 或源码依赖；包内应用必须实际启动并完成 sidecar 就绪冒烟。
 - 打包应用完成上述真实回归，没有依赖开发服务器或源码环境。
 - 最终代码经过规格符合性审查、代码质量审查和独立测试审查，所有发现均关闭后才结束本目标。
 

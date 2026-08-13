@@ -51,7 +51,7 @@ export type EventPayload = TimelineEvent
 export type ToolStatus = ToolState["status"]
 export type TimelineMessage = { info: UserMessage; parts: Part[] } | { info: AssistantMessage; parts: Part[] }
 
-type UserPart = Extract<Part, { type: "text" | "file" | "agent" | "subtask" }>
+type UserPart = Extract<Part, { type: "text" | "file" | "agent" | "subtask" | "compaction" }>
 type AssistantPart = Exclude<Part, { type: "agent" | "subtask" }>
 type OwnedPart<Owner extends Message["role"]> = Owner extends "user" ? UserPart : AssistantPart
 export type PartSeed<Owner extends Message["role"]> =
@@ -254,7 +254,7 @@ export function validateTimelineMessages(input: readonly TimelineMessage[]): Tim
     message.parts.forEach((part) => {
       if (part.sessionID !== message.info.sessionID || part.messageID !== message.info.id)
         throw new Error(`Timeline part ${part.id} ownership does not match message ${message.info.id}`)
-      if (message.info.role === "user" && !["text", "file", "agent", "subtask"].includes(part.type))
+      if (message.info.role === "user" && !["text", "file", "agent", "subtask", "compaction"].includes(part.type))
         throw new Error(`Timeline user message ${message.info.id} cannot own ${part.type} part ${part.id}`)
       if (message.info.role === "assistant" && ["agent", "subtask"].includes(part.type))
         throw new Error(`Timeline assistant message ${message.info.id} cannot own ${part.type} part ${part.id}`)

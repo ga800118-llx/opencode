@@ -1,0 +1,7 @@
+diff --git a/src/terminal.ts b/src/terminal.ts
+index 38c43d1..b2fd08a 100644
+--- a/src/terminal.ts
++++ b/src/terminal.ts
+@@ -158 +158 @@ export class Terminal implements IPty {
+-		this._startReadLoop();
++		queueMicrotask(() => this._startReadLoop());

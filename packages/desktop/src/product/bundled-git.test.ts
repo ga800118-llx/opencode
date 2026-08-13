@@ -36,16 +36,25 @@ describe("bundled Git environment", () => {
     ).toBeUndefined()
   })
 
-  test("leaves macOS applications unchanged", () => {
+  test("configures the relocatable bundled Git for packaged macOS applications", () => {
+    const resourcesPath = "/Applications/Guai Code Beta.app/Contents/Resources"
+    const root = `${resourcesPath}/mingit`
+
     expect(
       createBundledGitEnvironment({
         platform: "darwin",
         packaged: true,
-        resourcesPath: "/Applications/Guai Code.app/Contents/Resources",
+        resourcesPath,
         inheritedPath: "/usr/bin:/bin",
-        exists: () => true,
+        exists: (path) => path === `${root}/bin/git`,
       }),
-    ).toBeUndefined()
+    ).toEqual({
+      directory: `${root}/bin`,
+      path: `${root}/bin:/usr/bin:/bin`,
+      gitExecPath: `${root}/libexec/git-core`,
+      gitConfigSystem: `${root}/etc/gitconfig`,
+      gitTemplateDir: `${root}/share/git-core/templates`,
+    })
   })
 
   test("leaves PATH unchanged when the bundled executable is missing", () => {
@@ -76,5 +85,17 @@ describe("bundled Git environment", () => {
         exists: () => true,
       }),
     ).toEqual({ directory, path: directory })
+  })
+
+  test("leaves unsupported packaged platforms unchanged", () => {
+    expect(
+      createBundledGitEnvironment({
+        platform: "linux",
+        packaged: true,
+        resourcesPath: "/opt/guai-code/resources",
+        inheritedPath: "/usr/bin",
+        exists: () => true,
+      }),
+    ).toBeUndefined()
   })
 })

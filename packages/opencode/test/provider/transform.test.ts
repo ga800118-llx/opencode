@@ -791,6 +791,18 @@ describe("ProviderTransform.providerOptions", () => {
     })
   })
 
+  test("omits legacy runtime timeout controls from provider options", () => {
+    expect(
+      ProviderTransform.providerOptions(createModel(), {
+        timeout: 1,
+        headerTimeout: 2,
+        chunkTimeout: 3,
+        timeoutMs: 4,
+        store: false,
+      }),
+    ).toEqual({ openai: { forceReasoning: true, store: false } })
+  })
+
   test("forces reasoning for custom OpenAI package models with explicit effort", () => {
     const model = createModel({
       providerID: "meta",

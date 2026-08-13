@@ -2175,6 +2175,10 @@ export type WorktreeError = {
 export type WorktreeCreateInput = {
   name?: string
   /**
+   * Overrides the project's configured startup script. An empty string disables it for this worktree.
+   */
+  projectStartCommandOverride?: string
+  /**
    * Additional startup script to run after the project's start command
    */
   startCommand?: string
@@ -13165,6 +13169,7 @@ export type V2SkillManagementListData = {
       directory?: string
       workspace?: string
     }
+    refresh?: "true" | "false"
   }
   url: "/api/skill/management"
 }

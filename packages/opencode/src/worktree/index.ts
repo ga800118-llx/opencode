@@ -29,6 +29,11 @@ export type Info = Schema.Schema.Type<typeof Info>
 
 export const CreateInput = Schema.Struct({
   name: Schema.optional(Schema.String),
+  projectStartCommandOverride: Schema.optional(
+    Schema.String.annotate({
+      description: "Overrides the project's configured startup script. An empty string disables it for this worktree.",
+    }),
+  ),
   startCommand: Schema.optional(
     Schema.String.annotate({ description: "Additional startup script to run after the project's start command" }),
   ),
@@ -118,7 +123,11 @@ function failedRemoves(...chunks: string[]) {
 
 export interface Interface {
   readonly makeWorktreeInfo: (options?: { name?: string; detached?: boolean }) => Effect.Effect<Info, Error>
-  readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void, Error>
+  readonly createFromInfo: (
+    info: Info,
+    startCommand?: string,
+    projectStartCommandOverride?: string,
+  ) => Effect.Effect<void, Error>
   readonly create: (input?: CreateInput) => Effect.Effect<Info, Error>
   readonly list: () => Effect.Effect<(Omit<Info, "branch"> & { branch?: string })[], Error>
   readonly remove: (input: RemoveInput) => Effect.Effect<boolean, Error>
@@ -228,7 +237,7 @@ const layer: Layer.Layer<
       yield* project.addSandbox(ctx.project.id, info.directory).pipe(Effect.catch(() => Effect.void))
     })
 
-    const boot = Effect.fnUntraced(function* (info: Info, startCommand?: string) {
+    const boot = Effect.fnUntraced(function* (info: Info, startCommand?: string, projectStartCommandOverride?: string) {
       const ctx = yield* InstanceState.context
       const workspaceID = yield* InstanceState.workspaceID
       const projectID = ctx.project.id
@@ -275,12 +284,16 @@ const layer: Layer.Layer<
         },
       })
 
-      yield* runStartScripts(info.directory, { projectID, extra })
+      yield* runStartScripts(info.directory, { projectID, projectStartCommandOverride, extra })
     })
 
-    const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
+    const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (
+      info: Info,
+      startCommand?: string,
+      projectStartCommandOverride?: string,
+    ) {
       yield* setup(info)
-      yield* boot(info, startCommand).pipe(
+      yield* boot(info, startCommand, projectStartCommandOverride).pipe(
         Effect.catchCause((cause) => Effect.logError("worktree bootstrap failed", { cause })),
         Effect.forkIn(scope),
       )
@@ -288,7 +301,7 @@ const layer: Layer.Layer<
 
     const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
       const info = yield* makeWorktreeInfo({ name: input?.name })
-      yield* createFromInfo(info, input?.startCommand)
+      yield* createFromInfo(info, input?.startCommand, input?.projectStartCommandOverride)
       return info
     })
 
@@ -480,7 +493,7 @@ const layer: Layer.Layer<
 
     const runStartScripts = Effect.fnUntraced(function* (
       directory: string,
-      input: { projectID: ProjectV2.ID; extra?: string },
+      input: { projectID: ProjectV2.ID; projectStartCommandOverride?: string; extra?: string },
     ) {
       const row = yield* db
         .select()
@@ -489,7 +502,7 @@ const layer: Layer.Layer<
         .get()
         .pipe(Effect.orDie)
       const project = row ? Project.fromRow(row) : undefined
-      const startup = project?.commands?.start?.trim() ?? ""
+      const startup = input.projectStartCommandOverride ?? project?.commands?.start ?? ""
       const ok = yield* runStartScript(directory, startup, "project")
       if (!ok) return false
       yield* runStartScript(directory, input.extra ?? "", "worktree")

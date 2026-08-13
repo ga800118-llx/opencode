@@ -2290,9 +2290,7 @@ describe("SkillV2", () => {
           const first = path.join(tmp.path, "first")
           const second = path.join(tmp.path, "second")
           yield* Effect.promise(async () => {
-            await fs.mkdir(path.join(first, "alpha"), { recursive: true })
             await fs.mkdir(path.join(second, "gamma"), { recursive: true })
-            await write(first, "alpha", "Alpha")
             await write(second, "gamma", "Gamma")
           })
           const firstSource = SkillV2.DirectorySource.make({
@@ -2309,9 +2307,13 @@ describe("SkillV2", () => {
           const skill = yield* buildSkill(input)
           yield* skill.transform((editor) => selected.sources.forEach(editor.source))
 
-          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha"])
-          yield* Effect.promise(() => fs.mkdir(path.join(first, "beta"), { recursive: true }))
-          yield* Effect.promise(() => write(first, "beta", "Beta"))
+          expect(yield* skill.management.list()).toEqual([])
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(first, "alpha"), { recursive: true })
+            await fs.mkdir(path.join(first, "beta"), { recursive: true })
+            await write(first, "alpha", "Alpha")
+            await write(first, "beta", "Beta")
+          })
           expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
 
           selected.sources = [secondSource]

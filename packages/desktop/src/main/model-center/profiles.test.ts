@@ -170,7 +170,7 @@ describe("createProfileRepository", () => {
       id: "legacy-one",
       providerID: "agent-profile-legacy-one",
       hasApiKey: false,
-      settings: { ...base.settings, timeoutMs: 30_000 },
+      settings: { ...base.settings, timeoutMs: Number.MAX_SAFE_INTEGER },
       createdAt: 10,
       updatedAt: 20,
     }

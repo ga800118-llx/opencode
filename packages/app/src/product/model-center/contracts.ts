@@ -225,9 +225,6 @@ function normalizeRuntime(input: unknown): ProductProviderRuntime | undefined {
 
 function normalizeSettings(input: unknown): ProductProviderSettings {
   const value = record(input)
-  if (value.timeoutMs !== undefined) {
-    integer(value.timeoutMs, 1_000, 900_000, "Timeout must be between 1000 and 900000 milliseconds.")
-  }
   const contextLimit = integer(value.contextLimit, 1, 10_000_000, "Context limit must be a positive integer.")
   const outputLimit = integer(value.outputLimit, 1, 1_000_000, "Output limit must be a positive integer.")
   if (value.allowInsecureTls === true) throw new Error("Insecure TLS is not supported by this desktop runtime.")
@@ -295,7 +292,10 @@ function normalizeCredentials(input: unknown): ProductCredentialEnvelopeInput | 
 function normalizeCapabilityReport(input: unknown): ProductCapabilityReport | undefined {
   if (input === undefined) return
   const value = record(input)
-  if (typeof value.classification !== "string" || !PRODUCT_MODEL_CLASSIFICATIONS.includes(value.classification as never)) {
+  if (
+    typeof value.classification !== "string" ||
+    !PRODUCT_MODEL_CLASSIFICATIONS.includes(value.classification as never)
+  ) {
     return
   }
   const checks = record(value.checks)
@@ -339,7 +339,8 @@ function isLoopback(hostname: string) {
 }
 
 function integer(input: unknown, minimum: number, maximum: number, message: string) {
-  if (!Number.isSafeInteger(input) || (input as number) < minimum || (input as number) > maximum) throw new Error(message)
+  if (!Number.isSafeInteger(input) || (input as number) < minimum || (input as number) > maximum)
+    throw new Error(message)
   return input as number
 }
 

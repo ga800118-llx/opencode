@@ -207,6 +207,16 @@ describe("Config", () => {
                 .filter((entry) => entry.type === "document")
                 .map((document) => document.info.$schema),
             ).toEqual(["base", "last"])
+            expect(
+              (yield* config.reloadEntries!())
+                .filter((entry) => entry.type === "document")
+                .map((document) => document.info.$schema),
+            ).toEqual(["base", "changed"])
+            expect(
+              (yield* config.entries())
+                .filter((entry) => entry.type === "document")
+                .map((document) => document.info.$schema),
+            ).toEqual(["base", "last"])
           }).pipe(Effect.provide(testLayer(tmp.path)))
         }),
       ),

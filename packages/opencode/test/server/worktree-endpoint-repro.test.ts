@@ -225,6 +225,30 @@ describe("worktree endpoint reproduction", () => {
   )
 
   worktreeTest(
+    "direct HttpApi worktree create accepts a project start override and additional command",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const server = yield* serverScoped()
+
+        const response = yield* createWorktreeScoped({
+          server,
+          directory: test.directory,
+          path: `${ExperimentalPaths.worktree}?directory=${encodeURIComponent(test.directory)}`,
+          init: {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ projectStartCommandOverride: "", startCommand: "" }),
+          },
+          timeoutLabel: "direct worktree create with startup command override",
+        })
+
+        expect(response).toMatchObject({ directory: expect.any(String) })
+      }),
+    { git: true },
+  )
+
+  worktreeTest(
     "direct HttpApi worktree create rejects explicit null payload",
     () =>
       Effect.gen(function* () {

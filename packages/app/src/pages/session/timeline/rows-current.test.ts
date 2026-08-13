@@ -100,6 +100,292 @@ describe("current session timeline rows", () => {
     ])
   })
 
+  test("keeps an interrupted final answer outside the process disclosure", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "answer before interruption" }],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+    ])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [{ type: "interrupted" }],
+    })
+  })
+
+  test("treats interrupted text as process content when a later answer replaces it", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "partial answer" }],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_replacement",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "replacement answer" }],
+        time: { created: 4, completed: 5 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_replacement:text:0",
+    ])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [{ type: "part", group: { key: "msg_interrupted:text:0" } }, { type: "interrupted" }],
+    })
+  })
+
+  test("uses only content after the last of multiple interruptions as the final answer", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_first_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "first partial answer" }],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_second_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "second partial answer" }],
+        error: { type: "request_aborted", message: "Stopped again" },
+        time: { created: 4, completed: 5 },
+      },
+      {
+        id: "msg_final",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "final answer" }],
+        time: { created: 6, completed: 7 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_final:text:0",
+    ])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [
+        { type: "part", group: { key: "msg_first_interrupted:text:0" } },
+        { type: "interrupted" },
+        { type: "part", group: { key: "msg_second_interrupted:text:0" } },
+        { type: "interrupted" },
+      ],
+    })
+  })
+
+  test("does not restore interrupted text while an empty continuation message is pending", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "replaced partial answer" }],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_continuation",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [],
+        time: { created: 4 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "busy",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_user", "assistant-process:msg_user"])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [{ type: "part", group: { key: "msg_interrupted:text:0" } }, { type: "interrupted" }],
+    })
+  })
+
+  test("suppresses interruption markers for compacted turns using the projected user part", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          { type: "reasoning", text: "thinking" },
+          { type: "text", text: "partial answer" },
+        ],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_compaction",
+        type: "compaction",
+        status: "completed",
+        reason: "auto",
+        summary: "summary",
+        recent: "recent",
+        time: { created: 4 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "turn-divider:msg_user:compaction",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_interrupted:text:0",
+    ])
+    expect(result.rows[2]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [{ type: "part", group: { key: "msg_interrupted:reasoning:0" } }],
+    })
+  })
+
+  test("keeps the last interrupted text visible when multiple interruptions have no continuation", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_first_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "replaced partial answer" }],
+        error: { type: "request_aborted", message: "Stopped" },
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_last_interrupted",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          { type: "reasoning", text: "last attempt reasoning" },
+          { type: "text", text: "last interrupted answer" },
+        ],
+        error: { type: "request_aborted", message: "Stopped again" },
+        time: { created: 4, completed: 5 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_last_interrupted:text:0",
+    ])
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [
+        { type: "part", group: { key: "msg_first_interrupted:text:0" } },
+        { type: "interrupted" },
+        { type: "part", group: { key: "msg_last_interrupted:reasoning:0" } },
+        { type: "interrupted" },
+      ],
+    })
+  })
+
   test("does not add a second thinking row when a busy hidden-reasoning turn has process content", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
@@ -213,10 +499,7 @@ describe("current session timeline rows", () => {
     )
 
     expect(result.activeMessageID).toBe("msg_shell")
-    expect(result.rows.map(TimelineRow.key)).toEqual([
-      "user-message:msg_shell",
-      "assistant-process:msg_shell",
-    ])
+    expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_shell", "assistant-process:msg_shell"])
   })
 
   test("keeps a projected parent missing from the source page before newer turns", () => {

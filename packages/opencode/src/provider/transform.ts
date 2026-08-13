@@ -1344,15 +1344,22 @@ const SLUG_OVERRIDES: Record<string, string> = {
 }
 
 export function providerOptions(model: Provider.Model, options: { [x: string]: any }) {
+  const runtimeOptions = Object.fromEntries(
+    Object.entries(options).filter(
+      ([key]) => key !== "timeout" && key !== "timeoutMs" && key !== "headerTimeout" && key !== "chunkTimeout",
+    ),
+  )
   const usesOpenAIReasoningGate =
     model.api.npm === "@ai-sdk/openai" ||
     model.api.npm === "@ai-sdk/azure" ||
     model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
   const normalized =
     usesOpenAIReasoningGate &&
-    (model.capabilities.reasoning || options.reasoningEffort !== undefined || options.reasoningSummary !== undefined)
-      ? { ...options, forceReasoning: true }
-      : options
+    (model.capabilities.reasoning ||
+      runtimeOptions.reasoningEffort !== undefined ||
+      runtimeOptions.reasoningSummary !== undefined)
+      ? { ...runtimeOptions, forceReasoning: true }
+      : runtimeOptions
 
   if (model.api.npm === "@ai-sdk/gateway") {
     // Gateway providerOptions are split across two namespaces:

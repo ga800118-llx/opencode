@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { spawn } from "node:child_process"
+import { once } from "node:events"
+import { createServer } from "node:http"
 import { sanitizeProviderProfile, type ProductProviderProfile } from "@opencode-ai/app/product/model-center"
 import type { ProductCredentialService } from "./credentials"
 import { createSensitiveHeaderCredentialProxy } from "./credential-proxy"
@@ -159,7 +162,214 @@ describe("model credential proxy", () => {
       upstream.stop(true)
     }
   })
+
+  test("closes the upstream socket and stops streaming when the client aborts", async () => {
+    const upstream = await streamingUpstream()
+    const current = { ...profile, baseURL: `${upstream.origin}/v1`, headers: [] }
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: credentials(),
+      store: { get: () => undefined, set: () => undefined },
+      token: () => "client-abort-token",
+    })
+    try {
+      await proxy.start()
+      await within(
+        cancelStreamingRequest(
+          `${proxy.runtimeEnvironment(current)?.baseURL}/stream`,
+          `Bearer ${proxy.runtimeCredential(current)}`,
+        ),
+        1_000,
+        "client did not cancel its streaming response",
+      )
+      await within(upstream.socketClosed, 500, "upstream socket did not close after client cancellation")
+      const chunksAfterClose = upstream.chunks()
+      await Bun.sleep(80)
+
+      expect(upstream.prematureClose()).toBe(true)
+      expect(upstream.chunks()).toBe(chunksAfterClose)
+    } finally {
+      await proxy.stop()
+      await upstream.stop()
+    }
+  })
+
+  test("allows a normal streaming response to finish without cancelling upstream", async () => {
+    const upstream = await streamingUpstream(4)
+    const current = { ...profile, baseURL: `${upstream.origin}/v1`, headers: [] }
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: credentials(),
+      store: { get: () => undefined, set: () => undefined },
+      token: () => "normal-stream-token",
+    })
+    try {
+      await proxy.start()
+      const result = await fetch(`${proxy.runtimeEnvironment(current)?.baseURL}/stream`, {
+        headers: { Authorization: `Bearer ${proxy.runtimeCredential(current)}` },
+      })
+
+      expect(await result.text()).toBe("chunk-1\nchunk-2\nchunk-3\nchunk-4\n")
+      await within(upstream.responseClosed, 500, "upstream response did not close after completing")
+      expect(upstream.completed()).toBe(true)
+      expect(upstream.prematureClose()).toBe(false)
+      expect(upstream.chunks()).toBe(4)
+    } finally {
+      await proxy.stop()
+      await upstream.stop()
+    }
+  })
+
+  test("closes the upstream socket and stops streaming when the proxy stops", async () => {
+    const upstream = await streamingUpstream()
+    const current = { ...profile, baseURL: `${upstream.origin}/v1`, headers: [] }
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: credentials(),
+      store: { get: () => undefined, set: () => undefined },
+      token: () => "proxy-stop-token",
+    })
+    await proxy.start()
+    const result = await fetch(`${proxy.runtimeEnvironment(current)?.baseURL}/stream`, {
+      headers: { Authorization: `Bearer ${proxy.runtimeCredential(current)}` },
+    })
+    expect((await result.body?.getReader().read())?.done).toBe(false)
+
+    const stopping = proxy.stop()
+    try {
+      await within(upstream.socketClosed, 500, "upstream socket did not close when the proxy stopped")
+      await within(stopping, 500, "credential proxy did not stop after cancelling upstream")
+      const chunksAfterClose = upstream.chunks()
+      await Bun.sleep(80)
+
+      expect(upstream.prematureClose()).toBe(true)
+      expect(upstream.chunks()).toBe(chunksAfterClose)
+    } finally {
+      await upstream.stop()
+      await stopping
+    }
+  })
 })
+
+async function streamingUpstream(limit?: number) {
+  let chunks = 0
+  let completed = false
+  let prematureClose = false
+  let resolveSocketClosed: (() => void) | undefined
+  let resolveResponseClosed: (() => void) | undefined
+  const socketClosed = new Promise<void>((resolve) => {
+    resolveSocketClosed = resolve
+  })
+  const responseClosed = new Promise<void>((resolve) => {
+    resolveResponseClosed = resolve
+  })
+  const server = createServer((request, response) => {
+    request.on("error", () => undefined)
+    response.writeHead(200, { "content-type": "text/plain" })
+    chunks++
+    response.write(`chunk-${chunks}\n`)
+    const interval = setInterval(() => {
+      chunks++
+      response.write(`chunk-${chunks}\n`)
+      if (chunks !== limit) return
+      clearInterval(interval)
+      completed = true
+      response.end()
+    }, 20)
+    response.once("close", () => {
+      prematureClose ||= !response.writableFinished
+      resolveResponseClosed?.()
+    })
+    request.socket.once("close", () => {
+      clearInterval(interval)
+      prematureClose ||= !completed
+      resolveSocketClosed?.()
+    })
+  })
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Streaming upstream address is unavailable.")
+
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    socketClosed,
+    responseClosed,
+    chunks: () => chunks,
+    completed: () => completed,
+    prematureClose: () => prematureClose,
+    stop: async () => {
+      const closing = new Promise<void>((resolve) => server.close(() => resolve()))
+      server.closeAllConnections()
+      await closing
+    },
+  }
+}
+
+function cancelStreamingRequest(url: string, authorization: string) {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `import { request } from "node:http"
+const controller = new AbortController()
+await new Promise((resolve, reject) => {
+  let cancelled = false
+  const client = request(process.argv[1], {
+    method: "POST",
+    headers: { authorization: process.argv[2] },
+    signal: controller.signal,
+  }, (response) => {
+    response.once("error", () => undefined)
+    response.once("data", () => {
+      cancelled = true
+      controller.abort()
+    })
+  })
+  client.once("error", (error) => {
+    if (error.name !== "AbortError") reject(error)
+  })
+  client.once("close", () => {
+    if (!cancelled) return reject(new Error("HTTP request closed before the streaming response arrived"))
+    resolve()
+  })
+  client.write("x")
+})`,
+        url,
+        authorization,
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    )
+    let stderr = ""
+    child.stderr?.setEncoding("utf8")
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk
+    })
+    child.once("error", reject)
+    child.once("close", (code) => {
+      if (code === 0) return resolve()
+      reject(new Error(`Streaming client exited with code ${code}: ${stderr}`))
+    })
+  })
+}
+
+async function within<T>(promise: Promise<T>, timeout: number, message: string) {
+  return await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeout)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 function repository(current: ProductProviderProfile): ProfileRepository {
   return {

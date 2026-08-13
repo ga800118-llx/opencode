@@ -255,6 +255,11 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expectTree(page, 2_773, "action.yml")
   await expectStackGeometry(page)
 
+  const process = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(process).toBeVisible()
+  await process.click()
+  await expect(process).toHaveAttribute("aria-expanded", "true")
+
   const shellPart = page.locator(`[data-timeline-part-id="${shellPartID}"]`)
   const editPart = page.locator(`[data-timeline-part-id="${editPartID}"]`)
   await expect(shellPart).toBeVisible()
@@ -404,6 +409,8 @@ function readExpanded(element: Element) {
 }
 
 async function selectAdvancedPresentation(page: Page) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.waitForTimeout(0)
   await page.keyboard.press("Control+,")
   const dialog = page.locator(".settings-v2-dialog")
   await expect(dialog).toBeVisible()
@@ -411,7 +418,7 @@ async function selectAdvancedPresentation(page: Page) {
   await trigger.press("Enter")
   const option = page.locator('[role="option"]').filter({ hasText: /^Advanced$/ })
   await expect(option).toBeVisible()
-  await option.press("Enter")
+  await option.click()
   await expect(trigger).toHaveAccessibleName("Advanced")
   await page.keyboard.press("Escape")
   await expect(dialog).toHaveCount(0)

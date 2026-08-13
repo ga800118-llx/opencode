@@ -80,6 +80,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/v2
 /** Test or embedding seam for supplying a model resolver directly. */
 export const layerWith = (resolve: Interface["resolve"]) => Layer.succeed(Service, Service.of({ resolve }))
 
+const RUNTIME_REQUEST_FIELDS = new Set(["timeout", "timeoutMs", "headerTimeout", "chunkTimeout"])
+
 const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
   if (credential?.type === "key") return Auth.value(credential.key)
   if (credential?.type === "oauth") return Auth.value(credential.access)
@@ -88,15 +90,14 @@ const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
 }
 
 const withDefaults = (model: ModelV2.Info, route: AnyRoute) => {
-  const body = model.request.body
-  const httpBody = Object.hasOwn(body, "apiKey")
-    ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== "apiKey"))
-    : body
+  const body = Object.fromEntries(
+    Object.entries(model.request.body).filter(([key]) => key !== "apiKey" && !RUNTIME_REQUEST_FIELDS.has(key)),
+  )
   return route.with({
     provider: model.providerID,
     endpoint: model.api.url === undefined ? undefined : { baseURL: model.api.url },
     headers: model.request.headers,
-    http: { body: httpBody },
+    http: { body },
     limits: { context: model.limit.context, output: model.limit.output },
   })
 }

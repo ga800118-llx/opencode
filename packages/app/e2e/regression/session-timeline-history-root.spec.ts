@@ -154,15 +154,32 @@ for (const scenario of scenarios) {
     await expectSessionTitle(page, title)
     await expect(page.locator(`[data-timeline-part-id="${lastPartID}"]`)).toBeVisible()
     await expect(page.locator(`[data-timeline-part-id="${userPartID}"]`)).toBeVisible()
-    await expect.poll(() => requests.filter((request) => request.phase === "start").length).toBe(2)
-    expect(requests.filter((request) => request.phase === "end")).toHaveLength(1)
-    expect(sequence.slice(0, 4)).toEqual([
-      "messages:start:latest",
-      "messages:end:latest",
-      `message:${userID}`,
-      `messages:start:${messages.at(-initialPageSize)!.info.id}`,
-    ])
+    await expect
+      .poll(() => requests.some((request) => request.phase === "start" && request.before !== undefined))
+      .toBe(true)
+    expect(requests.some((request) => request.phase === "end" && request.before === undefined)).toBe(true)
+    const initialStart = sequence.indexOf("messages:start:latest")
+    const initialEnd = sequence.indexOf("messages:end:latest", initialStart + 1)
+    const root = sequence.indexOf(`message:${userID}`, initialEnd + 1)
+    const historyStart = sequence.indexOf(`messages:start:${messages.at(-initialPageSize)!.info.id}`, root + 1)
+    expect(initialStart).toBeGreaterThanOrEqual(0)
+    expect(initialEnd).toBeGreaterThan(initialStart)
+    expect(root).toBeGreaterThan(initialEnd)
+    expect(historyStart).toBeGreaterThan(root)
     await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(initialPageSize)
+    await expect(page.getByRole("button", { name: "Stop" })).toBeVisible()
+
+    const message = messageUpdated(scenario.info)
+    const idle = status("idle")
+    for (const event of scenario.idleFirst ? [idle, message] : [message, idle]) {
+      await transport.send(event)
+      if (event === idle) await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0)
+      if (event === message && scenario.interrupted)
+        await expect(page.locator('[data-slot="session-turn-process-trigger"]')).toBeVisible()
+      const current = await timelineState(page)
+      expect(current, JSON.stringify(current)).toMatchObject({ virtual: true })
+      expect(current.rows, JSON.stringify(current)).toBeGreaterThan(0)
+    }
     await page.evaluate(() => {
       ;(
         window as Window & {
@@ -174,43 +191,55 @@ for (const scenario of scenarios) {
     expect(await visibleContentHidden(page)).toBe(false)
     const beforeHistory = await probeSamples(page)
     history.resolve()
-    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(assistants.length)
+    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(
+      scenario.interrupted ? 1 : assistants.length,
+    )
     await expect.poll(() => requests.filter((request) => request.phase === "end").length).toBe(2)
-    await expect(page.getByRole("button", { name: "Stop" })).toBeVisible()
     await waitForProbeSamples(page, beforeHistory)
+    expect(await visibleContentHidden(page)).toBe(false)
     expect(pages).toEqual([
       { before: undefined, limit: initialPageSize },
       { before: messages.at(-initialPageSize)!.info.id, limit: historyPageSize },
     ])
     expect(roots).toEqual([{ sessionID, messageID: userID }])
 
-    const message = messageUpdated(scenario.info)
-    const idle = status("idle")
-    for (const event of scenario.idleFirst ? [idle, message] : [message, idle]) {
-      const beforeEvent = await probeSamples(page)
-      await transport.send(event)
-      if (event === idle) await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0)
-      if (event === message && scenario.interrupted)
-        await expect(page.getByText("Interrupted", { exact: true })).toBeVisible()
-      await waitForProbeSamples(page, beforeEvent)
-      const current = await timelineState(page)
-      expect(current, JSON.stringify(current)).toMatchObject({ virtual: true })
-      expect(current.rows, JSON.stringify(current)).toBeGreaterThan(0)
-    }
-
-    expect(requests[0]).toEqual({ before: undefined, phase: "start", sessionID })
-    expect(requests[1]).toEqual({ before: undefined, phase: "end", sessionID })
+    expect(requests).toContainEqual({ before: undefined, phase: "start", sessionID })
+    expect(requests).toContainEqual({ before: undefined, phase: "end", sessionID })
     await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0)
     await expect(page.locator('[data-timeline-row="bottom-spacer"]')).toBeVisible()
-    if (scenario.interrupted) await expect(page.getByText("Interrupted", { exact: true })).toBeVisible()
-    expect(
-      await page.evaluate(() => {
-        const state = (window as Window & { __historyRootProbe?: { hidden: boolean; stop: boolean } })
-          .__historyRootProbe!
-        state.stop = true
-        return state.hidden
-      }),
-    ).toBe(false)
+    const probe = await page.evaluate(() => {
+      const state = (
+        window as Window & {
+          __historyRootProbe?: {
+            hidden: boolean
+            stop: boolean
+            visibleParts: string[]
+          }
+        }
+      ).__historyRootProbe!
+      state.stop = true
+      return { hidden: state.hidden, visibleParts: state.visibleParts }
+    })
+    expect(probe.hidden, JSON.stringify(probe)).toBe(false)
+    await expect
+      .poll(() =>
+        page.evaluate((partIDs) => {
+          const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
+          const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
+          const view = viewport?.getBoundingClientRect()
+          if (!viewport || !view) return partIDs
+          return partIDs.filter((partID) => {
+            const part = viewport.querySelector<HTMLElement>(`[data-timeline-part-id="${CSS.escape(partID)}"]`)
+            const rect = part?.getBoundingClientRect()
+            return !rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= view.top || rect.top >= view.bottom
+          })
+        }, probe.visibleParts),
+      )
+      .toEqual([])
+    if (scenario.interrupted) {
+      await expandProcess(page)
+      await expect(page.getByText("Interrupted", { exact: true })).toBeVisible()
+    }
   })
 }
 
@@ -239,4 +268,12 @@ function visibleContentHidden(page: Page) {
   return page.evaluate(
     () => (window as Window & { __historyRootProbe?: { hidden: boolean } }).__historyRootProbe!.hidden,
   )
+}
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
 }

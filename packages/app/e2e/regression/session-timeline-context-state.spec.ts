@@ -22,6 +22,10 @@ test("preserves a collapsed context group through count and status updates", asy
       ),
     ],
   })
+  const process = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(process).toHaveAttribute("aria-expanded", "false")
+  await process.click()
+  await expect(process).toHaveAttribute("aria-expanded", "true")
   const group = page.locator(`[data-timeline-part-ids="${ids.join(",")}"]`)
   const trigger = group.locator('[data-slot="collapsible-trigger"]')
   await expect(trigger).toHaveAttribute("aria-expanded", "false")

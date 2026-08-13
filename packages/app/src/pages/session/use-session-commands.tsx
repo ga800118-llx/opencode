@@ -469,8 +469,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.new"),
       keybind: "mod+shift+s",
       slash: "new",
-      disabled:
-        !settings.general.newLayoutDesigns() && appTabs.draftPending(server.key, sdk().directory),
+      disabled: !settings.general.newLayoutDesigns() && appTabs.draftPending(server.key, sdk().directory),
       onSelect: (source) => {
         if (settings.general.newLayoutDesigns()) {
           command.trigger("tab.new", source)
@@ -500,7 +499,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.compact"),
       description: language.t("command.session.compact.description"),
       slash: "compact",
-      disabled: compaction.disabledReason() !== undefined && compaction.disabledReason() !== "no-model",
+      disabled: compaction.disabledReason() !== undefined,
       onSelect: compact,
     }),
     sessionCommand({

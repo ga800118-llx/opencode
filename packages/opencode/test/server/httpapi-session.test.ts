@@ -34,7 +34,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "drizzle-orm"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, provideInstanceEffect, TestInstance, tmpdirScoped } from "../fixture/fixture"
-import { TestLLMServer } from "../lib/llm-server"
+import { reply, TestLLMServer } from "../lib/llm-server"
 import { testProviderConfig } from "../lib/test-provider"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 
@@ -427,6 +427,82 @@ describe("session HttpApi", () => {
     }).pipe(Effect.provide(TestLLMServer.layer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node))),
   )
 
+  it.live(
+    "completes legacy prompts when the model stream exceeds 30 seconds",
+    () =>
+      Effect.gen(function* () {
+        const llm = yield* TestLLMServer
+        let delayStarted = 0
+        let delayCompleted = 0
+        const delayAfterFirstChunk: PromiseLike<void> = {
+          then(onfulfilled, onrejected) {
+            delayStarted = performance.now()
+            return Bun.sleep(31_500)
+              .then(() => {
+                delayCompleted = performance.now()
+              })
+              .then(onfulfilled, onrejected)
+          },
+        }
+        yield* llm.push(
+          reply().wait(delayAfterFirstChunk).text("legacy stream completed").usage({ input: 19, output: 7 }).stop(),
+        )
+
+        const directory = yield* tmpdirScoped({ git: true, config: testProviderConfig(llm.url) })
+        const session = yield* createSession({ title: "legacy model timeout" }).pipe(provideInstanceEffect(directory))
+        const response = yield* request(
+          `${pathFor(SessionPaths.prompt, { sessionID: session.id })}?directory=${encodeURIComponent(directory)}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agent: "build",
+              model: { providerID: "test", modelID: "test-model" },
+              parts: [{ type: "text", text: "wait beyond the legacy timeout" }],
+            }),
+          },
+        )
+
+        expect(response.status).toBe(200)
+        const message = yield* json<SessionV1.WithParts>(response)
+        expect(delayCompleted - delayStarted).toBeGreaterThanOrEqual(31_500)
+        expect(message.info).toMatchObject({
+          role: "assistant",
+          agent: "build",
+          providerID: "test",
+          modelID: "test-model",
+          tokens: {
+            input: 19,
+            output: 7,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+        })
+        expect(message.parts).toContainEqual(expect.objectContaining({ type: "text", text: "legacy stream completed" }))
+
+        const hits = yield* llm.hits
+        expect(hits).toHaveLength(1)
+        expect(hits[0]?.url.pathname).toBe("/v1/chat/completions")
+        expect(hits[0]?.body.messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ role: "user", content: "wait beyond the legacy timeout" }),
+          ]),
+        )
+        expect(hits[0]?.body.tools).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "function",
+              function: expect.objectContaining({
+                name: "bash",
+                parameters: expect.objectContaining({ type: "object" }),
+              }),
+            }),
+          ]),
+        )
+      }).pipe(Effect.provide(TestLLMServer.layer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node))),
+    { timeout: 55_000 },
+  )
+
   it.instance(
     "returns v2 public request errors for cursor and workspace query failures",
     () =>
@@ -746,14 +822,11 @@ describe("session HttpApi", () => {
         )
         expect(permissionMode).toMatchObject({ id: created.id, permissionMode: "restricted" })
 
-        const invalidPermissionMode = yield* request(
-          pathFor(SessionPaths.permissionMode, { sessionID: created.id }),
-          {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ mode: "unsafe" }),
-          },
-        )
+        const invalidPermissionMode = yield* request(pathFor(SessionPaths.permissionMode, { sessionID: created.id }), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ mode: "unsafe" }),
+        })
         expect(invalidPermissionMode.status).toBe(400)
 
         const missingPermissionMode = yield* request(

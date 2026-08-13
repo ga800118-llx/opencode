@@ -7,6 +7,7 @@ import {
   mergeProjectMetadata,
   needsAutomaticProjectColor,
   persistProjectMetadata,
+  type ProjectMetadata,
   projectMetadataErrorMessage,
   renameProjectMetadataPatch,
 } from "./project-metadata"
@@ -164,7 +165,7 @@ describe("persistProjectMetadata", () => {
       },
     })
 
-    expect(calls).toEqual(["projection", "local"])
+    expect(calls).toEqual(["local", "projection"])
     expect(result.icon).toEqual({ url: "server.png", color: "mint" })
   })
 
@@ -190,10 +191,10 @@ describe("persistProjectMetadata", () => {
     await save({ id: "global", worktree: "/global" })
     await save({ worktree: "/local" })
 
-    expect(calls).toEqual(["projection:global", "local:global", "projection:missing", "local:missing"])
+    expect(calls).toEqual(["local:global", "projection:global", "local:missing", "projection:missing"])
   })
 
-  test("propagates local failures after updating the projection", async () => {
+  test("does not update a V2 projection when local persistence fails", async () => {
     const base = {
       protocol: "v2" as const,
       project: { worktree: "/project" },
@@ -215,10 +216,32 @@ describe("persistProjectMetadata", () => {
       }),
     ).rejects.toThrow("local failed")
 
-    expect(calls).toEqual(["projection", "local"])
+    expect(calls).toEqual(["local"])
   })
 
-  test("does not write locally when projection update fails", async () => {
+  test("keeps the server-confirmed V1 projection when its local mirror fails", async () => {
+    const project: ProjectMetadata = { id: "project-1", worktree: "/project", name: "before" }
+    let projected = project
+
+    await expect(
+      persistProjectMetadata({
+        protocol: "v1",
+        project,
+        patch: { name: "after" },
+        updateServer: async () => ({ ...project, name: "after" }),
+        updateProjection: (next) => {
+          projected = next
+        },
+        writeLocal: async () => {
+          throw new Error("local failed")
+        },
+      }),
+    ).rejects.toThrow("local failed")
+
+    expect(projected.name).toBe("after")
+  })
+
+  test("persists V2 metadata before updating the projection", async () => {
     const calls: string[] = []
 
     await expect(
@@ -237,7 +260,7 @@ describe("persistProjectMetadata", () => {
       }),
     ).rejects.toThrow("projection failed")
 
-    expect(calls).toEqual(["projection"])
+    expect(calls).toEqual(["local", "projection"])
   })
 })
 
@@ -317,12 +340,15 @@ describe("createProjectMetadataWriter", () => {
 
     const automatic = automaticWriter(initial, automaticProjectColorPatch("mint"))
     await Promise.resolve()
-    const user = userWriter({ ...initial, worktree: "C:/repo" }, editProjectMetadataPatch({
-      name: "",
-      color: "purple",
-      override: undefined,
-      start: "",
-    }))
+    const user = userWriter(
+      { ...initial, worktree: "C:/repo" },
+      editProjectMetadataPatch({
+        name: "",
+        color: "purple",
+        override: undefined,
+        start: "",
+      }),
+    )
     await Promise.resolve()
 
     expect(calls).toEqual(["mint"])
@@ -363,12 +389,15 @@ describe("createProjectMetadataWriter", () => {
     const userWriter = createWriter()
     const automaticWriter = createWriter()
 
-    const user = userWriter(initial, editProjectMetadataPatch({
-      name: "",
-      color: "purple",
-      override: undefined,
-      start: "",
-    }))
+    const user = userWriter(
+      initial,
+      editProjectMetadataPatch({
+        name: "",
+        color: "purple",
+        override: undefined,
+        start: "",
+      }),
+    )
     await Promise.resolve()
     const automatic = automaticWriter(initial, automaticProjectColorPatch("mint"), {
       shouldWrite: needsAutomaticProjectColor,
@@ -480,6 +509,62 @@ describe("createProjectMetadataWriter", () => {
     expect(contexts.a.calls).toEqual(["server", "projection", "local"])
     expect(contexts.b.calls).toEqual(["server", "projection", "local"])
   })
+
+  test("does not let a failed earlier save overwrite a later successful projection", async () => {
+    const initial: ProjectMetadata = { worktree: "/project", name: "before" }
+    let current = initial
+    const writes = Promise.withResolvers<void>()
+    const writer = createProjectMetadataWriter({
+      target: () => ({
+        scope: ServerScope.local,
+        protocol: "v2" as const,
+        readProject: () => current,
+        updateServer: async () => undefined,
+        updateProjection: (project) => {
+          current = project
+        },
+        writeLocal: async (_project, patch) => {
+          if (patch.name === "first") return writes.promise
+        },
+      }),
+    })
+
+    const first = writer(initial, { name: "first" })
+    const second = writer(initial, { name: "second" })
+    await Promise.resolve()
+    writes.reject(new Error("first failed"))
+
+    await expect(first).rejects.toThrow("first failed")
+    await second
+
+    expect(current.name).toBe("second")
+  })
+
+  test("preserves a newer V2 server projection that arrives while local persistence is pending", async () => {
+    const initial: ProjectMetadata = { worktree: "/project", name: "before", commands: { start: "old" } }
+    let current = initial
+    const write = Promise.withResolvers<void>()
+    const writer = createProjectMetadataWriter({
+      target: () => ({
+        scope: ServerScope.local,
+        protocol: "v2" as const,
+        readProject: () => current,
+        updateServer: async () => undefined,
+        updateProjection: (project) => {
+          current = project
+        },
+        writeLocal: () => write.promise,
+      }),
+    })
+
+    const save = writer(initial, { name: "local" })
+    await Promise.resolve()
+    current = { ...current, commands: { start: "from-server-event" } }
+    write.resolve()
+    await save
+
+    expect(current).toEqual({ ...initial, name: "local", commands: { start: "from-server-event" } })
+  })
 })
 
 describe("createProjectMetadataLocalWriter", () => {
@@ -496,9 +581,9 @@ describe("createProjectMetadataLocalWriter", () => {
     }
     const writeLocal = createProjectMetadataLocalWriter(project)
 
-    await expect(
-      writeLocal({ worktree: "/project" }, { icon: { override: "custom.png" } }),
-    ).rejects.toThrow("metadata failed")
+    await expect(writeLocal({ worktree: "/project" }, { icon: { override: "custom.png" } })).rejects.toThrow(
+      "metadata failed",
+    )
 
     expect(calls).toEqual(["meta"])
   })
@@ -507,9 +592,7 @@ describe("createProjectMetadataLocalWriter", () => {
 describe("projectMetadataErrorMessage", () => {
   test("uses known messages and hides unknown values", () => {
     expect(projectMetadataErrorMessage(new Error("save failed"), "Request failed")).toBe("save failed")
-    expect(projectMetadataErrorMessage({ data: { message: "server failed" } }, "Request failed")).toBe(
-      "server failed",
-    )
+    expect(projectMetadataErrorMessage({ data: { message: "server failed" } }, "Request failed")).toBe("server failed")
     expect(projectMetadataErrorMessage({ secret: "raw object" }, "Request failed")).toBe("Request failed")
   })
 })

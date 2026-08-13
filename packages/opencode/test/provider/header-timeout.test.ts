@@ -12,7 +12,6 @@ import { testProviderConfig } from "../lib/test-provider"
 import { Env } from "@/env"
 import { Plugin } from "@/plugin"
 import { Provider } from "@/provider/provider"
-import { ProviderError } from "@/provider/error"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -46,7 +45,7 @@ it.live("headerTimeout does not abort delayed SSE body after headers arrive", ()
   }),
 )
 
-it.live("chunkTimeout raises a response stream error when SSE body stalls", () =>
+it.live("legacy chunkTimeout does not abort a stalled SSE body", () =>
   Effect.gen(function* () {
     const server = yield* Effect.acquireRelease(
       Effect.promise(() => delayedBodyServer(250)),
@@ -64,23 +63,14 @@ it.live("chunkTimeout raises a response stream error when SSE body stalls", () =
             messages: [{ role: "user", content: "hello" }],
           })
 
-          const error = yield* Effect.promise(async () => {
-            try {
-              for await (const part of result.fullStream) {
-                if (part.type === "error") return part.error
-              }
-            } catch (error) {
-              return error
-            }
-          })
-          expect(error).toBeInstanceOf(ProviderError.ResponseStreamError)
+          expect(yield* Effect.promise(() => result.text)).toBe("late")
         }),
       { config: providerConfig(server.url, { chunkTimeout: 50 }) },
     )
   }),
 )
 
-it.live("headerTimeout aborts when response headers do not arrive", () =>
+it.live("legacy headerTimeout does not abort delayed response headers", () =>
   Effect.gen(function* () {
     const server = yield* Effect.acquireRelease(
       Effect.promise(() => delayedHeaderServer(250)),
@@ -98,21 +88,14 @@ it.live("headerTimeout aborts when response headers do not arrive", () =>
             messages: [{ role: "user", content: "hello" }],
           })
 
-          const errors = yield* Effect.promise(async () => {
-            const errors: string[] = []
-            for await (const part of result.fullStream) {
-              if (part.type === "error") errors.push(String(part.error))
-            }
-            return errors
-          })
-          expect(errors.join("\n")).toContain("response headers timed out")
+          expect(yield* Effect.promise(() => result.text)).toBe("ok")
         }),
       { config: providerConfig(server.url, { headerTimeout: 50 }) },
     )
   }),
 )
 
-it.live("headerTimeout is opt-in for non-OpenAI providers", () =>
+it.live("requests without a legacy headerTimeout complete normally", () =>
   Effect.gen(function* () {
     const server = yield* Effect.acquireRelease(
       Effect.promise(() => delayedHeaderServer(100)),
@@ -136,7 +119,7 @@ it.live("headerTimeout is opt-in for non-OpenAI providers", () =>
   }),
 )
 
-it.live("OpenAI Codex headerTimeout default can be disabled by config", () =>
+it.live("OpenAI Codex accepts the legacy disabled headerTimeout without enforcing it", () =>
   Effect.gen(function* () {
     yield* withAuthContent(
       Effect.gen(function* () {
@@ -154,7 +137,7 @@ it.live("OpenAI Codex headerTimeout default can be disabled by config", () =>
   }),
 )
 
-it.live("OpenAI API auth gets default headerTimeout", () =>
+it.live("OpenAI API auth does not add a runtime header timeout", () =>
   Effect.gen(function* () {
     yield* withAuthContent(
       Effect.gen(function* () {
@@ -162,7 +145,7 @@ it.live("OpenAI API auth gets default headerTimeout", () =>
           Effect.gen(function* () {
             const provider = yield* Provider.Service
             const openai = yield* provider.getProvider(ProviderV2.ID.openai)
-            expect(openai.options.headerTimeout).toBe(300_000)
+            expect(openai.options.headerTimeout).toBeUndefined()
           }),
         )
       }),

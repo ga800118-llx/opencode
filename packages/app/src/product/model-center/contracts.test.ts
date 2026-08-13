@@ -47,9 +47,9 @@ describe("normalizeProviderProfileInput", () => {
   })
 
   test("rejects duplicate models, unsafe TLS, unsafe headers, and non-loopback local services", () => {
-    expect(() =>
-      normalizeProviderProfileInput({ ...input, models: [...input.models, input.models[0]] }),
-    ).toThrow("Model IDs must be unique.")
+    expect(() => normalizeProviderProfileInput({ ...input, models: [...input.models, input.models[0]] })).toThrow(
+      "Model IDs must be unique.",
+    )
     expect(() =>
       normalizeProviderProfileInput({ ...input, settings: { ...input.settings, allowInsecureTls: true } }),
     ).toThrow("Insecure TLS is not supported by this desktop runtime.")
@@ -71,9 +71,21 @@ describe("normalizeProviderProfileInput", () => {
     expect(() => normalizeProviderProfileInput({ ...input, defaultModelID: "missing" })).toThrow(
       "The default model must belong to this profile.",
     )
+    expect(() => normalizeProviderProfileInput({ ...input, settings: { ...input.settings, contextLimit: 0 } })).toThrow(
+      "Context limit must be a positive integer.",
+    )
+    expect(() =>
+      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, contextLimit: 10_000_001 } }),
+    ).toThrow("Context limit must be a positive integer.")
+    expect(() =>
+      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, outputLimit: "large" } }),
+    ).toThrow("Output limit must be a positive integer.")
+    expect(() =>
+      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, outputLimit: 1_000_001 } }),
+    ).toThrow("Output limit must be a positive integer.")
   })
 
-  test("validates and drops legacy timeout settings", () => {
+  test("drops legacy timeout settings without validating obsolete values", () => {
     const migrated = normalizeProviderProfileInput({
       ...input,
       settings: { ...input.settings, timeoutMs: 30_000 },
@@ -81,9 +93,12 @@ describe("normalizeProviderProfileInput", () => {
 
     expect(migrated.settings).toEqual(input.settings)
     expect(migrated.settings).not.toHaveProperty("timeoutMs")
-    expect(() =>
-      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, timeoutMs: 0 } }),
-    ).toThrow("Timeout must be between 1000 and 900000 milliseconds.")
+    expect(normalizeProviderProfileInput({ ...input, settings: { ...input.settings, timeoutMs: 0 } }).settings).toEqual(
+      input.settings,
+    )
+    expect(
+      normalizeProviderProfileInput({ ...input, settings: { ...input.settings, timeoutMs: "obsolete" } }).settings,
+    ).toEqual(input.settings)
   })
 })
 

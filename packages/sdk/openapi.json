@@ -5491,6 +5491,9 @@
                   "permission": {
                     "$ref": "#/components/schemas/PermissionRuleset"
                   },
+                  "permissionMode": {
+                    "$ref": "#/components/schemas/PermissionMode"
+                  },
                   "workspaceID": {
                     "type": "string",
                     "pattern": "^wrk"
@@ -6557,6 +6560,102 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.deleteMessage({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/permission-mode": {
+      "post": {
+        "tags": ["session"],
+        "operationId": "session.switchPermissionMode",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully switched permission mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Switch the permission mode used by an existing session.",
+        "summary": "Switch permission mode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "$ref": "#/components/schemas/PermissionMode"
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.switchPermissionMode({\n  ...\n})"
           }
         ]
       }
@@ -10163,11 +10262,18 @@
                     "type": "string",
                     "pattern": "^ses"
                   },
+                  "parentID": {
+                    "type": "string",
+                    "pattern": "^ses"
+                  },
                   "agent": {
                     "type": "string"
                   },
                   "model": {
                     "$ref": "#/components/schemas/ModelRef"
+                  },
+                  "permissionMode": {
+                    "$ref": "#/components/schemas/PermissionMode"
                   },
                   "location": {
                     "$ref": "#/components/schemas/LocationRef"
@@ -10495,6 +10601,91 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.switchModel({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/api/session/{sessionID}/permission-mode": {
+      "post": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.switchPermissionMode",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Switch the permission mode used by subsequent permission evaluations.",
+        "summary": "Switch session permission mode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "$ref": "#/components/schemas/PermissionMode"
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.switchPermissionMode({\n  ...\n})"
           }
         ]
       }
@@ -13762,6 +13953,332 @@
         ]
       }
     },
+    "/api/skill/management": {
+      "get": {
+        "tags": ["skills"],
+        "operationId": "v2.skill.management.list",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "$ref": "#/components/schemas/LocationInfo"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SkillV2ManagementInfo"
+                      }
+                    }
+                  },
+                  "required": ["location", "data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve discovered Skill installations, optionally rebuilding the source topology.",
+        "summary": "List Skill installations",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.skill.management.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/api/skill/management/{id}": {
+      "patch": {
+        "tags": ["skills"],
+        "operationId": "v2.skill.management.setEnabled",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "$ref": "#/components/schemas/LocationInfo"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SkillV2ManagementInfo"
+                      }
+                    }
+                  },
+                  "required": ["location", "data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillManagementNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillManagementNotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "SkillManagementOperationError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillManagementOperationError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Enable or disable a discovered Skill installation.",
+        "summary": "Set Skill installation state",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillV2SetEnabledInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.skill.management.setEnabled({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["skills"],
+        "operationId": "v2.skill.management.remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "$ref": "#/components/schemas/LocationInfo"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SkillV2ManagementInfo"
+                      }
+                    }
+                  },
+                  "required": ["location", "data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillManagementForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillManagementForbiddenError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillManagementNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillManagementNotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "SkillManagementOperationError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillManagementOperationError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Move a user-owned local Skill installation into the recovery area.",
+        "summary": "Remove a Skill installation",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.skill.management.remove({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/api/event": {
       "get": {
         "tags": ["events"],
@@ -15299,6 +15816,9 @@
             "$ref": "#/components/schemas/EventSessionNextModelSwitched"
           },
           {
+            "$ref": "#/components/schemas/EventSessionNextPermission-modeSwitched"
+          },
+          {
             "$ref": "#/components/schemas/EventSessionNextMoved"
           },
           {
@@ -15882,6 +16402,9 @@
             },
             "required": ["created", "updated"],
             "additionalProperties": false
+          },
+          "permissionMode": {
+            "$ref": "#/components/schemas/PermissionMode"
           },
           "permission": {
             "$ref": "#/components/schemas/PermissionRuleset"
@@ -17773,6 +18296,38 @@
                       }
                     },
                     "required": ["timestamp", "sessionID", "messageID", "model"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["id", "type", "properties"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^evt_"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["session.next.permission-mode.switched"]
+                  },
+                  "properties": {
+                    "type": "object",
+                    "properties": {
+                      "timestamp": {
+                        "type": "number"
+                      },
+                      "sessionID": {
+                        "type": "string",
+                        "pattern": "^ses"
+                      },
+                      "mode": {
+                        "$ref": "#/components/schemas/PermissionMode"
+                      }
+                    },
+                    "required": ["timestamp", "sessionID", "mode"],
                     "additionalProperties": false
                   }
                 },
@@ -20446,6 +21001,9 @@
                 "$ref": "#/components/schemas/SyncEventSessionNextModelSwitched"
               },
               {
+                "$ref": "#/components/schemas/SyncEventSessionNextPermission-modeSwitched"
+              },
+              {
                 "$ref": "#/components/schemas/SyncEventSessionNextMoved"
               },
               {
@@ -21940,6 +22498,10 @@
           "name": {
             "type": "string"
           },
+          "projectStartCommandOverride": {
+            "type": "string",
+            "description": "Overrides the project's configured startup script. An empty string disables it for this worktree."
+          },
           "startCommand": {
             "type": "string",
             "description": "Additional startup script to run after the project's start command"
@@ -22142,6 +22704,9 @@
           },
           "permission": {
             "$ref": "#/components/schemas/PermissionRuleset"
+          },
+          "permissionMode": {
+            "$ref": "#/components/schemas/PermissionMode"
           },
           "revert": {
             "type": "object",
@@ -23642,6 +24207,9 @@
             "$ref": "#/components/schemas/SessionNextModelSwitched"
           },
           {
+            "$ref": "#/components/schemas/SessionNextPermission-modeSwitched"
+          },
+          {
             "$ref": "#/components/schemas/SessionNextMoved"
           },
           {
@@ -23784,6 +24352,62 @@
           }
         },
         "required": ["_tag", "providerID", "message"],
+        "additionalProperties": false
+      },
+      "SkillManagementNotFoundError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["SkillManagementNotFoundError"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "id", "message"],
+        "additionalProperties": false
+      },
+      "SkillManagementOperationError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["SkillManagementOperationError"]
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["read", "write", "delete"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "operation", "message"],
+        "additionalProperties": false
+      },
+      "SkillManagementForbiddenError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["SkillManagementForbiddenError"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["builtin", "remote", "plugin", "shared", "unsafe"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "id", "reason", "message"],
         "additionalProperties": false
       },
       "OutputFormat1": {
@@ -24020,6 +24644,9 @@
           },
           {
             "$ref": "#/components/schemas/SessionNextModelSwitched"
+          },
+          {
+            "$ref": "#/components/schemas/SessionNextPermission-modeSwitched"
           },
           {
             "$ref": "#/components/schemas/SessionNextMoved"
@@ -24506,6 +25133,10 @@
         },
         "required": ["directory"],
         "additionalProperties": false
+      },
+      "PermissionMode": {
+        "type": "string",
+        "enum": ["restricted", "standard", "auto"]
       },
       "ModelRef": {
         "type": "object",
@@ -25352,6 +25983,59 @@
                   }
                 },
                 "required": ["timestamp", "sessionID", "messageID", "model"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "id", "seq", "aggregateID", "data"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["type", "id", "syncEvent"],
+        "additionalProperties": false
+      },
+      "SyncEventSessionNextPermission-modeSwitched": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["sync"]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "syncEvent": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["session.next.permission-mode.switched.1"]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^evt_"
+              },
+              "seq": {
+                "type": "number"
+              },
+              "aggregateID": {
+                "type": "string"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "timestamp": {
+                    "type": "number"
+                  },
+                  "sessionID": {
+                    "type": "string",
+                    "pattern": "^ses"
+                  },
+                  "mode": {
+                    "$ref": "#/components/schemas/PermissionMode"
+                  }
+                },
+                "required": ["timestamp", "sessionID", "mode"],
                 "additionalProperties": false
               }
             },
@@ -27234,6 +27918,9 @@
           "model": {
             "$ref": "#/components/schemas/ModelRef"
           },
+          "permissionMode": {
+            "$ref": "#/components/schemas/PermissionMode"
+          },
           "cost": {
             "type": "number"
           },
@@ -28064,6 +28751,60 @@
               }
             },
             "required": ["timestamp", "sessionID", "messageID", "model"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "data"],
+        "additionalProperties": false
+      },
+      "SessionNextPermission-modeSwitched": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["session.next.permission-mode.switched"]
+          },
+          "durable": {
+            "type": "object",
+            "properties": {
+              "aggregateID": {
+                "type": "string"
+              },
+              "seq": {
+                "type": "integer"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": ["aggregateID", "seq", "version"],
+            "additionalProperties": false
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationRef"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "number"
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/PermissionMode"
+              }
+            },
+            "required": ["timestamp", "sessionID", "mode"],
             "additionalProperties": false
           }
         },
@@ -30674,6 +31415,76 @@
           }
         },
         "required": ["name", "location", "content"],
+        "additionalProperties": false
+      },
+      "SkillV2Scope": {
+        "type": "string",
+        "enum": ["global", "project"]
+      },
+      "SkillV2ManagementSource": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["builtin", "directory", "external", "url", "plugin"]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SkillV2Scope"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "scope", "value"],
+        "additionalProperties": false
+      },
+      "SkillV2ManagementInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SkillV2ManagementSource"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "shadowed", "disabled"]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "deletable": {
+            "type": "boolean"
+          },
+          "deleteTarget": {
+            "type": "string"
+          },
+          "deleteBlocked": {
+            "type": "string",
+            "enum": ["builtin", "remote", "plugin", "shared", "unsafe"]
+          }
+        },
+        "required": ["id", "name", "location", "source", "status", "enabled", "deletable"],
+        "additionalProperties": false
+      },
+      "SkillV2SetEnabledInput": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
         "additionalProperties": false
       },
       "Models-devRefreshed": {
@@ -34170,6 +34981,38 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventSessionNextPermission-modeSwitched": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["session.next.permission-mode.switched"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "number"
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/PermissionMode"
+              }
+            },
+            "required": ["timestamp", "sessionID", "mode"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventSessionNextMoved": {
         "type": "object",
         "properties": {
@@ -36704,6 +37547,23 @@
         "required": ["type", "key"],
         "additionalProperties": false
       },
+      "SkillV2SourceOrigin": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/SkillV2Scope"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["builtin", "config-directory", "config-file", "external", "plugin"]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": ["scope", "type"],
+        "additionalProperties": false
+      },
       "SkillV2DirectorySource": {
         "type": "object",
         "properties": {
@@ -36713,6 +37573,9 @@
           },
           "path": {
             "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SkillV2SourceOrigin"
           }
         },
         "required": ["type", "path"],
@@ -36727,6 +37590,9 @@
           },
           "url": {
             "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SkillV2SourceOrigin"
           }
         },
         "required": ["type", "url"],
@@ -36741,6 +37607,9 @@
           },
           "skill": {
             "$ref": "#/components/schemas/SkillV2Info"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SkillV2SourceOrigin"
           }
         },
         "required": ["type", "skill"],

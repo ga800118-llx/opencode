@@ -118,8 +118,10 @@ export namespace Timeline {
     const userParts = getMessageParts(userMessage.id)
     const comments = userParts.flatMap((p) => MessageComment.fromPart(p) ?? [])
     const compaction = userParts.some((p) => p.type === "compaction")
-    const interruptedMessageIndex = assistantMessages.findIndex((m) => m.error?.name === "MessageAbortedError")
-    const interrupted = interruptedMessageIndex !== -1
+    const interruptedMessageIndexes = assistantMessages.flatMap((message, messageIndex) =>
+      message.error?.name === "MessageAbortedError" ? [messageIndex] : [],
+    )
+    const lastInterruptedMessageIndex = interruptedMessageIndexes.at(-1) ?? -1
     const error = assistantMessages.find((m) => m.error && m.error.name !== "MessageAbortedError")?.error
 
     const assistantPartRefs = assistantMessages.flatMap((message, messageIndex) =>
@@ -128,16 +130,18 @@ export namespace Timeline {
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
     const assistantItems: AssistantProcessItem[] =
-      interrupted && !compaction
+      interruptedMessageIndexes.length > 0
         ? [
-            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex <= interruptedMessageIndex)).map(
-              (group) => ({
-                type: "part" as const,
-                group,
-              }),
-            ),
-            { type: "interrupted" as const },
-            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex > interruptedMessageIndex)).map(
+            ...interruptedMessageIndexes.flatMap((messageIndex, index) => [
+              ...groupParts(
+                assistantPartRefs.filter(
+                  (ref) =>
+                    ref.messageIndex > (interruptedMessageIndexes[index - 1] ?? -1) && ref.messageIndex <= messageIndex,
+                ),
+              ).map((group) => ({ type: "part" as const, group })),
+              ...(compaction ? [] : [{ type: "interrupted" as const }]),
+            ]),
+            ...groupParts(assistantPartRefs.filter((ref) => ref.messageIndex > lastInterruptedMessageIndex)).map(
               (group) => ({
                 type: "part" as const,
                 group,
@@ -145,16 +149,28 @@ export namespace Timeline {
             ),
           ]
         : groupParts(assistantPartRefs).map((group) => ({ type: "part" as const, group }))
-    const partByRef = new Map(
-      assistantPartRefs.map((ref) => [`${ref.messageID}:${ref.part.id}`, ref.part] as const),
-    )
+    const partByRef = new Map(assistantPartRefs.map((ref) => [`${ref.messageID}:${ref.part.id}`, ref.part] as const))
+    const finalAnswerSourceStart =
+      lastInterruptedMessageIndex === -1 ||
+      assistantMessages.some((_, messageIndex) => messageIndex > lastInterruptedMessageIndex)
+        ? lastInterruptedMessageIndex + 1
+        : lastInterruptedMessageIndex
+    const finalAnswerCandidates = groupParts(
+      assistantPartRefs.filter((ref) => ref.messageIndex >= finalAnswerSourceStart),
+    ).map((group) => ({ type: "part" as const, group }))
     const finalAnswerStart =
-      assistantItems.findLastIndex((item) => {
-        if (item.type !== "part" || item.group.type !== "part") return true
+      finalAnswerCandidates.findLastIndex((item) => {
+        if (item.group.type !== "part") return true
         return partByRef.get(`${item.group.ref.messageID}:${item.group.ref.partID}`)?.type !== "text"
       }) + 1
-    const processItems = assistantItems.slice(0, finalAnswerStart)
-    const finalAnswerItems = assistantItems.slice(finalAnswerStart)
+    const finalAnswerKeys = new Set(finalAnswerCandidates.slice(finalAnswerStart).map((item) => item.group.key))
+    const processItems = assistantItems.filter(
+      (item) => item.type === "interrupted" || !finalAnswerKeys.has(item.group.key),
+    )
+    const finalAnswerItems = assistantItems.filter(
+      (item): item is Extract<AssistantProcessItem, { type: "part" }> =>
+        item.type === "part" && finalAnswerKeys.has(item.group.key),
+    )
     if (previousUserMessage) rows.push(new TimelineRow.TurnGap({ userMessageID: userMessage.id }))
 
     if (comments.length > 0 && !inlineComments)
@@ -190,7 +206,6 @@ export namespace Timeline {
     }
 
     finalAnswerItems.forEach((item, index) => {
-      if (item.type === "interrupted") return
       rows.push(
         new TimelineRow.AssistantPart({
           userMessageID: userMessage.id,

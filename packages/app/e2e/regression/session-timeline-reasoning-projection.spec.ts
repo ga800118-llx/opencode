@@ -10,12 +10,21 @@ import {
 } from "../performance/timeline-stability/fixture"
 
 const profiles = [
-  { name: "summaries off no reasoning", summaries: false, reasoning: "", other: false, thinking: true, body: false },
+  {
+    name: "summaries off no reasoning",
+    summaries: false,
+    reasoning: "",
+    other: false,
+    process: false,
+    thinking: true,
+    body: false,
+  },
   {
     name: "summaries off reasoning heading",
     summaries: false,
     reasoning: "## Inspecting stability",
     other: false,
+    process: false,
     thinking: true,
     body: false,
   },
@@ -24,15 +33,25 @@ const profiles = [
     summaries: false,
     reasoning: "## Inspecting stability",
     other: true,
+    process: true,
+    thinking: false,
+    body: false,
+  },
+  {
+    name: "summaries on no content",
+    summaries: true,
+    reasoning: "",
+    other: false,
+    process: false,
     thinking: true,
     body: false,
   },
-  { name: "summaries on no content", summaries: true, reasoning: "", other: false, thinking: true, body: false },
   {
     name: "summaries on blank reasoning",
     summaries: true,
     reasoning: "   ",
     other: false,
+    process: false,
     thinking: true,
     body: false,
   },
@@ -41,6 +60,7 @@ const profiles = [
     summaries: true,
     reasoning: "## Inspecting stability",
     other: false,
+    process: true,
     thinking: false,
     body: true,
   },
@@ -49,6 +69,7 @@ const profiles = [
     summaries: true,
     reasoning: "",
     other: true,
+    process: true,
     thinking: false,
     body: false,
   },
@@ -57,11 +78,10 @@ const profiles = [
 for (const profile of profiles) {
   test(`projects busy reasoning profile ${profile.name}`, async ({ page }) => {
     const reasoningID = `prt_reasoning_matrix_${profiles.indexOf(profile)}`
+    const toolID = `prt_reasoning_tool_${profiles.indexOf(profile)}`
     const parts = [
       ...(profile.reasoning ? [reasoningPart(reasoningID, profile.reasoning)] : []),
-      ...(profile.other
-        ? [toolPart(`prt_reasoning_tool_${profiles.indexOf(profile)}`, "skill", "running", { name: "inspect" })]
-        : []),
+      ...(profile.other ? [toolPart(toolID, "skill", "running", { name: "inspect" })] : []),
     ]
     const timeline = await setupTimeline(page, {
       messages: [userMessage(), assistantMessage(parts, { completed: false })],
@@ -69,9 +89,17 @@ for (const profile of profiles) {
     })
     await timeline.send(status("busy"), 150)
 
+    const process = page.locator('[data-slot="session-turn-process-trigger"]').first()
+    await expect(process).toHaveCount(profile.process ? 1 : 0)
+    if (profile.process) {
+      await expect(process).toHaveAttribute("aria-expanded", "false")
+      await process.click()
+      await expect(process).toHaveAttribute("aria-expanded", "true")
+    }
     await expect(page.locator('[data-timeline-row="Thinking"]')).toHaveCount(profile.thinking ? 1 : 0)
     await expect(page.locator(`[data-timeline-part-id="${reasoningID}"]`)).toHaveCount(profile.body ? 1 : 0)
-    if (!profile.summaries && profile.reasoning.trim()) {
+    await expect(page.locator(`[data-timeline-part-id="${toolID}"]`)).toHaveCount(profile.other ? 1 : 0)
+    if (profile.thinking && !profile.summaries && profile.reasoning.trim()) {
       await expect(page.getByText("Inspecting stability", { exact: true })).toBeVisible()
     }
   })

@@ -108,9 +108,11 @@ test.describe("regression: session timeline local row state", () => {
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
+    await expandProcess(page)
 
     const wrapper = page.locator(`[data-timeline-part-id="${editPartID}"]`).first()
     await expectAppVisible(wrapper)
+    await wrapper.locator('[data-slot="collapsible-trigger"]').first().click()
     await expectExpanded(wrapper, true)
 
     await wrapper.evaluate((element) => {
@@ -131,7 +133,7 @@ test.describe("regression: session timeline local row state", () => {
 
     expect(await readToolState(page)).toEqual({
       expanded: false,
-      row: "AssistantPart",
+      row: "AssistantProcess",
       streamedTextVisible: true,
     })
   })
@@ -144,9 +146,12 @@ test.describe("regression: session timeline local row state", () => {
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
+    await expandProcess(page)
 
     const wrapper = page.locator(`[data-timeline-part-id="${editPartID}"]`).first()
     await expectAppVisible(wrapper)
+    await wrapper.locator('[data-slot="collapsible-trigger"]').first().click()
+    await expectExpanded(wrapper, true)
     const file = wrapper.locator('[data-component="file"][data-mode="diff"]').first()
     await expectAppVisible(file)
     await markDiffProbe(page)
@@ -164,7 +169,7 @@ test.describe("regression: session timeline local row state", () => {
     expect(siblingProbe).toEqual({
       fileMarker: "before",
       frameMarker: "before",
-      rowKey: `assistant-part:${userMessageID}:part:${assistantMessageID}:${editPartID}`,
+      rowKey: `assistant-process:${userMessageID}`,
       rowMarker: "before",
       shadowRoots: 0,
       toolMarker: "before",
@@ -185,7 +190,7 @@ test.describe("regression: session timeline local row state", () => {
     expect(await readDiffProbe(page)).toEqual({
       fileMarker: "before",
       frameMarker: "before",
-      rowKey: `assistant-part:${userMessageID}:part:${assistantMessageID}:${editPartID}`,
+      rowKey: `assistant-process:${userMessageID}`,
       rowMarker: "before",
       shadowRoots: 0,
       toolMarker: "before",
@@ -221,10 +226,13 @@ test.describe("regression: session timeline local row state", () => {
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
+    await expandProcess(page)
 
     const wrapper = page.locator(`[data-timeline-part-id="${editPartID}"]`).first()
     const trigger = wrapper.locator('[data-slot="collapsible-trigger"]').first()
     const diff = wrapper.locator('[data-component="edit-content"]').first()
+    await trigger.click()
+    await expectExpanded(wrapper, true)
     await expectAppVisible(diff)
     await expect.poll(() => wrapper.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(500)
     const samples = await wrapper.evaluate(async (element) => {
@@ -265,6 +273,13 @@ async function configurePage(page: Page) {
       }),
     )
   })
+}
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toBeVisible()
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
 }
 
 async function expectExpanded(locator: Locator, expected: boolean) {

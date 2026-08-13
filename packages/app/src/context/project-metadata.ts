@@ -96,8 +96,13 @@ export async function persistProjectMetadata<T extends ProjectMetadata>(input: {
   if (!source) throw new Error("The server did not confirm the project update.")
 
   const project = mergeProjectMetadata(source, input.patch)
-  await input.updateProjection(project)
+  if (serverBacked) {
+    await input.updateProjection(project)
+    await input.writeLocal(input.patch)
+    return project
+  }
   await input.writeLocal(input.patch)
+  await input.updateProjection(project)
   return project
 }
 
@@ -118,13 +123,17 @@ export function createProjectMetadataWriter<T extends ProjectMetadata>(input: {
       if (!latest && options?.shouldWrite) return project
       const current = latest ?? project
       if (options?.shouldWrite && !options.shouldWrite(current)) return current
+      const protocol = await target.protocol
       return persistProjectMetadata({
-        protocol: await target.protocol,
+        protocol,
         project: current,
         patch,
         updateServer: (update) => target.updateServer(current, update),
         writeLocal: (next) => target.writeLocal(current, next),
-        updateProjection: target.updateProjection,
+        updateProjection: (next) =>
+          target.updateProjection(
+            protocol === "v2" ? mergeProjectMetadata(target.readProject(current.worktree) ?? current, patch) : next,
+          ),
       })
     })
   }

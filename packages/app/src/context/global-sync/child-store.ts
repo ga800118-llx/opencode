@@ -38,6 +38,7 @@ export function createChildStoreManager(input: {
   const children: Record<string, [Store<State>, SetStoreFunction<State>]> = {}
   const vcsCache = new Map<string, VcsCache>()
   const metaCache = new Map<string, MetaCache>()
+  const metaWrites = new Map<string, Promise<void>>()
   const iconCache = new Map<string, IconCache>()
   const lifecycle = new Map<string, DirState>()
   const pins = new Map<string, number>()
@@ -102,6 +103,7 @@ export function createChildStoreManager(input: {
 
   function disposeDirectory(directory: DirectoryKey) {
     const key = directory
+    if (metaWrites.has(key)) return false
     if (
       !canDisposeDirectory({
         directory: key,
@@ -298,18 +300,30 @@ export function createChildStoreManager(input: {
     return childStore
   }
 
-  function child(directory: string, options: ChildOptions = {}) {
-    const key = directoryKey(directory)
-    const childStore = ensureChild(directory)
-    pinForOwner(key)
-    if (options.mcp) enableMcp(directory, key, childStore)
-    const shouldBootstrap = options.bootstrap ?? true
-    if (shouldBootstrap) activate(key)
-    if (shouldBootstrap && childStore[0].status === "loading") {
-      input.onBootstrap(directory)
-    }
-    return childStore
-  }
+  const child = Object.assign(
+    function child(directory: string, options: ChildOptions = {}) {
+      const key = directoryKey(directory)
+      const childStore = ensureChild(directory)
+      pinForOwner(key)
+      if (options.mcp) enableMcp(directory, key, childStore)
+      const shouldBootstrap = options.bootstrap ?? true
+      if (shouldBootstrap) activate(key)
+      if (shouldBootstrap && childStore[0].status === "loading") {
+        input.onBootstrap(directory)
+      }
+      return childStore
+    },
+    {
+      ready(directory: string) {
+        ensureChild(directory)
+        return (
+          metaCache.get(directoryKey(directory))?.ready as
+            | (MetaCache["ready"] & { promise?: Promise<unknown> })
+            | undefined
+        )?.promise
+      },
+    },
+  )
 
   function peek(directory: string, options: ChildOptions = {}) {
     const key = directoryKey(directory)
@@ -348,21 +362,48 @@ export function createChildStoreManager(input: {
 
   async function projectMeta(directory: string, patch: ProjectMeta) {
     const key = directoryKey(directory)
-    const [store, setStore] = ensureChild(directory)
-    const cached = metaCache.get(key)
-    if (!cached) return
-    const previous = store.projectMeta ?? {}
-    const icon = patch.icon ? { ...previous.icon, ...patch.icon } : previous.icon
-    const commands = patch.commands ? { ...previous.commands, ...patch.commands } : previous.commands
-    const next = {
-      ...previous,
-      ...patch,
-      icon,
-      commands,
+    const previousWrite = metaWrites.get(key)
+    const save = async () => {
+      const [store, setStore] = ensureChild(directory)
+      const cached = metaCache.get(key)
+      if (!cached) return
+      const ready = (cached.ready as MetaCache["ready"] & { promise?: Promise<unknown> }).promise
+      if (ready) await ready
+      const previous = store.projectMeta
+      const metadata = previous ?? {}
+      const icon = patch.icon ? { ...metadata.icon, ...patch.icon } : metadata.icon
+      const commands = patch.commands ? { ...metadata.commands, ...patch.commands } : metadata.commands
+      const next = {
+        ...metadata,
+        ...patch,
+        icon,
+        commands,
+      }
+      cached.setStore("value", next)
+      setStore("projectMeta", next)
+      return cached.flush().catch(async (error) => {
+        cached.setStore("value", previous)
+        setStore("projectMeta", previous)
+        await cached.flush().catch((rollbackError) => {
+          throw new AggregateError(
+            [error, rollbackError],
+            "Failed to persist project metadata and restore its previous value",
+            { cause: error },
+          )
+        })
+        throw error
+      })
     }
-    cached.setStore("value", next)
-    setStore("projectMeta", next)
-    await cached.flush()
+    const result = previousWrite ? previousWrite.then(save) : save()
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    metaWrites.set(key, settled)
+    void settled.then(() => {
+      if (metaWrites.get(key) === settled) metaWrites.delete(key)
+    })
+    return result
   }
 
   async function projectIcon(directory: string, value: string | undefined) {

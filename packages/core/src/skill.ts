@@ -2,7 +2,7 @@ export * as SkillV2 from "./skill"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
-import { Context, Effect, Layer, Schema, Types } from "effect"
+import { Context, Effect, Layer, Schema, Scope, Types } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
@@ -86,6 +86,7 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
   readonly management: {
     readonly list: (refresh?: boolean) => Effect.Effect<ManagementInfo[]>
+    readonly onRefresh?: (refresh: () => Effect.Effect<void>) => Effect.Effect<State.Registration, never, Scope.Scope>
     readonly setEnabled: (
       id: ManagementID,
       enabled: boolean,
@@ -106,6 +107,7 @@ const layer = Layer.effect(
     const flock = yield* EffectFlock.Service
     const safeMove = yield* SkillSafeMove.Service
     const cache = new Map<string, Info[]>()
+    const managementRefreshes = new Set<() => Effect.Effect<void>>()
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -188,6 +190,7 @@ const layer = Layer.effect(
       return yield* management(yield* installed(), yield* disabled(), fs, safeMove)
     })
     const managementList = Effect.fn("SkillV2.management.list")(function* (refresh = false) {
+      yield* Effect.forEach(managementRefreshes, (reload) => reload(), { discard: true })
       yield* state.reload()
       if (refresh) cache.clear()
       return yield* managementSnapshot()
@@ -202,6 +205,18 @@ const layer = Layer.effect(
       list,
       management: {
         list: managementList,
+        onRefresh: Effect.fn("SkillV2.management.onRefresh")(function* (reload) {
+          return yield* Effect.uninterruptible(
+            Effect.gen(function* () {
+              managementRefreshes.add(reload)
+              const dispose = Effect.sync(() => {
+                managementRefreshes.delete(reload)
+              })
+              yield* Effect.addFinalizer(() => dispose)
+              return { dispose }
+            }),
+          )
+        }),
         setEnabled: Effect.fn("SkillV2.management.setEnabled")(function* (
           installationID: ManagementID,
           enabled: boolean,

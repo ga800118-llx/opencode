@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import { assistantMessage, setupTimeline, toolPart, userMessage } from "../performance/timeline-stability/fixture"
 
 for (const profile of [
@@ -18,8 +18,16 @@ for (const profile of [
       locale: profile.locale,
     })
 
+    await expandProcess(page)
     const group = page.locator(`[data-timeline-part-ids="${ids.join(",")}"]`)
     await expect(group.locator('[data-component="tool-status-title"]')).toHaveAttribute("aria-label", profile.label)
     await expect(page.locator("html")).toHaveAttribute("lang", profile.locale)
   })
+}
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
 }

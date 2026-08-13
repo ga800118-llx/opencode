@@ -17,6 +17,8 @@ for (const deviceScaleFactor of [1.25, 1.5]) {
       reducedMotion: true,
       deviceScaleFactor,
     })
+    await expandProcess(page)
+    await expandPart(page, shellID)
     const part = page.locator(`[data-timeline-part-id="${shellID}"]`)
     const output = part.locator('[data-component="bash-output"]')
     const row = page.locator("[data-timeline-key]", { has: part })
@@ -85,6 +87,8 @@ test("keeps the patch card inside a fractionally short virtual row", async ({ pa
     settings: { editToolPartsExpanded: true, newLayoutDesigns: true },
     reducedMotion: true,
   })
+  await expandProcess(page)
+  await expandPart(page, patchID)
   const part = page.locator(`[data-timeline-part-id="${patchID}"]`)
   const card = part.locator('[data-component="accordion"][data-scope="apply-patch"]')
   const row = page.locator("[data-timeline-key]", { has: part })
@@ -157,6 +161,21 @@ test("allows paint rounding for every framed row but not fixed turn gaps", async
   expect(rows.filter((row) => row.tag !== "TurnGap").every((row) => row.clipMargin === "0.5px")).toBe(true)
   expect(rows.filter((row) => row.tag === "TurnGap")).toEqual([{ tag: "TurnGap", clipMargin: "0px" }])
 })
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
+
+async function expandPart(page: Page, partID: string) {
+  const trigger = page.locator(`[data-timeline-part-id="${partID}"] [data-slot="collapsible-trigger"]`).first()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
 
 async function captureCardEdges(page: Page, card: Locator) {
   const box = await card.boundingBox()

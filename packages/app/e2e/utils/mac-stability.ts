@@ -1,7 +1,14 @@
 import type { Page, Route } from "@playwright/test"
+import { checksum } from "@opencode-ai/core/util/encode"
 import { mockOpenCodeServer } from "./mock-server"
 
 export const mockServer = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
+export const protocols = ["v1", "v2"] as const
+
+const workspaceStorage = (directory: string) => {
+  const value = directory.replaceAll("\\", "/").replace(/\/+$/, "")
+  return `opencode.workspace.${(value.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")}.${checksum(value) ?? "0"}.dat`
+}
 
 export function projectFixture(directory: string, input: { id?: string; name?: string; color?: string } = {}) {
   return {
@@ -58,6 +65,8 @@ export async function isolateAppStorage(
     tabs?: unknown[]
     locale?: string
     settings?: Record<string, unknown>
+    projectMeta?: { storage: string; value: unknown }
+    failProjectMetaWrites?: { name: string; count: number }
   } = {},
 ) {
   await page.addInitScript((seed) => {
@@ -66,16 +75,29 @@ export async function isolateAppStorage(
     localStorage.clear()
     sessionStorage.clear()
     sessionStorage.setItem(marker, "true")
-    localStorage.setItem(
-      "settings.v3",
-      JSON.stringify({ general: { newLayoutDesigns: true, ...seed.settings } }),
-    )
-    localStorage.setItem(
-      "opencode.global.dat:server",
-      JSON.stringify({ projects: { local: seed.projects ?? [] } }),
-    )
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, ...seed.settings } }))
+    localStorage.setItem("opencode.global.dat:server", JSON.stringify({ projects: { local: seed.projects ?? [] } }))
     if (seed.tabs) localStorage.setItem("opencode.window.browser.dat:tabs", JSON.stringify(seed.tabs))
     if (seed.locale) localStorage.setItem("opencode.global.dat:language", JSON.stringify({ locale: seed.locale }))
+    if (seed.projectMeta) {
+      localStorage.setItem(
+        `${seed.projectMeta.storage}:workspace:project`,
+        JSON.stringify({ value: seed.projectMeta.value }),
+      )
+    }
+    if (seed.failProjectMetaWrites) {
+      const stringify = JSON.stringify
+      let remaining = seed.failProjectMetaWrites.count
+      JSON.stringify = ((value, replacer, space) => {
+        const project = value as { value?: { name?: string } } | undefined
+        if (project?.value?.name === seed.failProjectMetaWrites?.name && remaining > 0) {
+          remaining--
+          throw new Error("Fixture rejected the project metadata write")
+        }
+        if (typeof replacer === "function") return stringify(value, replacer, space)
+        return stringify(value, replacer, space)
+      }) as typeof JSON.stringify
+    }
   }, input)
 }
 
@@ -83,16 +105,21 @@ export async function setupMockApp(
   page: Page,
   input: {
     directory: string
+    protocol?: "v1" | "v2"
     project?: ReturnType<typeof projectFixture>
+    projectMeta?: { commands?: { start?: string } }
     sessions?: ReturnType<typeof sessionFixture>[]
     projects?: Array<{ worktree: string; expanded?: boolean }>
+    tabs?: unknown[]
     provider?: ReturnType<typeof providerFixture>
     fileList?: (path: string) => unknown | Promise<unknown>
     findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown
+    failProjectMetaWrites?: { name: string; count?: number }
   },
 ) {
   const project = input.project ?? projectFixture(input.directory)
   await mockOpenCodeServer(page, {
+    protocol: input.protocol,
     directory: input.directory,
     project,
     provider: input.provider ?? providerFixture(),
@@ -107,6 +134,18 @@ export async function setupMockApp(
   })
   await isolateAppStorage(page, {
     projects: input.projects ?? [{ worktree: input.directory, expanded: true }],
+    tabs: input.tabs,
+    projectMeta: input.projectMeta && {
+      storage: workspaceStorage(input.directory),
+      value: input.projectMeta,
+    },
+    failProjectMetaWrites:
+      input.failProjectMetaWrites === undefined
+        ? undefined
+        : {
+            name: input.failProjectMetaWrites.name,
+            count: input.failProjectMetaWrites.count ?? 1,
+          },
   })
   return project
 }

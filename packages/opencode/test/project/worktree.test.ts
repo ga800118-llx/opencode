@@ -7,12 +7,14 @@ import { GlobalBus, type GlobalEvent } from "../../src/bus/global"
 import { Git } from "../../src/git"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
+import { InstanceState } from "../../src/effect/instance-state"
+import { Project } from "../../src/project/project"
 import { Worktree } from "../../src/worktree"
 import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 
 const it = testEffect(
-  LayerNode.compile(LayerNode.group([Worktree.node, FSUtil.node, Git.node]), [
+  LayerNode.compile(LayerNode.group([Worktree.node, FSUtil.node, Git.node, Project.node]), [
     [InstanceStore.bootstrapNode, InstanceBootstrap.node],
   ]),
 )
@@ -73,6 +75,15 @@ const git = Effect.fn("WorktreeTest.git")(function* (cwd: string, args: string[]
 const gitResult = Effect.fn("WorktreeTest.gitResult")(function* (cwd: string, args: string[]) {
   const service = yield* Git.Service
   return yield* service.run(args, { cwd })
+})
+
+const expectStartupLog = Effect.fn("WorktreeTest.expectStartupLog")(function* (directory: string, expected: string) {
+  const fs = yield* FSUtil.Service
+  const file = path.join(directory, "startup.log")
+  return yield* pollWithTimeout(
+    fs.readFileStringSafe(file).pipe(Effect.map((content) => (content === expected ? content : undefined))),
+    `timed out waiting for startup log ${expected}`,
+  )
 })
 
 describe("Worktree", () => {
@@ -236,6 +247,65 @@ describe("Worktree", () => {
             expect(info.branch).toBe("opencode/test-workspace")
           }),
         ),
+      { git: true },
+    )
+
+    it.instance(
+      "uses the database project command before the additional command when no override is provided",
+      () =>
+        Effect.gen(function* () {
+          const ctx = yield* InstanceState.context
+          const project = yield* Project.Service
+          yield* project.update({
+            projectID: ctx.project.id,
+            commands: { start: "printf project >> startup.log" },
+          })
+
+          yield* withCreatedWorktree({ startCommand: "printf extra >> startup.log" }, ({ info }) =>
+            expectStartupLog(info.directory, "projectextra"),
+          )
+        }),
+      { git: true },
+    )
+
+    it.instance(
+      "uses the project command override once before the additional command",
+      () =>
+        Effect.gen(function* () {
+          const ctx = yield* InstanceState.context
+          const project = yield* Project.Service
+          yield* project.update({
+            projectID: ctx.project.id,
+            commands: { start: "printf database >> startup.log" },
+          })
+
+          yield* withCreatedWorktree(
+            {
+              projectStartCommandOverride: "printf override >> startup.log",
+              startCommand: "printf extra >> startup.log",
+            },
+            ({ info }) => expectStartupLog(info.directory, "overrideextra"),
+          )
+        }),
+      { git: true },
+    )
+
+    it.instance(
+      "clears the project command with an empty override and still runs the additional command",
+      () =>
+        Effect.gen(function* () {
+          const ctx = yield* InstanceState.context
+          const project = yield* Project.Service
+          yield* project.update({
+            projectID: ctx.project.id,
+            commands: { start: "printf database >> startup.log" },
+          })
+
+          yield* withCreatedWorktree(
+            { projectStartCommandOverride: "", startCommand: "printf extra >> startup.log" },
+            ({ info }) => expectStartupLog(info.directory, "extra"),
+          )
+        }),
       { git: true },
     )
   })

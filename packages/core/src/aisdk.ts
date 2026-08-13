@@ -23,54 +23,6 @@ export interface LanguageEvent {
   language?: LanguageModelV3
 }
 
-function wrapSSE(res: Response, ms: number, ctl: AbortController) {
-  if (typeof ms !== "number" || ms <= 0) return res
-  if (!res.body) return res
-  if (!res.headers.get("content-type")?.includes("text/event-stream")) return res
-
-  const reader = res.body.getReader()
-  const body = new ReadableStream<Uint8Array>({
-    async pull(ctrl) {
-      const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
-        const id = setTimeout(() => {
-          const err = new Error("SSE read timed out")
-          ctl.abort(err)
-          void reader.cancel(err)
-          reject(err)
-        }, ms)
-
-        reader.read().then(
-          (part) => {
-            clearTimeout(id)
-            resolve(part)
-          },
-          (err) => {
-            clearTimeout(id)
-            reject(err)
-          },
-        )
-      })
-
-      if (part.done) {
-        ctrl.close()
-        return
-      }
-
-      ctrl.enqueue(part.value)
-    },
-    async cancel(reason) {
-      ctl.abort(reason)
-      await reader.cancel(reason)
-    },
-  })
-
-  return new Response(body, {
-    headers: new Headers(res.headers),
-    status: res.status,
-    statusText: res.statusText,
-  })
-}
-
 function prepareOptions(model: ModelV2.Info, pkg: string) {
   const options: Record<string, any> = {
     name: model.providerID,
@@ -78,23 +30,14 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
     ...model.request.body,
   }
   if (model.api.type === "aisdk" && model.api.url) options.baseURL = model.api.url
+  delete options.timeout
+  delete options.timeoutMs
+  delete options.headerTimeout
+  delete options.chunkTimeout
 
   const customFetch = options.fetch
-  const chunkTimeout = options.chunkTimeout
-  delete options.chunkTimeout
   options.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const opts = { ...(init ?? {}) }
-    const signals = [
-      opts.signal,
-      typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined,
-      options.timeout !== undefined && options.timeout !== null && options.timeout !== false
-        ? AbortSignal.timeout(options.timeout)
-        : undefined,
-    ].filter((item): item is AbortSignal | AbortController => Boolean(item))
-    const chunkAbortCtl = signals.find((item): item is AbortController => item instanceof AbortController)
-    const abortSignals = signals.map((item) => (item instanceof AbortController ? item.signal : item))
-    if (abortSignals.length === 1) opts.signal = abortSignals[0]
-    if (abortSignals.length > 1) opts.signal = AbortSignal.any(abortSignals)
 
     if (
       (pkg === "@ai-sdk/openai" || pkg === "@ai-sdk/azure" || pkg === "@ai-sdk/amazon-bedrock/mantle") &&
@@ -110,12 +53,10 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
       }
     }
 
-    const res = await (typeof customFetch === "function" ? customFetch : fetch)(input, {
+    return (typeof customFetch === "function" ? customFetch : fetch)(input, {
       ...opts,
       timeout: false,
     })
-    if (!chunkAbortCtl || typeof chunkTimeout !== "number") return res
-    return wrapSSE(res, chunkTimeout, chunkAbortCtl)
   }
 
   return options

@@ -57,6 +57,8 @@ const PROTOCOL_BODY_OVERLAY_DENYLIST = new Set([
   "temperature",
   "thinking",
   "timeout",
+  "headerTimeout",
+  "chunkTimeout",
   "timeoutMs",
   "toolChoice",
   "toolConfig",

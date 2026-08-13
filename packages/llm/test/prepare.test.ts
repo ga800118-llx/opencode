@@ -165,13 +165,13 @@ describe("request option precedence", () => {
         LLM.request({
           model,
           prompt: "Say hello.",
-          http: { body: { timeout: 1_000, timeoutMs: 2_000 } },
+          http: { body: { timeout: 1, headerTimeout: 2, chunkTimeout: 3, timeoutMs: 4 } },
         }),
       ).pipe(Effect.flip)
 
       expect(error.reason).toMatchObject({
         _tag: "InvalidRequest",
-        message: "http.body cannot overlay protocol-owned field(s): timeout, timeoutMs",
+        message: "http.body cannot overlay protocol-owned field(s): timeout, headerTimeout, chunkTimeout, timeoutMs",
       })
     }),
   )

@@ -6626,7 +6626,7 @@ export class Management extends HeyApiClient {
   /**
    * List Skill installations
    *
-   * Retrieve all discovered Skill installations and their management state.
+   * Retrieve discovered Skill installations, optionally rebuilding the source topology.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6634,10 +6634,21 @@ export class Management extends HeyApiClient {
         directory?: string
         workspace?: string
       }
+      refresh?: "true" | "false"
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).get<
       V2SkillManagementListResponses,
       V2SkillManagementListErrors,

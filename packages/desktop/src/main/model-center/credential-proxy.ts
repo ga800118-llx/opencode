@@ -41,6 +41,7 @@ const HOP_HEADERS = new Set([
 
 export function createSensitiveHeaderCredentialProxy(options: SensitiveHeaderCredentialProxyOptions) {
   const tokens = new Map<string, string>()
+  const activeRequests = new Set<AbortController>()
   let server: Server | undefined
   let port: number | undefined
 
@@ -74,7 +75,7 @@ export function createSensitiveHeaderCredentialProxy(options: SensitiveHeaderCre
     if (server) return
     const requested = storedPort(options.store.get(PORT_KEY))
     const listener = createServer((request, response) => {
-      void forward(request, response, options, tokens)
+      void forward(request, response, options, tokens, activeRequests)
     })
     try {
       port = await listen(listener, requested)
@@ -88,12 +89,13 @@ export function createSensitiveHeaderCredentialProxy(options: SensitiveHeaderCre
   }
 
   const stop = async () => {
-    const active = server
+    const listener = server
     server = undefined
     port = undefined
     tokens.clear()
-    if (!active) return
-    await new Promise<void>((resolve) => active.close(() => resolve()))
+    if (!listener) return
+    ;[...activeRequests].forEach(abortUpstream)
+    await new Promise<void>((resolve) => listener.close(() => resolve()))
   }
 
   return Object.freeze({ start, stop, presentProfile, runtimeCredential, runtimeEnvironment, port: () => port })
@@ -104,6 +106,7 @@ async function forward(
   response: ServerResponse,
   options: SensitiveHeaderCredentialProxyOptions,
   tokens: ReadonlyMap<string, string>,
+  active: Set<AbortController>,
 ) {
   const route = parseRoute(request.url)
   if (!route) return fixed(response, 404, "Model route not found.")
@@ -137,16 +140,62 @@ async function forward(
   }
 
   const send = target.protocol === "https:" ? requestHTTPS : requestHTTP
-  const upstream = send(target, { method: request.method, headers }, (result) => {
-    response.writeHead(result.statusCode ?? 502, responseHeaders(result.headers))
-    result.pipe(response)
+  const controller = new AbortController()
+  const socket = request.socket
+  let result: import("node:http").IncomingMessage | undefined
+  let upstream: import("node:http").ClientRequest | undefined
+  let cleaned = false
+  const abort = () => abortUpstream(controller)
+  const onDownstreamClose = () => {
+    if (!response.writableFinished) return abort()
+    cleanup()
+  }
+  const onUpstreamError = () => {
+    if (!response.destroyed) {
+      if (controller.signal.aborted || response.headersSent) response.destroy()
+      else fixed(response, 502, "Model service unavailable.")
+    }
+    cleanup()
+  }
+  const onUpstreamClose = () => {
+    if (!result?.complete) onUpstreamError()
+  }
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    request.off("aborted", abort)
+    response.off("close", onDownstreamClose)
+    response.off("finish", cleanup)
+    socket.off("end", onDownstreamClose)
+    socket.off("close", onDownstreamClose)
+    upstream?.off("error", onUpstreamError)
+    result?.off("error", onUpstreamError)
+    result?.off("close", onUpstreamClose)
+    active.delete(controller)
+  }
+  upstream = send(target, { method: request.method, headers, signal: controller.signal }, (incoming) => {
+    result = incoming
+    incoming.once("error", onUpstreamError)
+    incoming.once("close", onUpstreamClose)
+    response.writeHead(incoming.statusCode ?? 502, responseHeaders(incoming.headers))
+    incoming.pipe(response)
   })
-  upstream.on("error", () => {
-    if (!response.headersSent) fixed(response, 502, "Model service unavailable.")
-    else response.destroy()
-  })
-  request.on("aborted", () => upstream.destroy())
+  active.add(controller)
+  request.once("aborted", abort)
+  request.once("error", abort)
+  response.once("close", onDownstreamClose)
+  response.once("error", abort)
+  response.once("finish", cleanup)
+  socket.once("end", onDownstreamClose)
+  socket.once("close", onDownstreamClose)
+  socket.once("error", abort)
+  upstream.once("error", onUpstreamError)
   request.pipe(upstream)
+}
+
+function abortUpstream(controller: AbortController) {
+  if (controller.signal.aborted) return
+  controller.abort()
 }
 
 function parseRoute(

@@ -4,6 +4,19 @@ import { pathKey } from "@/utils/path-key"
 import type { ServerConnection } from "@/context/server"
 import type { HomeProjectSelection } from "@/context/layout"
 
+export function worktreeCreateRequest(input: {
+  protocol: "v1" | "v2"
+  project: { worktree: string; commands?: { start?: string } }
+}) {
+  if (input.protocol === "v1" || input.project.commands?.start === undefined) {
+    return { directory: input.project.worktree }
+  }
+  return {
+    directory: input.project.worktree,
+    worktreeCreateInput: { projectStartCommandOverride: input.project.commands.start },
+  }
+}
+
 type SessionStore = {
   session?: Session[]
   path: { directory: string }

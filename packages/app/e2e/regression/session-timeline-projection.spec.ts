@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import {
   assistantMessage,
   setupTimeline,
@@ -47,6 +47,7 @@ test.describe("session timeline projection", () => {
       toolPart("prt_custom", "custom_mcp_tool", "completed", { target: "timeline", count: 2 }),
     ]
     await setupTimeline(page, { messages: [userMessage(), assistantMessage(parts)] })
+    await expandProcess(page)
 
     await expect(
       page.locator('[data-timeline-part-ids="prt_01_read,prt_02_glob,prt_03_grep,prt_04_list"]'),
@@ -83,19 +84,14 @@ test.describe("session timeline projection", () => {
           },
         }),
         userText("Continue after the comment", { id: "prt_visible_user" }),
+        { id: "prt_compaction", type: "compaction", auto: true },
       ],
       { summary: { diffs: Array.from({ length: 11 }, (_, index) => summaryDiff(index)) } },
     )
-    const aborted = assistantMessage(
-      [
-        { id: "prt_before_abort", type: "text", text: "Before interruption" },
-        { id: "prt_compaction", type: "compaction", auto: true },
-      ],
-      {
-        id: "msg_1001_assistant_aborted",
-        error: { name: "MessageAbortedError", data: { message: "Stopped" } },
-      },
-    )
+    const aborted = assistantMessage([{ id: "prt_before_abort", type: "text", text: "Before interruption" }], {
+      id: "msg_1001_assistant_aborted",
+      error: { name: "MessageAbortedError", data: { message: "Stopped" } },
+    })
     const failed = assistantMessage([{ id: "prt_after_abort", type: "text", text: "After interruption" }], {
       id: "msg_1002_assistant_failed",
       error: {
@@ -120,8 +116,12 @@ test.describe("session timeline projection", () => {
     await timeline.send(status("idle"), 100)
     const scroller = page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
     await scroller.evaluate((element) => (element.scrollTop = 0))
+    await expandProcess(page)
 
-    await expect(page.locator('[data-timeline-row="TurnDivider"]')).toHaveCount(1)
+    const process = page.locator('[data-timeline-row="AssistantProcess"]')
+    await expect(process).toHaveCount(1)
+    await expect(process.locator('[data-slot="session-turn-process-item"]')).toHaveCount(1)
+    await expect(page.getByText("Interrupted", { exact: true })).toHaveCount(0)
     await expect(page.getByText("Session compacted", { exact: true })).toBeVisible()
     await expect(page.getByText("Visible provider failure")).toBeVisible()
     await scroller.evaluate((element) => (element.scrollTop = element.scrollHeight))
@@ -176,12 +176,57 @@ test.describe("session timeline projection", () => {
       created: 1700000003000,
     })
     await setupTimeline(page, { messages: [user, before, after] })
+    await expandProcess(page)
 
     await expect(page.getByText("Interrupted", { exact: true })).toBeVisible()
     const rows = await page
-      .locator('[data-timeline-row="AssistantPart"], [data-timeline-row="TurnDivider"]')
+      .locator('[data-timeline-row="AssistantProcess"], [data-timeline-row="AssistantPart"]')
       .evaluateAll((elements) => elements.map((element) => element.getAttribute("data-timeline-row")))
-    expect(rows).toEqual(["AssistantPart", "TurnDivider", "AssistantPart"])
+    expect(rows).toEqual(["AssistantProcess", "AssistantPart"])
+  })
+
+  test("keeps only the answer after the last of multiple interruptions visible", async ({ page }) => {
+    const first = assistantMessage([{ id: "prt_first_partial", type: "text", text: "First partial" }], {
+      id: "msg_1001_first_interrupted",
+      error: { name: "MessageAbortedError", data: { message: "Stopped" } },
+    })
+    const second = assistantMessage([{ id: "prt_second_partial", type: "text", text: "Second partial" }], {
+      id: "msg_1002_second_interrupted",
+      error: { name: "MessageAbortedError", data: { message: "Stopped again" } },
+      created: 1700000003000,
+    })
+    const final = assistantMessage([{ id: "prt_final", type: "text", text: "Final response" }], {
+      id: "msg_1003_final",
+      created: 1700000004000,
+    })
+    await setupTimeline(page, { messages: [userMessage(), first, second, final] })
+
+    await expect(page.getByText("Final response", { exact: true })).toBeVisible()
+    await expect(page.getByText("First partial", { exact: true })).toHaveCount(0)
+    await expect(page.getByText("Second partial", { exact: true })).toHaveCount(0)
+    await expandProcess(page)
+    await expect(page.getByText("Interrupted", { exact: true })).toHaveCount(2)
+    await expect(page.getByText("First partial", { exact: true })).toBeVisible()
+    await expect(page.getByText("Second partial", { exact: true })).toBeVisible()
+  })
+
+  test("keeps the last interrupted answer visible without a later continuation", async ({ page }) => {
+    const first = assistantMessage([{ id: "prt_replaced_partial", type: "text", text: "Replaced partial" }], {
+      id: "msg_1001_first_interrupted",
+      error: { name: "MessageAbortedError", data: { message: "Stopped" } },
+    })
+    const last = assistantMessage([{ id: "prt_last_partial", type: "text", text: "Last interrupted response" }], {
+      id: "msg_1002_last_interrupted",
+      error: { name: "MessageAbortedError", data: { message: "Stopped again" } },
+      created: 1700000003000,
+    })
+    await setupTimeline(page, { messages: [userMessage(), first, last] })
+
+    await expect(page.getByText("Last interrupted response", { exact: true })).toBeVisible()
+    await expect(page.getByText("Replaced partial", { exact: true })).toHaveCount(0)
+    await expandProcess(page)
+    await expect(page.getByText("Interrupted", { exact: true })).toHaveCount(2)
+    await expect(page.getByText("Replaced partial", { exact: true })).toBeVisible()
   })
 
   test("renders user image, file attachment, file reference, and agent reference", async ({ page }) => {
@@ -225,6 +270,14 @@ test.describe("session timeline projection", () => {
     await expect(page.getByText("@explore", { exact: true })).toBeVisible()
   })
 })
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
 
 function editPart(id: string) {
   return toolPart(

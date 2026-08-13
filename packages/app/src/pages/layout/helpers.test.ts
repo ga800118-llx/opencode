@@ -8,6 +8,7 @@ import {
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
+  worktreeCreateRequest,
   childSessionOnPath,
   closeHomeProject,
   displayName,
@@ -111,6 +112,27 @@ describe("layout deep links", () => {
 })
 
 describe("layout workspace helpers", () => {
+  test("passes the configured start command as a V2 project override", () => {
+    expect(
+      worktreeCreateRequest({
+        protocol: "v2",
+        project: { worktree: "/repo", commands: { start: "bun run dev" } },
+      }),
+    ).toEqual({ directory: "/repo", worktreeCreateInput: { projectStartCommandOverride: "bun run dev" } })
+    expect(
+      worktreeCreateRequest({
+        protocol: "v2",
+        project: { worktree: "/repo", commands: { start: "" } },
+      }),
+    ).toEqual({ directory: "/repo", worktreeCreateInput: { projectStartCommandOverride: "" } })
+    expect(
+      worktreeCreateRequest({
+        protocol: "v1",
+        project: { worktree: "/repo", commands: { start: "bun run dev" } },
+      }),
+    ).toEqual({ directory: "/repo" })
+  })
+
   test("normalizes trailing slash in workspace key", () => {
     expect(String(pathKey("/tmp/demo///"))).toBe("/tmp/demo")
     expect(String(pathKey("C:\\tmp\\demo\\\\"))).toBe("C:/tmp/demo")

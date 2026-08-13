@@ -73,6 +73,33 @@ describe("SessionRunnerModel", () => {
     }),
   )
 
+  it.effect("ignores legacy runtime timeout fields in catalog request bodies", () =>
+    Effect.gen(function* () {
+      const resolved = yield* SessionRunnerModel.fromCatalogModel(
+        ModelV2.Info.make({
+          ...model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }),
+          request: {
+            headers: {},
+            body: {
+              timeout: 1,
+              headerTimeout: 2,
+              chunkTimeout: 3,
+              timeoutMs: 4,
+              custom_extension: { enabled: true },
+            },
+          },
+        }),
+      )
+      const prepared = yield* LLMClient.prepare(LLM.request({ model: resolved, prompt: "Hello" }))
+
+      expect(resolved.route.defaults.http?.body).toEqual({ custom_extension: { enabled: true } })
+      expect(prepared.body).not.toHaveProperty("timeout")
+      expect(prepared.body).not.toHaveProperty("headerTimeout")
+      expect(prepared.body).not.toHaveProperty("chunkTimeout")
+      expect(prepared.body).not.toHaveProperty("timeoutMs")
+    }),
+  )
+
   it.effect("uses merged API settings for OpenAI-compatible auth and request defaults", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(

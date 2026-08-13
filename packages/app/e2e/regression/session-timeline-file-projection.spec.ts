@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import { assistantMessage, setupTimeline, toolPart, userMessage } from "../performance/timeline-stability/fixture"
 
 test("renders completed write content", async ({ page }) => {
@@ -13,6 +13,8 @@ test("renders completed write content", async ({ page }) => {
     settings: { editToolPartsExpanded: true },
   })
 
+  await expandProcess(page)
+  await expandPart(page, id)
   await expect(page.locator(`[data-timeline-part-id="${id}"] [data-component="write-content"]`)).toBeVisible()
 })
 
@@ -48,5 +50,21 @@ test("renders a completed single-file patch", async ({ page }) => {
     settings: { editToolPartsExpanded: true },
   })
 
+  await expandProcess(page)
+  await expandPart(page, id)
   await expect(page.locator(`[data-timeline-part-id="${id}"] [data-component="apply-patch-file-diff"]`)).toBeVisible()
 })
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
+
+async function expandPart(page: Page, id: string) {
+  const trigger = page.locator(`[data-timeline-part-id="${id}"] [data-slot="collapsible-trigger"]`).first()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}

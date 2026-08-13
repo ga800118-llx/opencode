@@ -16,8 +16,11 @@ import { useSDK } from "@/context/sdk"
 import type { ProductTaskAdapter } from "@/product/contracts"
 import { useProductTaskAdapter } from "@/product/context"
 import { useSync, type DirectorySync } from "@/context/sync"
+import { mergeProjectMetadata } from "@/context/project-metadata"
 import { Identifier } from "@/utils/id"
+import { pathKey } from "@/utils/path-key"
 import { Worktree as WorktreeState } from "@/utils/worktree"
+import { worktreeCreateRequest } from "@/pages/layout/helpers"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
@@ -334,17 +337,28 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     let client = sdk().client
     if (isNewSession) {
       if (worktreeSelection === "create") {
-        const createdWorktree = await client.worktree
-          .create({ directory: projectDirectory })
-          .then((x) => x.data)
-          .catch((err) => {
-            showToast({
-              title: language.t("prompt.toast.worktreeCreateFailed.title"),
-              description: errorMessage(err),
-            })
-            return undefined
+        const createdWorktree = await (async () => {
+          const protocol = await sdk().protocol
+          if (protocol === "v2") await serverSync().child.ready(projectDirectory)
+          const projectStore =
+            protocol === "v2" ? serverSync().child(projectDirectory, { bootstrap: false })[0] : undefined
+          const project = mergeProjectMetadata(
+            {
+              ...serverSync().data.project.find((project) => pathKey(project.worktree) === pathKey(projectDirectory)),
+              worktree: projectDirectory,
+            },
+            projectStore?.projectMeta,
+          )
+          return client.worktree.create(worktreeCreateRequest({ protocol, project })).then((x) => x.data)
+        })().catch((err) => {
+          showToast({
+            title: language.t("prompt.toast.worktreeCreateFailed.title"),
+            description: errorMessage(err),
           })
+          return null
+        })
 
+        if (createdWorktree === null) return
         if (!createdWorktree?.directory) {
           showToast({
             title: language.t("prompt.toast.worktreeCreateFailed.title"),

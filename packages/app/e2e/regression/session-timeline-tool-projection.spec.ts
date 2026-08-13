@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import {
   assistantMessage,
   partUpdated,
@@ -20,6 +20,7 @@ test("renders every tool error outcome without leaking hidden tools", async ({ p
     toolPart("prt_todo_error", "todowrite", "error", { todos: [] }, { error: "Hidden todo failure" }),
   )
   await setupTimeline(page, { messages: [userMessage(), assistantMessage(parts)] })
+  await expandProcess(page)
 
   await expect(page.locator('[data-kind="tool-error-card"]')).toHaveCount(ordinary.length + 1)
   await expect(page.getByText(/dismissed/i)).toBeVisible()
@@ -44,6 +45,7 @@ test("transitions shell and question through running error outcomes", async ({ p
       ),
     ],
   })
+  await expandProcess(page)
   await timeline.waitForPart(shellID)
   await expect(page.locator(`[data-timeline-part-id="${questionID}"]`)).toHaveCount(0)
   await timeline.send(partUpdated(toolPart(shellID, "bash", "running", { command: "exit 1" })), 120)
@@ -77,11 +79,20 @@ test("labels all web search provider variants", async ({ page }) => {
     toolPart("prt_search_generic", "websearch", "completed", { query: "generic" }),
   ]
   await setupTimeline(page, { messages: [userMessage(), assistantMessage(parts)] })
+  await expandProcess(page)
 
   await expect(page.getByRole("button", { name: /Parallel Web Search/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /Exa Web Search/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /^Web Search/ })).toBeVisible()
 })
+
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
 
 function questionInput() {
   return { questions: [{ header: "Stability", question: "Keep it stable?", options: [] }] }

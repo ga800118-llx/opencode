@@ -6,6 +6,7 @@ import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/con
 import type { State } from "./types"
 import type { QueryOptionsApi } from "../server-sync"
 import { ServerScope } from "@/utils/server-scope"
+import { directoryKey } from "./utils"
 
 let createChildStoreManager: typeof import("./child-store").createChildStoreManager
 let actualPersisted: typeof import("@/utils/persist").persisted
@@ -29,7 +30,7 @@ class DeferredStorage {
   }> = []
   readonly calls = { set: 0 }
 
-  async getItem() {
+  async getItem(_key: string): Promise<string | null> {
     return null
   }
 
@@ -56,6 +57,19 @@ class DeferredStorage {
     const write = this.writes.shift()
     if (!write) throw new Error("pending write required")
     write.reject(error)
+  }
+}
+
+class HydrationStorage extends DeferredStorage {
+  private readonly project = Promise.withResolvers<string | null>()
+
+  getItem(key: string) {
+    if (key === "workspace:project") return this.project.promise
+    return Promise.resolve(null)
+  }
+
+  resolveProject(value: string | null) {
+    this.project.resolve(value)
   }
 }
 
@@ -486,6 +500,315 @@ describe("createChildStoreManager", () => {
       resolveIcon?.()
       await icon
       expect(iconSettled).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("exposes authoritative project metadata hydration from desktop persistence", async () => {
+    const storage = new HydrationStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    let dispose = () => {}
+
+    renderToString(() => {
+      dispose = createOwner((owner) => {
+        manager = createChildStoreManager({
+          owner,
+          scope: ServerScope.local,
+          persist: actualPersisted,
+          isBooting: () => false,
+          isLoadingSessions: () => false,
+          onBootstrap() {},
+          onMcp() {},
+          onDispose() {},
+          translate: (key) => key,
+          queryOptions: queryOptionsApi,
+          global: { provider },
+        })
+      })
+      return ""
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      let hydrated = false
+      const ready = manager.child.ready("/project")?.then(() => {
+        hydrated = true
+      })
+
+      await Promise.resolve()
+      expect(hydrated).toBe(false)
+      expect(store.projectMeta).toBeUndefined()
+
+      storage.resolveProject(JSON.stringify({ value: { commands: { start: "bun run dev" } } }))
+      await ready
+
+      expect(hydrated).toBe(true)
+      expect(store.projectMeta?.commands?.start).toBe("bun run dev")
+    } finally {
+      dispose()
+    }
+  })
+
+  test("waits for project metadata hydration before merging a name-only save", async () => {
+    const storage = new HydrationStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    let dispose = () => {}
+
+    renderToString(() => {
+      dispose = createOwner((owner) => {
+        manager = createChildStoreManager({
+          owner,
+          scope: ServerScope.local,
+          persist: actualPersisted,
+          isBooting: () => false,
+          isLoadingSessions: () => false,
+          onBootstrap() {},
+          onMcp() {},
+          onDispose() {},
+          translate: (key) => key,
+          queryOptions: queryOptionsApi,
+          global: { provider },
+        })
+      })
+      return ""
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      let settled = false
+      const save = manager.projectMeta("/project", { name: "Renamed" }).then(() => {
+        settled = true
+      })
+
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      expect(store.projectMeta).toBeUndefined()
+
+      storage.resolveProject(
+        JSON.stringify({
+          value: {
+            icon: { color: "blue" },
+            commands: { start: "bun run dev" },
+          },
+        }),
+      )
+      await waitForPending(storage)
+
+      expect(store.projectMeta).toEqual({
+        name: "Renamed",
+        icon: { color: "blue" },
+        commands: { start: "bun run dev" },
+      })
+
+      storage.resolveNext()
+      await save
+      expect(settled).toBe(true)
+      expect(store.projectMeta).toEqual({
+        name: "Renamed",
+        icon: { color: "blue" },
+        commands: { start: "bun run dev" },
+      })
+    } finally {
+      dispose()
+    }
+  })
+
+  test("writes and awaits the previous project metadata after the first flush fails", async () => {
+    const storage = new DeferredStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    let dispose = () => {}
+
+    renderToString(() => {
+      dispose = createOwner((owner) => {
+        manager = createChildStoreManager({
+          owner,
+          scope: ServerScope.local,
+          persist: actualPersisted,
+          isBooting: () => false,
+          isLoadingSessions: () => false,
+          onBootstrap() {},
+          onMcp() {},
+          onDispose() {},
+          translate: (key) => key,
+          queryOptions: queryOptionsApi,
+          global: { provider },
+        })
+      })
+      return ""
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      const save = manager.projectMeta("/project", { name: "Unsaved" })
+
+      await waitForPending(storage)
+      expect(store.projectMeta).toEqual({ name: "Unsaved", icon: undefined, commands: undefined })
+      storage.rejectNext(new Error("disk full"))
+      await waitForPending(storage)
+
+      let settled = false
+      void save.then(
+        () => {
+          settled = true
+        },
+        () => {
+          settled = true
+        },
+      )
+      await Promise.resolve()
+      expect(storage.calls.set).toBe(2)
+      expect(settled).toBe(false)
+      expect(manager.disposeDirectory(directoryKey("/project"))).toBe(false)
+
+      storage.resolveNext()
+      await expect(save).rejects.toThrow("disk full")
+      expect(store.projectMeta).toBeUndefined()
+    } finally {
+      dispose()
+    }
+  })
+
+  test("reports both errors and protects the store until a failed metadata rollback settles", async () => {
+    const storage = new DeferredStorage()
+    platform = { platform: "desktop", storage: () => storage }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    let dispose = () => {}
+
+    renderToString(() => {
+      dispose = createOwner((owner) => {
+        manager = createChildStoreManager({
+          owner,
+          scope: ServerScope.local,
+          persist: actualPersisted,
+          isBooting: () => false,
+          isLoadingSessions: () => false,
+          onBootstrap() {},
+          onMcp() {},
+          onDispose() {},
+          translate: (key) => key,
+          queryOptions: queryOptionsApi,
+          global: { provider },
+        })
+      })
+      return ""
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const save = manager.projectMeta("/project", { name: "Unsaved" })
+
+      await waitForPending(storage)
+      storage.rejectNext(new Error("primary write failed"))
+      await waitForPending(storage)
+      expect(manager.disposeDirectory(directoryKey("/project"))).toBe(false)
+
+      storage.rejectNext(new Error("rollback write failed"))
+      const error = await save.catch((error) => error)
+
+      expect(error).toBeInstanceOf(AggregateError)
+      if (!(error instanceof AggregateError)) throw new Error("aggregate error required")
+      expect(error.message).toContain("restore")
+      expect(error.errors).toEqual([
+        expect.objectContaining({ message: "primary write failed" }),
+        expect.objectContaining({ message: "rollback write failed" }),
+      ])
+      expect(error.cause).toEqual(expect.objectContaining({ message: "primary write failed" }))
+      expect(manager.disposeDirectory(directoryKey("/project"))).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("keeps a later successful metadata write after an earlier flush fails", async () => {
+    const first = Promise.withResolvers<void>()
+    let writes = 0
+    const deferredPersist: typeof import("@/utils/persist").persisted = (target, store) => {
+      const key = typeof target === "string" ? target : target.key
+      const flush = () => {
+        if (key !== "workspace:project") return Promise.resolve()
+        writes += 1
+        if (writes === 1) return first.promise
+        return Promise.resolve()
+      }
+      return [store[0], store[1], null, Object.assign(() => true, { promise: undefined }), flush]
+    }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist: deferredPersist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project", { bootstrap: false })
+      const saveFirst = manager.projectMeta("/project", { name: "First" })
+      const saveSecond = manager.projectMeta("/project", { name: "Second" })
+      first.reject(new Error("first failed"))
+      await expect(saveFirst).rejects.toThrow("first failed")
+      await saveSecond
+      expect(store.projectMeta?.name).toBe("Second")
+    } finally {
+      dispose()
+    }
+  })
+
+  test("does not evict a directory while project metadata is being persisted", async () => {
+    const pending = Promise.withResolvers<void>()
+    const deferredPersist: typeof import("@/utils/persist").persisted = (target, store) => {
+      const key = typeof target === "string" ? target : target.key
+      return [
+        store[0],
+        store[1],
+        null,
+        Object.assign(() => true, { promise: undefined }),
+        () => (key === "workspace:project" ? pending.promise : Promise.resolve()),
+      ]
+    }
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist: deferredPersist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const save = manager.projectMeta("/project", { name: "Saved" })
+
+      expect(manager.disposeDirectory(directoryKey("/project"))).toBe(false)
+      expect(manager.children["/project"]).toBeDefined()
+
+      pending.resolve()
+      await save
+      expect(manager.disposeDirectory(directoryKey("/project"))).toBe(true)
     } finally {
       dispose()
     }

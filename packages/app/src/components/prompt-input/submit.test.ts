@@ -42,6 +42,9 @@ const promptInputs: ProductPromptInput[] = []
 const sentCommands: ProductCommandInput[] = []
 const interruptInputs: ProductInterruptInput[] = []
 const commands: Array<{ name: string }> = []
+const worktreeCreateInputs: unknown[] = []
+const toasts: unknown[] = []
+const navigations: unknown[] = []
 let serverSessionSyncs = 0
 let directSessionCalls = 0
 
@@ -55,6 +58,9 @@ let permissionModeCapability: Promise<boolean> | undefined
 let permissionModeCapabilityCalls = 0
 let projectPermissionModes: Record<string, Permission.Mode> = {}
 let createSessionGate: Promise<void> | undefined
+let protocol: "v1" | "v2" = "v2"
+let projectMetadata: { commands?: { start?: string } } | undefined
+let projectMetadataReady: Promise<unknown> | undefined
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 const [promptStore, setPromptStore] = createStore<PromptStore>({
@@ -106,7 +112,10 @@ const clientFor = (directory: string) => {
       abort: async () => ({ data: undefined }),
     },
     worktree: {
-      create: async () => ({ data: { directory: `${directory}/new` } }),
+      create: async (input: unknown) => {
+        worktreeCreateInputs.push(input)
+        return { data: { directory: `${directory}/new` } }
+      },
     },
   }
 }
@@ -154,7 +163,7 @@ beforeAll(async () => {
   const rootClient = clientFor("/repo/main")
 
   mock.module("@solidjs/router", () => ({
-    useNavigate: () => () => undefined,
+    useNavigate: () => (value: unknown) => navigations.push(value),
     useParams: () => params,
     useLocation: () => ({}),
     useSearchParams: () => [search, () => undefined],
@@ -169,7 +178,10 @@ beforeAll(async () => {
 
   mock.module("@opencode-ai/ui/toast", () => ({
     Toast: { Region: () => null },
-    showToast: () => 0,
+    showToast: (value: unknown) => {
+      toasts.push(value)
+      return 0
+    },
     toaster: { create: () => 0 },
   }))
 
@@ -242,6 +254,7 @@ beforeAll(async () => {
     useSDK: () => {
       const sdk = {
         scope: "local",
+        protocol: Promise.resolve(protocol),
         directory: "/repo/main",
         client: rootClient,
         api: rootClient.api,
@@ -284,6 +297,7 @@ beforeAll(async () => {
 
   mock.module("@/context/server-sync", () => ({
     useServerSync: () => () => ({
+      data: { project: [{ worktree: "/repo/main" }] },
       session: {
         remember: () => undefined,
         set: () => undefined,
@@ -291,24 +305,27 @@ beforeAll(async () => {
           serverSessionSyncs++
         },
       },
-      child: (directory: string) => {
-        syncedDirectories.push(directory)
-        storedSessions[directory] ??= []
-        return [
-          { session: storedSessions[directory] },
-          (...args: unknown[]) => {
-            if (args[0] !== "session") return
-            const next = args[1]
-            if (typeof next === "function") {
-              storedSessions[directory] = next(storedSessions[directory]) as Array<{ id: string; title?: string }>
-              return
-            }
-            if (Array.isArray(next)) {
-              storedSessions[directory] = next as Array<{ id: string; title?: string }>
-            }
-          },
-        ]
-      },
+      child: Object.assign(
+        (directory: string) => {
+          syncedDirectories.push(directory)
+          storedSessions[directory] ??= []
+          return [
+            { session: storedSessions[directory], projectMeta: projectMetadata },
+            (...args: unknown[]) => {
+              if (args[0] !== "session") return
+              const next = args[1]
+              if (typeof next === "function") {
+                storedSessions[directory] = next(storedSessions[directory]) as Array<{ id: string; title?: string }>
+                return
+              }
+              if (Array.isArray(next)) {
+                storedSessions[directory] = next as Array<{ id: string; title?: string }>
+              }
+            },
+          ]
+        },
+        { ready: () => projectMetadataReady },
+      ),
     }),
   }))
 
@@ -342,6 +359,9 @@ beforeEach(() => {
   sentCommands.length = 0
   interruptInputs.length = 0
   commands.length = 0
+  worktreeCreateInputs.length = 0
+  toasts.length = 0
+  navigations.length = 0
   promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
   params = {}
   search = {}
@@ -355,6 +375,9 @@ beforeEach(() => {
   permissionModeCapabilityCalls = 0
   projectPermissionModes = {}
   createSessionGate = undefined
+  protocol = "v2"
+  projectMetadata = undefined
+  projectMetadataReady = undefined
   serverSessionSyncs = 0
   directSessionCalls = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
@@ -414,6 +437,131 @@ describe("prompt submit worktree selection", () => {
     ])
     expect(directSessionCalls).toBe(0)
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
+  })
+
+  test("waits for V2 project metadata hydration before creating a worktree", async () => {
+    selected = "create"
+    const hydration = Promise.withResolvers<void>()
+    projectMetadataReady = hydration.promise.then(() => {
+      projectMetadata = { commands: { start: "bun run dev" } }
+    })
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    await Promise.resolve()
+    expect(worktreeCreateInputs).toEqual([])
+
+    hydration.resolve()
+    await result
+
+    expect(worktreeCreateInputs).toEqual([
+      { directory: "/repo/main", worktreeCreateInput: { projectStartCommandOverride: "bun run dev" } },
+    ])
+  })
+
+  test("retries V2 worktree creation after project metadata readiness fails", async () => {
+    selected = "create"
+    projectMetadataReady = Promise.reject(new Error("metadata unavailable"))
+    let resets = 0
+    let submits = 0
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => resets++,
+      onSubmit: () => submits++,
+    })
+
+    await expect(submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)).resolves.toBeUndefined()
+
+    expect(toasts).toEqual([
+      {
+        title: "prompt.toast.worktreeCreateFailed.title",
+        description: "metadata unavailable",
+      },
+    ])
+    expect(worktreeCreateInputs).toEqual([])
+    expect(createdSessions).toEqual([])
+    expect(promoted).toEqual([])
+    expect(navigations).toEqual([])
+    expect(resets).toBe(0)
+    expect(submits).toBe(0)
+    expect(prompt.current()).toEqual([{ type: "text", content: "ls", start: 0, end: 2 }])
+
+    projectMetadataReady = Promise.resolve().then(() => {
+      projectMetadata = { commands: { start: "bun run dev" } }
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(worktreeCreateInputs).toEqual([
+      { directory: "/repo/main", worktreeCreateInput: { projectStartCommandOverride: "bun run dev" } },
+    ])
+    expect(createdSessions).toEqual(["/repo/main/new"])
+    expect(promoted).toEqual([{ directory: "/repo/main/new", sessionID: "session-1" }])
+    expect(navigations).toHaveLength(1)
+    expect(resets).toBe(1)
+    expect(submits).toBe(1)
+  })
+
+  test("does not wait for project metadata hydration when creating a V1 worktree", async () => {
+    selected = "create"
+    protocol = "v1"
+    projectMetadataReady = new Promise(() => {})
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(worktreeCreateInputs).toEqual([{ directory: "/repo/main" }])
+    expect(syncedDirectories).not.toContain("/repo/main")
   })
 
   test("omits unsupported permission modes and applies legacy auto-accept after creation", async () => {

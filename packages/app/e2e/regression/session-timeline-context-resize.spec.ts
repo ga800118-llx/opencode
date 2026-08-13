@@ -32,6 +32,7 @@ test.describe("regression: session timeline context group resize", () => {
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
+    await expandProcess(page)
     await expectAppVisible(page.locator(`[data-timeline-part-ids="${contextIDs.join(",")}"]`).first())
     await expectAppVisible(page.locator(`[data-timeline-part-id="${followingTextID}"]`).first())
     await settle(page)
@@ -55,6 +56,7 @@ test.describe("regression: session timeline context group resize", () => {
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
+    await expandProcess(page)
     const devtools = await page.context().newCDPSession(page)
     await devtools.send("Emulation.setCPUThrottlingRate", { rate: 4 })
     const context = page.locator(`[data-timeline-part-ids="${contextIDs.join(",")}"]`).first()
@@ -67,7 +69,7 @@ test.describe("regression: session timeline context group resize", () => {
         selector: `${contextSelector} [data-component="tool-status-title"]`,
         opacitySelectors: ['[data-slot="tool-status-active"]', '[data-slot="tool-status-done"]'],
       },
-      context: { selector: contextSelector, closest: '[data-timeline-row="AssistantPart"]' },
+      context: { selector: contextSelector, closest: '[data-timeline-row="AssistantProcess"]' },
       following: {
         selector: `[data-timeline-part-id="${followingTextID}"]`,
         closest: '[data-timeline-row="AssistantPart"]',
@@ -136,6 +138,13 @@ async function configurePage(page: Page) {
   })
 }
 
+async function expandProcess(page: Page) {
+  const trigger = page.locator('[data-slot="session-turn-process-trigger"]').first()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await trigger.click()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
+
 async function sampleExpansion(page: Page) {
   return page.evaluate(
     ({ contextIDs, followingTextID }) =>
@@ -156,7 +165,7 @@ async function sampleExpansion(page: Page) {
         const text = document.querySelector<HTMLElement>(`[data-timeline-part-id="${followingTextID}"]`)
         const scroller = context?.closest<HTMLElement>(".scroll-view__viewport")
         const trigger = context?.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')
-        const contextRow = context?.closest<HTMLElement>('[data-timeline-row="AssistantPart"]')
+        const contextRow = context?.closest<HTMLElement>('[data-timeline-row="AssistantProcess"]')
         const textRow = text?.closest<HTMLElement>('[data-timeline-row="AssistantPart"]')
         if (!context || !text || !scroller || !trigger || !contextRow || !textRow)
           throw new Error("missing regression nodes")

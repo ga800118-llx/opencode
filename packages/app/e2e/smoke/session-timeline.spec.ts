@@ -338,18 +338,23 @@ test.describe("smoke: session timeline", () => {
     const expectedMessageIDs = fixture.expected.targetMessageIDs
     await expectSessionTimelineReady(page, expectedPartIDs, expectedMessageIDs, errors)
     await expectCanScrollToStart(page, expectedPartIDs, expectedMessageIDs, errors)
+    await expectExpandedProcessTraversal(page, fixture.expected.targetAllPartIDs, expectedMessageIDs, errors)
+    await timelineScroller(page).evaluate((element) => (element.scrollTop = 0))
+    await waitForTimelineStable(page)
 
     const shell = page.locator(`[data-timeline-part-id="${fixture.expected.expandedShellPartID}"]`)
     const shellTrigger = shell.locator('[data-slot="collapsible-trigger"]')
     const shellSubtitle = shell.locator('[data-slot="basic-tool-tool-subtitle"]')
-    await expect(shellSubtitle).toHaveCount(0)
-    await expect(shell.locator('[data-slot="bash-pre"]')).toContainText("$ bun typecheck")
-    await shellTrigger.click()
     await expect(shellTrigger).toHaveAttribute("aria-expanded", "false")
     await expect(shellSubtitle).toHaveText("bun typecheck")
     await shellTrigger.click()
     await expect(shellTrigger).toHaveAttribute("aria-expanded", "true")
     await expect(shellSubtitle).toHaveCount(0)
+    await expect(shell.locator('[data-slot="bash-pre"]')).toContainText("$ bun typecheck")
+    await shellTrigger.click()
+    await expect(shellTrigger).toHaveAttribute("aria-expanded", "false")
+    await shellTrigger.click()
+    await expect(shellTrigger).toHaveAttribute("aria-expanded", "true")
   })
 })
 
@@ -488,6 +493,58 @@ async function configureSmokePage(page: Page, directory: string) {
     if (document.documentElement ?? document.body) start()
     else document.addEventListener("DOMContentLoaded", start, { once: true })
   })
+}
+
+async function expectExpandedProcessTraversal(
+  page: Page,
+  expectedPartIDs: string[],
+  expectedMessageIDs: string[],
+  errors: string[],
+) {
+  const seenParts = new Set<string>()
+  const seenMessages = new Set<string>()
+  const samples: TraversalSample[] = []
+  let unchangedAtEnd = 0
+
+  for (let attempt = 0; attempt < 600; attempt++) {
+    await page.evaluate(() => {
+      document
+        .querySelectorAll<HTMLButtonElement>('[data-slot="session-turn-process-trigger"][aria-expanded="false"]')
+        .forEach((trigger) => trigger.click())
+    })
+    await waitForTimelineStable(page)
+    const current = await timelineState(page)
+    collectSeen(current, seenParts, seenMessages)
+    samples.push(sampleTraversal(current, seenParts.size, seenMessages.size))
+    expectNoSmokeErrors(errors, current.errorToasts, current.forbiddenText)
+    expectOrderedIDs(expectedPartIDs, current.ids, "expanded mounted part")
+    expectOrderedIDs(expectedPartIDs, current.visibleIds, "expanded visible part")
+    expectOrderedIDs(expectedMessageIDs, unique(current.messageIds), "expanded mounted message")
+    expectOrderedIDs(expectedMessageIDs, unique(current.visibleMessageIds), "expanded visible message")
+
+    const atEnd = current.scrollHeight - current.clientHeight - current.scrollTop <= 1
+    if (atEnd && seenParts.size === expectedPartIDs.length && seenMessages.size === expectedMessageIDs.length) {
+      expect(seenParts.size).toBe(331)
+      return
+    }
+
+    const before = current.signature
+    await timelineScroller(page).evaluate((element) => {
+      element.scrollTop = Math.min(
+        element.scrollHeight - element.clientHeight,
+        element.scrollTop + Math.max(80, Math.round(element.clientHeight * 0.45)),
+      )
+    })
+    await waitForTimelineStable(page)
+    const next = await timelineState(page)
+    if (atEnd && next.signature === before) unchangedAtEnd++
+    else unchangedAtEnd = 0
+    if (unchangedAtEnd >= 2) break
+  }
+
+  throw new Error(
+    `missing expanded timeline parts: ${expectedPartIDs.filter((id) => !seenParts.has(id)).join(", ")}\n${sampleSummary(samples)}`,
+  )
 }
 
 async function expectCanScrollToStart(
@@ -707,7 +764,7 @@ function expectCompleteScroll(
   ).toEqual([])
   expect(new Set(expectedPartIDs).size).toBe(expectedPartIDs.length)
   expect(new Set(expectedMessageIDs).size).toBe(expectedMessageIDs.length)
-  expect(expectedPartIDs.length).toBe(331)
+  expect(expectedPartIDs.length).toBe(93)
 }
 
 async function selectHomeProject(page: Page, projectName: string) {

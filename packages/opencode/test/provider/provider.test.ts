@@ -310,6 +310,123 @@ it.instance("getModel returns model for valid provider/model", () =>
   }),
 )
 
+{
+  const bodies: Record<string, unknown>[] = []
+  const secondRequest = Promise.withResolvers<void>()
+  const encoder = new TextEncoder()
+  let server: ReturnType<typeof Bun.serve>
+
+  it.instance(
+    "runtime ignores legacy provider timeouts and preserves explicit cancellation",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.addFinalizer(() => Effect.promise(() => server.stop(true)))
+        const provider = yield* Provider.Service
+        const model = yield* provider.getModel(ProviderV2.ID.make("runtime-timeout"), ModelV2.ID.make("runtime-model"))
+        const language = yield* provider.getLanguage(model)
+        const first = yield* Effect.promise(() =>
+          language.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }] }),
+        )
+        const output = yield* Effect.promise(async () => {
+          const chunks: string[] = []
+          const reader = first.stream.getReader()
+          while (true) {
+            const item = await reader.read()
+            if (item.done) break
+            const event = item.value
+            if (event.type === "text-delta") chunks.push(event.delta)
+            if (event.type === "error") throw event.error
+          }
+          return chunks.join("")
+        })
+
+        expect(output).toBe("first-last")
+        expect(bodies[0]).not.toHaveProperty("timeout")
+        expect(bodies[0]).not.toHaveProperty("timeoutMs")
+        expect(bodies[0]).not.toHaveProperty("headerTimeout")
+        expect(bodies[0]).not.toHaveProperty("chunkTimeout")
+
+        const controller = new AbortController()
+        const running = language.doStream({
+          prompt: [{ role: "user", content: [{ type: "text", text: "stop" }] }],
+          abortSignal: controller.signal,
+        })
+        yield* Effect.promise(() => secondRequest.promise)
+        controller.abort(new Error("stopped by user"))
+        const outcome = yield* Effect.promise(() =>
+          running.then(
+            () => "resolved",
+            () => "rejected",
+          ),
+        )
+
+        expect(outcome).toBe("rejected")
+      }),
+    {
+      config: () => {
+        server = Bun.serve({
+          port: 0,
+          async fetch(request) {
+            bodies.push((await request.json()) as Record<string, unknown>)
+            if (bodies.length === 2) {
+              secondRequest.resolve()
+              return new Promise<Response>((resolve) => {
+                request.signal.addEventListener("abort", () => resolve(new Response(null, { status: 499 })), {
+                  once: true,
+                })
+              })
+            }
+
+            await Bun.sleep(15)
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                async start(controller) {
+                  controller.enqueue(
+                    encoder.encode(
+                      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"runtime-model","choices":[{"index":0,"delta":{"role":"assistant","content":"first"},"finish_reason":null}]}\n\n',
+                    ),
+                  )
+                  await Bun.sleep(15)
+                  controller.enqueue(
+                    encoder.encode(
+                      'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"runtime-model","choices":[{"index":0,"delta":{"content":"-last"},"finish_reason":null}]}\n\ndata: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"runtime-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+                    ),
+                  )
+                  controller.close()
+                },
+              }),
+              { headers: { "content-type": "text/event-stream" } },
+            )
+          },
+        })
+        return {
+          provider: {
+            "runtime-timeout": {
+              name: "Runtime Timeout",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                "runtime-model": {
+                  name: "Runtime Model",
+                  options: { timeout: 1, headerTimeout: 2, chunkTimeout: 3, timeoutMs: 4 },
+                },
+              },
+              options: {
+                apiKey: "test-key",
+                baseURL: `${server.url}v1`,
+                timeout: 1,
+                timeoutMs: 4,
+                headerTimeout: 2,
+                chunkTimeout: 3,
+              },
+            },
+          },
+        }
+      },
+    },
+  )
+}
+
 it.instance("getModel throws ModelNotFoundError for invalid model", () =>
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")

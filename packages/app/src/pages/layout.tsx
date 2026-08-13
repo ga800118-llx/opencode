@@ -74,6 +74,7 @@ import {
   errorMessage,
   latestRootSession,
   sortedRootSessions,
+  worktreeCreateRequest,
 } from "./layout/helpers"
 import {
   collectNewSessionDeepLinks,
@@ -1883,8 +1884,9 @@ export default function LegacyLayout(props: ParentProps) {
 
   const createWorkspace = async (project: LocalProject) => {
     clearSidebarHoverState()
-    const created = await serverSDK()
-      .client.worktree.create({ directory: project.worktree })
+    const sdk = serverSDK()
+    const created = await sdk.client.worktree
+      .create(worktreeCreateRequest({ protocol: await sdk.protocol, project }))
       .then((x) => x.data)
       .catch((err) => {
         showToast({
