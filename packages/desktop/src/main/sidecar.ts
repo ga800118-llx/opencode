@@ -73,9 +73,10 @@ async function start(command: StartCommand) {
 }
 
 async function verifyBundledGitForInternalPackage() {
-  if (process.env.GUAI_CODE_INTERNAL_PACKAGE_SMOKE !== "1") return
+  const executable = process.env.GUAI_CODE_INTERNAL_PACKAGE_GIT
+  if (!executable) return
   await new Promise<void>((resolve, reject) => {
-    execFile("git", ["--version"], (error) => {
+    execFile(executable, ["--version"], (error) => {
       if (error) {
         reject(error)
         return

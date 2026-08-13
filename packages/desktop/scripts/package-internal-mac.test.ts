@@ -926,7 +926,8 @@ describe("internal Mac package", () => {
   test("creates an isolated packaged app environment without host toolchain fallback", () => {
     const smoke = "/private/tmp/guai-code-smoke"
 
-    expect(createInternalMacSmokeEnvironment(smoke)).toEqual({
+    const bundledGit = "/private/zip/Guai Code Beta.app/Contents/Resources/mingit/bin/git"
+    expect(createInternalMacSmokeEnvironment(smoke, bundledGit)).toEqual({
       PATH: path.join(smoke, "bin"),
       HOME: path.join(smoke, "home"),
       TMPDIR: path.join(smoke, "tmp"),
@@ -943,13 +944,13 @@ describe("internal Mac package", () => {
       LANG: "C",
       LC_ALL: "C",
       GIT_TRACE2_EVENT: path.join(smoke, "git-trace.json"),
-      GUAI_CODE_INTERNAL_PACKAGE_SMOKE: "1",
+      GUAI_CODE_INTERNAL_PACKAGE_GIT: bundledGit,
       OPENCODE_UPDATER_ENABLED: "false",
       OPENCODE_SIDECAR_V2: "0",
     })
-    expect(createInternalMacSmokeEnvironment(smoke).PATH).not.toContain("/usr/bin")
-    expect(createInternalMacSmokeEnvironment(smoke)).not.toHaveProperty("BUN_INSTALL")
-    expect(createInternalMacSmokeEnvironment(smoke)).not.toHaveProperty("GIT_CONFIG_GLOBAL")
+    expect(createInternalMacSmokeEnvironment(smoke, bundledGit).PATH).not.toContain("/usr/bin")
+    expect(createInternalMacSmokeEnvironment(smoke, bundledGit)).not.toHaveProperty("BUN_INSTALL")
+    expect(createInternalMacSmokeEnvironment(smoke, bundledGit)).not.toHaveProperty("GIT_CONFIG_GLOBAL")
   })
 
   test("requires bundled Git injection before the packaged sidecar becomes ready", () => {
@@ -1003,10 +1004,11 @@ describe("internal Mac package", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "internal-mac-app-smoke-test-"))
     const app = path.join(directory, "Guai Code Beta.app")
     const executable = path.join(app, "Contents", "MacOS", "Guai Code Beta")
-    const smoke = path.join(directory, "smoke")
-    await Bun.write(executable, "app")
-    let killed = ""
     const bundledGitRoot = path.join(app, "Contents", "Resources", "mingit")
+    const smoke = path.join(directory, "smoke")
+    await Promise.all([Bun.write(executable, "app"), Bun.write(path.join(bundledGitRoot, "bin", "git"), "git")])
+    const bundledGitExecutable = await realpath(path.join(bundledGitRoot, "bin", "git"))
+    let killed = ""
     let spawned:
       | {
           command: readonly string[]
@@ -1035,7 +1037,7 @@ describe("internal Mac package", () => {
           path.join(root, "git-trace.json"),
           `${JSON.stringify({
             event: "start",
-            argv: [path.join(bundledGitRoot, "bin", "git"), "rev-parse", "--git-dir"],
+            argv: [bundledGitExecutable, "rev-parse", "--git-dir"],
           })}\n`,
         )
         return [
@@ -1047,7 +1049,7 @@ describe("internal Mac package", () => {
     })
 
     expect(spawned?.command).toEqual([executable, `--user-data-dir=${path.join(smoke, "desktop")}`])
-    expect(spawned?.options.env).toEqual(createInternalMacSmokeEnvironment(smoke))
+    expect(spawned?.options.env).toEqual(createInternalMacSmokeEnvironment(smoke, bundledGitExecutable))
     expect(spawned?.options.env.PATH).toBe(path.join(smoke, "bin"))
     expect(spawned?.options.cwd).toBe(path.join(smoke, "workspace"))
     expect(spawned?.options.env).not.toHaveProperty("SSH_AUTH_SOCK")
@@ -1061,7 +1063,10 @@ describe("internal Mac package", () => {
     const app = path.join(directory, "Guai Code Beta.app")
     const executable = path.join(app, "Contents", "MacOS", "Guai Code Beta")
     const smoke = path.join(directory, "smoke")
-    await Bun.write(executable, "app")
+    await Promise.all([
+      Bun.write(executable, "app"),
+      Bun.write(path.join(app, "Contents", "Resources", "mingit", "bin", "git"), "git"),
+    ])
 
     await expect(
       verifyInternalMacPackagedApp(app, {

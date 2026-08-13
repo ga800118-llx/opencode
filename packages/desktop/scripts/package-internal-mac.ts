@@ -507,7 +507,7 @@ export async function verifyInternalMacBundledGit(
   }
 }
 
-export function createInternalMacSmokeEnvironment(temporaryDirectory: string) {
+export function createInternalMacSmokeEnvironment(temporaryDirectory: string, bundledGitExecutable: string) {
   return {
     PATH: path.join(temporaryDirectory, "bin"),
     HOME: path.join(temporaryDirectory, "home"),
@@ -525,7 +525,7 @@ export function createInternalMacSmokeEnvironment(temporaryDirectory: string) {
     LANG: "C",
     LC_ALL: "C",
     GIT_TRACE2_EVENT: path.join(temporaryDirectory, "git-trace.json"),
-    GUAI_CODE_INTERNAL_PACKAGE_SMOKE: "1",
+    GUAI_CODE_INTERNAL_PACKAGE_GIT: bundledGitExecutable,
     OPENCODE_UPDATER_ENABLED: "false",
     OPENCODE_SIDECAR_V2: "0",
   }
@@ -593,11 +593,13 @@ export async function verifyInternalMacPackagedApp(
         "workspace",
       ].map((directory) => mkdir(path.join(temporaryDirectory, directory), { recursive: true })),
     )
+    const bundledGitRoot = path.join(appBundle, "Contents", "Resources", "mingit")
+    const bundledGitExecutable = await realpath(path.join(bundledGitRoot, "bin", "git"))
     const child = (input.spawn ?? (Bun.spawn as InternalMacSmokeSpawn))(
       [executable, `--user-data-dir=${path.join(temporaryDirectory, "desktop")}`],
       {
         cwd: path.join(temporaryDirectory, "workspace"),
-        env: createInternalMacSmokeEnvironment(temporaryDirectory),
+        env: createInternalMacSmokeEnvironment(temporaryDirectory, bundledGitExecutable),
         stdout: "pipe",
         stderr: "pipe",
       },
@@ -629,14 +631,13 @@ export async function verifyInternalMacPackagedApp(
     const verification = await Promise.resolve()
       .then(async () => {
         const contents = await waitForReady(temporaryDirectory, child)
-        const bundledGitRoot = path.join(appBundle, "Contents", "Resources", "mingit")
         assertInternalMacSmokeEvidence(contents, path.join(bundledGitRoot, "bin"))
         const deadline = Date.now() + (input.timeoutMs ?? 90_000)
         while (Date.now() < deadline) {
           const gitTrace = await Bun.file(path.join(temporaryDirectory, "git-trace.json"))
             .text()
             .catch(() => "")
-          if (internalMacSidecarGitTraceExecutable(gitTrace) === path.join(bundledGitRoot, "bin", "git")) return
+          if (internalMacSidecarGitTraceExecutable(gitTrace) === bundledGitExecutable) return
           if (child.exitCode !== null) {
             throw new Error(
               `Packaged application exited with code ${child.exitCode} before sidecar Git evidence completed`,
@@ -648,7 +649,7 @@ export async function verifyInternalMacPackagedApp(
           await Bun.file(path.join(temporaryDirectory, "git-trace.json"))
             .text()
             .catch(() => ""),
-          path.join(bundledGitRoot, "bin", "git"),
+          bundledGitExecutable,
         )
       })
       .then(
