@@ -225,6 +225,31 @@ describe("GoogleVertexAnthropicPlugin", () => {
     }),
   )
 
+  it.effect("passes the runtime model fetch through the production AISDK path", () =>
+    Effect.gen(function* () {
+      const aisdk = yield* AISDK.Service
+      yield* addPlugin(GoogleVertexAnthropicPlugin)
+      const language = yield* aisdk.language(
+        ModelV2.Info.make({
+          ...ModelV2.Info.empty(
+            ProviderV2.ID.make("google-vertex-anthropic"),
+            ModelV2.ID.make("claude-sonnet-4-5-runtime-fetch"),
+          ),
+          api: {
+            id: ModelV2.ID.make("claude-sonnet-4-5"),
+            type: "aisdk",
+            package: "@ai-sdk/google-vertex/anthropic",
+          },
+          request: {
+            body: { project: "project", location: "global" },
+            headers: {},
+          },
+        }),
+      )
+      expect(typeof (language as unknown as { config: { fetch?: unknown } }).config.fetch).toBe("function")
+    }),
+  )
+
   it.effect("trims model IDs before selecting language models", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service

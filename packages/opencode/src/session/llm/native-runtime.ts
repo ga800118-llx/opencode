@@ -17,6 +17,7 @@ import {
   type LLMEvent,
 } from "@opencode-ai/llm"
 import type { LLMClientShape } from "@opencode-ai/llm/route"
+import { createModelFetch } from "@opencode-ai/core/model-fetch"
 import { LLMNative } from "./native-request"
 
 export type RuntimeStatus =
@@ -141,7 +142,7 @@ export function stream(input: StreamInput): StreamResult {
 
   return {
     ...current,
-    stream: fetch ? stream.pipe(Stream.provideService(FetchHttpClient.Fetch, fetch)) : stream,
+    stream: fetch ? stream.pipe(Stream.provideService(FetchHttpClient.Fetch, createModelFetch(fetch))) : stream,
   }
 }
 

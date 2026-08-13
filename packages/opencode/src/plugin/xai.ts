@@ -3,6 +3,7 @@ import { OAUTH_DUMMY_KEY } from "../auth"
 import { createServer } from "http"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { OauthCallbackPage } from "@opencode-ai/core/oauth/page"
+import { createModelFetch } from "@opencode-ai/core/model-fetch"
 
 // Public Grok-CLI OAuth client. xAI's auth server rejects loopback OAuth from
 // non-allowlisted clients, so we reuse the Grok-CLI client_id that xAI ships
@@ -41,6 +42,7 @@ const REDIRECT_URI = `http://${OAUTH_HOST}:${OAUTH_PORT}${OAUTH_REDIRECT_PATH}`
 // Refresh the access token a little before it actually expires so a single
 // long-running tool call doesn't have to recover from a mid-flight 401.
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 120_000
+const modelFetch = createModelFetch()
 
 interface XaiAuthPluginOptions {
   authorizeUrl?: string
@@ -480,7 +482,7 @@ export async function XaiAuthPlugin(input: PluginInput, options: XaiAuthPluginOp
             // /connect with a pasted key). When that happens, pass the
             // request through untouched so the AI SDK's own apiKey-based
             // Authorization header reaches xAI unmodified.
-            if (currentAuth.type !== "oauth") return fetch(requestInput, init)
+            if (currentAuth.type !== "oauth") return modelFetch(requestInput, init)
 
             // Refresh either when the stored expires timestamp is within the
             // skew window, or — for JWT access tokens — when the JWT exp
@@ -543,7 +545,7 @@ export async function XaiAuthPlugin(input: PluginInput, options: XaiAuthPluginOp
             headers.set("authorization", `Bearer ${currentAuth.access}`)
             headers.set("User-Agent", `opencode/${InstallationVersion}`)
 
-            return fetch(requestInput, { ...init, headers })
+            return modelFetch(requestInput, { ...init, headers })
           },
         }
       },

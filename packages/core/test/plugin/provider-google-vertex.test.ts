@@ -169,8 +169,8 @@ describe("GoogleVertexPlugin", () => {
           )
           yield* addPlugin()
           const provider = required(yield* catalog.provider.get(ProviderV2.ID.make("google-vertex")))
-          yield* aisdk.runSDK({
-            model: ModelV2.Info.make({
+          yield* aisdk.language(
+            ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini")),
               api: {
                 id: ModelV2.ID.make("gemini"),
@@ -178,9 +178,7 @@ describe("GoogleVertexPlugin", () => {
                 package: "@ai-sdk/google-vertex",
               },
             }),
-            package: "@ai-sdk/google-vertex",
-            options: { name: "google-vertex" },
-          })
+          )
 
           expect(provider.request.body.project).toBe("vertex-project")
           expect(provider.api).toEqual({
@@ -282,7 +280,7 @@ describe("GoogleVertexPlugin", () => {
     ),
   )
 
-  it.effect("does not pass Google auth fetch to the native Vertex SDK", () =>
+  it.effect("passes the runtime model fetch to the native Vertex SDK", () =>
     withEnv(
       {
         GOOGLE_CLOUD_PROJECT: "env-project",
@@ -294,22 +292,23 @@ describe("GoogleVertexPlugin", () => {
           const plugin = yield* PluginV2.Service
           const aisdk = yield* AISDK.Service
           yield* addPlugin()
-          yield* aisdk.runSDK({
-            model: ModelV2.Info.make({
-              ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini")),
+          yield* aisdk.language(
+            ModelV2.Info.make({
+              ...ModelV2.Info.empty(
+                ProviderV2.ID.make("google-vertex"),
+                ModelV2.ID.make("gemini-runtime-fetch"),
+              ),
               api: {
                 id: ModelV2.ID.make("gemini"),
                 type: "aisdk",
                 package: "@ai-sdk/google-vertex",
               },
             }),
-            package: "@ai-sdk/google-vertex",
-            options: { name: "google-vertex" },
-          })
+          )
           expect(vertexOptions).toHaveLength(1)
           expect(vertexOptions[0].project).toBe("env-project")
           expect(vertexOptions[0].location).toBe("env-location")
-          expect(vertexOptions[0].fetch).toBeUndefined()
+          expect(typeof vertexOptions[0].fetch).toBe("function")
         }),
     ),
   )

@@ -30,8 +30,10 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { createModelFetch } from "@opencode-ai/core/model-fetch"
 
 const MODEL_RUNTIME_TIMEOUT_OPTIONS = ["timeout", "timeoutMs", "headerTimeout", "chunkTimeout"] as const
+const modelFetch = createModelFetch()
 
 function modelRuntimeOptions(options: Record<string, any>) {
   return omit(options, MODEL_RUNTIME_TIMEOUT_OPTIONS)
@@ -484,7 +486,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             const headers = new Headers(init?.headers)
             headers.set("Authorization", `Bearer ${token.token}`)
 
-            return fetch(input, { ...init, headers })
+            return modelFetch(input, { ...init, headers })
           },
         },
         async getModel(sdk: any, modelID: string) {
@@ -858,7 +860,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             } catch {}
           }
 
-          const response = await fetch(url, init)
+          const response = await modelFetch(url, init)
 
           if (!response.ok && response.status === 400) {
             try {
@@ -1676,16 +1678,7 @@ const layer = Layer.effect(
         if (existing) return existing
 
         const customFetch = options["fetch"]
-
-        options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
-          const fetchFn = customFetch ?? fetch
-          const res = await fetchFn(input, {
-            ...(init ?? {}),
-            // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-            timeout: false,
-          })
-          return res
-        }
+        options["fetch"] = createModelFetch(customFetch ?? fetch)
 
         const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
         if (bundledLoader) {

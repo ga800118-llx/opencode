@@ -4,12 +4,14 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { OauthCallbackPage } from "@opencode-ai/core/oauth/page"
 import { createServer } from "http"
 import open from "open"
+import { createModelFetch } from "@opencode-ai/core/model-fetch"
 
 const OAUTH_CLIENT_ID = "LOCAL_APPLICATION"
 const OAUTH_CALLBACK_HOST = "127.0.0.1"
 const OAUTH_CALLBACK_PATH = "/"
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 120_000
+const modelFetch = createModelFetch()
 
 interface PkceCodes {
   verifier: string
@@ -321,7 +323,7 @@ export async function SnowflakeCortexAuthPlugin(_input: PluginInput): Promise<Ho
           apiKey: OAUTH_DUMMY_KEY,
           async fetch(requestInput: RequestInfo | URL, init?: RequestInit) {
             let currentAuth = await getAuth()
-            if (currentAuth.type !== "oauth") return fetch(requestInput, init)
+            if (currentAuth.type !== "oauth") return modelFetch(requestInput, init)
             let currentOauth = currentAuth as typeof currentAuth & {
               refresh: string
               access: string
@@ -444,11 +446,11 @@ export async function SnowflakeCortexAuthPlugin(_input: PluginInput): Promise<Ho
 
             if (expiresSoon) await refresh()
 
-            const response = await fetch(requestInput, prepareRequest())
+            const response = await modelFetch(requestInput, prepareRequest())
 
             if (response.status === 401) {
               await refresh()
-              return transformResponse(await fetch(requestInput, prepareRequest()))
+              return transformResponse(await modelFetch(requestInput, prepareRequest()))
             }
 
             return transformResponse(response)

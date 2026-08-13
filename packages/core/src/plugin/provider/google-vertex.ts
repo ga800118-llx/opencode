@@ -1,5 +1,5 @@
-import { Effect } from "effect"
-import { define } from "../internal"
+import { Effect, type Scope } from "effect"
+import type { PluginInternal } from "../internal"
 import { ProviderV2 } from "../../provider"
 
 function resolveProject(options: Record<string, any>) {
@@ -54,7 +54,7 @@ function authFetch(fetchWithRuntimeOptions?: unknown) {
   }
 }
 
-export const GoogleVertexPlugin = define({
+export const GoogleVertexPlugin = {
   id: "google-vertex",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.catalog.transform(
@@ -77,9 +77,6 @@ export const GoogleVertexPlugin = define({
             if (provider.api.type === "aisdk" && provider.api.url) {
               provider.api.url = replaceVertexVars(provider.api.url, project, location)
             }
-            if (provider.api.type === "aisdk" && provider.api.package.includes("@ai-sdk/openai-compatible")) {
-              provider.request.body.fetch = authFetch(provider.request.body.fetch)
-            }
           })
         }
       }),
@@ -95,7 +92,6 @@ export const GoogleVertexPlugin = define({
         const project = resolveProject(evt.options)
         const location = resolveLocation(evt.options)
         const options = { ...evt.options }
-        delete options.fetch
         evt.sdk = mod.createVertex({
           ...options,
           project,
@@ -110,9 +106,9 @@ export const GoogleVertexPlugin = define({
       }),
     )
   }),
-})
+} satisfies PluginInternal.Plugin<PluginInternal.Requirements | Scope.Scope>
 
-export const GoogleVertexAnthropicPlugin = define({
+export const GoogleVertexAnthropicPlugin = {
   id: "google-vertex-anthropic",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.catalog.transform(
@@ -170,4 +166,4 @@ export const GoogleVertexAnthropicPlugin = define({
       }),
     )
   }),
-})
+} satisfies PluginInternal.Plugin<PluginInternal.Requirements | Scope.Scope>

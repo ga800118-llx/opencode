@@ -6,6 +6,7 @@ import { Cause, Context, Effect, Layer, Schema, Scope } from "effect"
 import { ModelV2 } from "./model"
 import { ProviderV2 } from "./provider"
 import { State } from "./state"
+import { createModelFetch } from "./model-fetch"
 
 type SDK = any
 
@@ -36,6 +37,7 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
   delete options.chunkTimeout
 
   const customFetch = options.fetch
+  const runtimeFetch = createModelFetch(typeof customFetch === "function" ? customFetch : fetch)
   options.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const opts = { ...(init ?? {}) }
 
@@ -53,10 +55,7 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
       }
     }
 
-    return (typeof customFetch === "function" ? customFetch : fetch)(input, {
-      ...opts,
-      timeout: false,
-    })
+    return runtimeFetch(input, opts)
   }
 
   return options

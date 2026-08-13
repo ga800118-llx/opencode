@@ -1,7 +1,7 @@
 import { NodeHttpServer } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
 import { Context, Effect, Layer, Option, Ref } from "effect"
-import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
+import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -51,9 +51,13 @@ const it = testEffect(apiLayer)
 describe("control-plane HttpApi", () => {
   it.live("moves a session through the root control-plane route", () =>
     Effect.gen(function* () {
-      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
-        HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
-        HttpClient.execute,
+      const server = yield* HttpServer.HttpServer
+      const response = yield* Effect.promise(() =>
+        fetch(new URL("/experimental/control-plane/move-session", HttpServer.formatAddress(server.address)), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        }),
       )
 
       expect(response.status).toBe(204)

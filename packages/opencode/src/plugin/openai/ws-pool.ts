@@ -24,7 +24,7 @@ interface PoolEntry {
 }
 
 const DEFAULT_CONNECT_TIMEOUT = 15_000
-const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000
+const DEFAULT_CONNECTION_IDLE_TIMEOUT = 5 * 60 * 1000
 const DEFAULT_MAX_CONNECTION_AGE = 55 * 60 * 1000
 const CONNECTION_LIMIT_REACHED_CODE = "websocket_connection_limit_reached"
 
@@ -32,10 +32,11 @@ export function createWebSocketFetch(options?: CreateWebSocketFetchOptions) {
   const httpFetch = options?.httpFetch ?? globalThis.fetch
   const pool = new Map<string, PoolEntry>()
   const connectTimeout = options?.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT
-  const idleTimeout = options?.idleTimeout ?? DEFAULT_IDLE_TIMEOUT
+  const streamIdleTimeout = options?.idleTimeout ?? 0
+  const connectionIdleTimeout = options?.idleTimeout ?? DEFAULT_CONNECTION_IDLE_TIMEOUT
   const maxConnectionAge = options?.maxConnectionAge ?? DEFAULT_MAX_CONNECTION_AGE
   const streamRetries = options?.streamRetries ?? 5
-  const pruneTimer = setInterval(() => prune(), Math.min(idleTimeout, 60_000))
+  const pruneTimer = setInterval(() => prune(), Math.min(connectionIdleTimeout, 60_000))
   if (typeof pruneTimer === "object" && "unref" in pruneTimer && typeof pruneTimer.unref === "function") {
     pruneTimer.unref()
   }
@@ -99,7 +100,7 @@ export function createWebSocketFetch(options?: CreateWebSocketFetchOptions) {
       const response = OpenAIWebSocket.streamResponsesWebSocket({
         socket: entry.socket,
         body,
-        idleTimeout,
+        idleTimeout: streamIdleTimeout,
         signal: init?.signal ?? undefined,
         onFirstEvent: (error) => resolveFirstEvent(error ?? true),
         onTerminal: (event) => {
@@ -171,7 +172,7 @@ export function createWebSocketFetch(options?: CreateWebSocketFetchOptions) {
     for (const [key, entry] of pool) {
       if (entry.busy) continue
       if (entry.fallback) continue
-      if (now - entry.lastUsedAt < idleTimeout) continue
+      if (now - entry.lastUsedAt < connectionIdleTimeout) continue
       invalidate(entry)
       pool.delete(key)
     }
