@@ -1,5 +1,5 @@
 import type { ServerApi } from "./server"
-import type { ServerProtocol } from "./server-protocol"
+import type { ServerApiRouting, ServerProtocol } from "./server-protocol"
 import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type {
   Project,
@@ -29,9 +29,7 @@ type CompatibleSessionApi = Omit<
   prompt: (input: SessionPromptInput & LegacyPrompt & CompatibleLocation) => Promise<SessionPromptOutput>
   command: (input: SessionCommandInput & CompatibleLocation) => Promise<SessionCommandOutput>
   shell: (input: SessionShellInput & LegacyPrompt & CompatibleLocation) => Promise<SessionShellOutput>
-  interrupt: (
-    input: Parameters<SessionApi["interrupt"]>[0] & CompatibleLocation,
-  ) => ReturnType<SessionApi["interrupt"]>
+  interrupt: (input: Parameters<SessionApi["interrupt"]>[0] & CompatibleLocation) => ReturnType<SessionApi["interrupt"]>
   compact: (input: SessionCompactInput & { model?: LegacyPrompt["model"] }) => Promise<SessionCompactOutput>
   rename: (input: Parameters<SessionApi["rename"]>[0] & LegacyLocation) => ReturnType<SessionApi["rename"]>
   // archive: (input: Parameters<SessionApi["archive"]>[0] & LegacyLocation) => ReturnType<SessionApi["archive"]>
@@ -57,6 +55,7 @@ type LegacyLocation = { directory?: string }
 type CompatibleLocation = { location?: LegacyLocation }
 type CompatibleInput = {
   protocol: Promise<ServerProtocol>
+  routing?: Promise<ServerApiRouting>
   current: ServerApi
   legacy: LegacyFor
   directory?: string
@@ -95,8 +94,19 @@ function sessionInfo(session: Session): PermissionModeSessionInfo {
 
 export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   const v1 = createV1Api(input)
+  const current = input.current as CompatibleApi
+  const routing = input.routing
+    ? Promise.all([input.protocol, input.routing])
+    : input.protocol.then((protocol) => [protocol, { project: protocol, mcp: protocol }] as const)
   return lazyApi(
-    input.protocol.then((protocol) => (protocol === "v1" ? v1 : (input.current as CompatibleApi))),
+    routing.then(([protocol, routing]) => {
+      if (protocol === "v1") return v1
+      return {
+        ...current,
+        project: routing.project === "v1" ? v1.project : current.project,
+        mcp: routing.mcp === "v1" ? v1.mcp : current.mcp,
+      }
+    }),
     v1,
   )
 }
@@ -348,6 +358,41 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       async directories(value: Parameters<ServerApi["project"]["directories"]>[0]) {
         const result = await legacy(value.location).worktree.list()
         return (result.data ?? []).map((item) => ({ directory: item }))
+      },
+    },
+    mcp: {
+      ...input.current.mcp,
+      async list(value?: Parameters<ServerApi["mcp"]["list"]>[0]) {
+        const result = await legacy(value?.location).mcp.status()
+        return located(
+          Object.entries(result.data ?? {}).map(([name, status]) => ({ name, status })),
+          value?.location,
+        )
+      },
+      async connect(value: Parameters<ServerApi["mcp"]["connect"]>[0]) {
+        await legacy(value.location).mcp.connect({ name: value.server })
+      },
+      async disconnect(value: Parameters<ServerApi["mcp"]["disconnect"]>[0]) {
+        await legacy(value.location).mcp.disconnect({ name: value.server })
+      },
+      resource: {
+        ...input.current.mcp.resource,
+        async catalog(value?: Parameters<ServerApi["mcp"]["resource"]["catalog"]>[0]) {
+          const result = await legacy(value?.location).experimental.resource.list()
+          return located(
+            {
+              resources: Object.values(result.data ?? {}).map((resource) => ({
+                server: resource.client,
+                name: resource.name,
+                uri: resource.uri,
+                description: resource.description,
+                mimeType: resource.mimeType,
+              })),
+              templates: [],
+            },
+            value?.location,
+          )
+        },
       },
     },
     // path: {

@@ -16,7 +16,8 @@ import {
 } from "./bootstrap"
 import type { State, VcsCache } from "./types"
 import { ServerScope } from "@/utils/server-scope"
-import type { ServerApi } from "@/utils/server"
+import { createApiForServer, type ServerApi } from "@/utils/server"
+import { createCompatibleApi } from "@/utils/server-compat"
 
 type ProjectApi = ServerApi["project"]
 
@@ -120,6 +121,49 @@ describe("bootstrapDirectory", () => {
   test("uses legacy MCP endpoints while refreshing a v1 directory", async () => {
     const mcpReads: string[] = []
     const [store, setStore] = directoryState()
+    const legacy = {
+      app: { agents: async () => ({ data: [{ name: "build", mode: "primary" }] }) },
+      config: { get: async () => ({ data: {} }) },
+      session: { status: async () => ({ data: {} }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: {
+        list: async () => {
+          mcpReads.push("command")
+          return { data: [] }
+        },
+      },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      v2: { reference: { list: async () => ({ data: { data: [] } }) } },
+      mcp: {
+        status: async () => {
+          mcpReads.push("status")
+          return { data: {} }
+        },
+      },
+      experimental: {
+        resource: {
+          list: async () => {
+            mcpReads.push("resource")
+            return { data: {} }
+          },
+        },
+      },
+      lsp: { status: async () => ({ data: [] }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as unknown as OpencodeClient
+    const current = createApiForServer({
+      server: { url: "http://localhost:4096" },
+      fetch: Object.assign(() => Promise.resolve(Response.json({})), {
+        preconnect: globalThis.fetch.preconnect,
+      }),
+    })
+    const compatible = createCompatibleApi({
+      protocol: Promise.resolve("v1"),
+      current,
+      legacy: () => legacy,
+      directory: "/project",
+    })
 
     const result = await bootstrapDirectory({
       directory: "/project",
@@ -131,38 +175,8 @@ describe("bootstrapDirectory", () => {
         project: [{ id: "project", worktree: "/project" } as Project],
         provider,
       },
-      sdk: {
-        app: { agents: async () => ({ data: [{ name: "build", mode: "primary" }] }) },
-        config: { get: async () => ({ data: {} }) },
-        session: { status: async () => ({ data: {} }) },
-        vcs: { get: async () => ({ data: undefined }) },
-        command: {
-          list: async () => {
-            mcpReads.push("command")
-            return { data: [] }
-          },
-        },
-        permission: { list: async () => ({ data: [] }) },
-        question: { list: async () => ({ data: [] }) },
-        v2: { reference: { list: async () => ({ data: { data: [] } }) } },
-        mcp: {
-          status: async () => {
-            mcpReads.push("status")
-            return { data: {} }
-          },
-        },
-        experimental: {
-          resource: {
-            list: async () => {
-              mcpReads.push("resource")
-              return { data: {} }
-            },
-          },
-        },
-        lsp: { status: async () => ({ data: [] }) },
-        provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
-      } as unknown as OpencodeClient,
-      api,
+      sdk: legacy,
+      api: compatible,
       store,
       setStore,
       vcsCache: { setStore() {} } as unknown as VcsCache,

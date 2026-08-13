@@ -5,6 +5,7 @@ import { createCompatibleApi } from "./server-compat"
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
   responses?: { vcs?: { branch: string; default_branch: string } },
+  routing?: { project: "v1" | "v2"; mcp: "v1" | "v2" },
 ) {
   const requests: Request[] = []
   const fetcher = Object.assign(
@@ -48,6 +49,8 @@ function setup(
           time: { created: 1, updated: 2 },
         })
       }
+      if (request.method === "POST" && url.pathname.endsWith("/connect")) return Response.json(true)
+      if (request.method === "POST" && url.pathname.endsWith("/disconnect")) return Response.json(true)
       if (request.method === "POST" && url.pathname.endsWith("/shell")) return Response.json({})
       if (request.method === "POST" && request.url.endsWith("/prompt_async"))
         return new Response(undefined, { status: 204 })
@@ -64,6 +67,32 @@ function setup(
       }
       if (request.method === "GET" && new URL(request.url).pathname === "/vcs")
         return Response.json(responses?.vcs ?? {})
+      if (request.method === "GET" && url.pathname === "/project") {
+        return Response.json([
+          {
+            id: "project",
+            worktree: "/repo",
+            time: { created: 1, updated: 1 },
+            sandboxes: [],
+          },
+        ])
+      }
+      if (request.method === "GET" && url.pathname === "/project/current") {
+        return Response.json({
+          id: "project",
+          worktree: url.searchParams.get("directory") ?? "/repo",
+          time: { created: 1, updated: 1 },
+          sandboxes: [],
+        })
+      }
+      if (request.method === "GET" && url.pathname === "/mcp") {
+        return Response.json({ docs: { status: "connected" } })
+      }
+      if (request.method === "GET" && url.pathname === "/experimental/resource") {
+        return Response.json({
+          "docs:docs://guide": { client: "docs", name: "Guide", uri: "docs://guide" },
+        })
+      }
       if (request.method === "GET" && url.pathname === "/session/ses_1") {
         return Response.json({
           id: "ses_1",
@@ -84,6 +113,7 @@ function setup(
   const server = { url: "http://localhost:4096" }
   const api = createCompatibleApi({
     protocol: typeof protocol === "string" ? Promise.resolve(protocol) : protocol,
+    routing: routing ? Promise.resolve(routing) : undefined,
     current: createApiForServer({ server, fetch: fetcher }),
     legacy: (directory) => createSdkForServer({ server, fetch: fetcher, directory, throwOnError: true }),
     directory: "/repo",
@@ -92,6 +122,38 @@ function setup(
 }
 
 describe("createCompatibleApi", () => {
+  test("routes only transitional project and MCP namespaces through V1", async () => {
+    const { api, requests } = setup("v2", undefined, { project: "v1", mcp: "v1" })
+
+    expect(await api.project.list()).toHaveLength(1)
+    expect(await api.project.current({ location: { directory: "/repo" } })).toEqual({
+      id: "project",
+      directory: "/repo",
+    })
+    expect(await api.mcp.list({ location: { directory: "/repo" } })).toMatchObject({
+      data: [{ name: "docs", status: { status: "connected" } }],
+    })
+    expect(await api.mcp.resource.catalog({ location: { directory: "/repo" } })).toMatchObject({
+      data: {
+        resources: [{ server: "docs", name: "Guide", uri: "docs://guide" }],
+        templates: [],
+      },
+    })
+    await api.mcp.connect({ server: "docs", location: { directory: "/repo" } })
+    await api.mcp.disconnect({ server: "docs", location: { directory: "/repo" } })
+    await api.session.list()
+
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/project",
+      "/project/current",
+      "/mcp",
+      "/experimental/resource",
+      "/mcp/docs/connect",
+      "/mcp/docs/disconnect",
+      "/api/session",
+    ])
+  })
+
   /*
   test("routes V1 archive through the legacy session update", async () => {
     const { api, requests } = setup("v1")

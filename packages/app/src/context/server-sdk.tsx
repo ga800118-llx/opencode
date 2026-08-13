@@ -12,8 +12,9 @@ import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerScope } from "@/utils/server-scope"
 import {
-  detectPermissionModeCapability,
+  detectServerApiCapabilities,
   detectServerProtocol,
+  type ServerApiCapabilities,
   type ServerProtocol,
 } from "@/utils/server-protocol"
 import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
@@ -180,6 +181,7 @@ type ServerSDKBase = {
   scope: ServerScope
   protocol: Promise<ServerProtocol>
   protocolKind: Accessor<ServerProtocol | undefined>
+  apiCapabilities: Promise<ServerApiCapabilities>
   permissionModeCapability: Promise<boolean>
   supportsPermissionModes: Accessor<boolean>
   url: string
@@ -224,11 +226,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     () => protocol,
     (value) => value,
   )
-  const permissionModeCapability = detectPermissionModeCapability(
-    server.http,
-    platform.fetch ?? globalThis.fetch,
-    protocol,
-  )
+  const apiCapabilities = detectServerApiCapabilities(server.http, platform.fetch ?? globalThis.fetch, protocol)
+  const permissionModeCapability = apiCapabilities.then((capabilities) => capabilities.permissionMode)
   const [permissionModeCapabilityState] = createResource(
     () => permissionModeCapability,
     (value) => value,
@@ -386,13 +385,14 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
       throwOnError: true,
       directory,
     })
-  const api = createCompatibleApi({ protocol, current: currentApi, legacy })
+  const api = createCompatibleApi({ protocol, routing: apiCapabilities, current: currentApi, legacy })
 
   return {
     server,
     scope,
     protocol,
     protocolKind,
+    apiCapabilities,
     permissionModeCapability,
     supportsPermissionModes: () => permissionModeCapabilityState() === true,
     url: server.http.url,

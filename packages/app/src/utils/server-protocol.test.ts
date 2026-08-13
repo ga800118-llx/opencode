@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   detectPermissionModeCapability,
+  detectServerApiCapabilities,
   detectServerProtocol,
   hasPermissionModeCapability,
   hasV2ProtocolCapability,
@@ -85,6 +86,79 @@ describe("detectServerProtocol", () => {
     })
 
     expect(await detectServerProtocol(server, fetcher)).toBe("v1")
+  })
+})
+
+describe("detectServerApiCapabilities", () => {
+  test("routes missing project and MCP namespaces to V1 on a transitional V2 server", async () => {
+    const paths: string[] = []
+    const fetcher = mockFetch((input) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      paths.push(path)
+      if (path === "/openapi.json") return Promise.resolve(json({}, 404))
+      return Promise.resolve(
+        json({
+          paths: {
+            "/api/health": { get: { operationId: "v2.health.get" } },
+            "/api/session": { get: { operationId: "v2.session.list" } },
+            "/project": { get: { operationId: "project.list" } },
+            "/mcp": { get: { operationId: "mcp.status" } },
+          },
+        }),
+      )
+    })
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
+      project: "v1",
+      mcp: "v1",
+      permissionMode: false,
+    })
+    expect(paths).toEqual(["/openapi.json", "/doc"])
+  })
+
+  test("keeps complete current namespaces on V2", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/api/project": { get: {} },
+            "/api/project/current": { get: {} },
+            "/api/project/{projectID}/directories": { get: {} },
+            "/api/mcp": { get: {} },
+            "/api/mcp/{server}/connect": { post: {} },
+            "/api/mcp/{server}/disconnect": { post: {} },
+            "/api/mcp/resource": { get: {} },
+            "/api/session/{sessionID}/permission-mode": { post: {} },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
+      project: "v2",
+      mcp: "v2",
+      permissionMode: true,
+    })
+  })
+
+  test("preserves current routing when V2 OpenAPI is unavailable", async () => {
+    const fetcher = mockFetch(() => Promise.resolve(json({}, 404)))
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
+      project: "v2",
+      mcp: "v2",
+      permissionMode: false,
+    })
+  })
+
+  test("uses stable namespaces for V1", async () => {
+    const fetcher = mockFetch(() => Promise.resolve(json({ paths: {} })))
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v1")).toEqual({
+      project: "v1",
+      mcp: "v1",
+      permissionMode: false,
+    })
   })
 })
 

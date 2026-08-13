@@ -2,12 +2,32 @@ import type { ServerConnection } from "@/context/server"
 import { authTokenFromCredentials } from "./server"
 
 export type ServerProtocol = "v1" | "v2"
+export type ServerApiRouting = {
+  project: ServerProtocol
+  mcp: ServerProtocol
+}
+export type ServerApiCapabilities = ServerApiRouting & {
+  permissionMode: boolean
+}
 
 const permissionModePaths = {
   v1: "/session/{sessionID}/permission-mode",
   v2: "/api/session/{sessionID}/permission-mode",
 } as const
 const healthPath = "/api/health"
+const currentNamespaceOperations = {
+  project: [
+    ["/api/project", "get"],
+    ["/api/project/current", "get"],
+    ["/api/project/{projectID}/directories", "get"],
+  ],
+  mcp: [
+    ["/api/mcp", "get"],
+    ["/api/mcp/{server}/connect", "post"],
+    ["/api/mcp/{server}/disconnect", "post"],
+    ["/api/mcp/resource", "get"],
+  ],
+} as const
 
 function headers(server: ServerConnection.HttpBase) {
   if (!server.password) return
@@ -43,9 +63,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
+function openApiPaths(openapi: unknown) {
+  if (!isRecord(openapi) || !isRecord(openapi.paths)) return
+  return openapi.paths
+}
+
+function hasOperations(paths: Record<string, unknown>, operations: readonly (readonly [string, string])[]) {
+  return operations.every(([name, method]) => {
+    const path = paths[name]
+    return isRecord(path) && isRecord(path[method])
+  })
+}
+
 export function hasPermissionModeCapability(openapi: unknown, protocol?: ServerProtocol) {
-  if (!isRecord(openapi) || !isRecord(openapi.paths)) return false
-  const available = openapi.paths
+  const available = openApiPaths(openapi)
+  if (!available) return false
   const paths = protocol ? [permissionModePaths[protocol]] : Object.values(permissionModePaths)
   return paths.some((name) => {
     const path = available[name]
@@ -54,8 +86,9 @@ export function hasPermissionModeCapability(openapi: unknown, protocol?: ServerP
 }
 
 export function hasV2ProtocolCapability(openapi: unknown) {
-  if (!isRecord(openapi) || !isRecord(openapi.paths)) return false
-  const path = openapi.paths[healthPath]
+  const paths = openApiPaths(openapi)
+  if (!paths) return false
+  const path = paths[healthPath]
   if (!isRecord(path) || !isRecord(path.get)) return false
   return path.get.operationId === "v2.health.get"
 }
@@ -85,4 +118,28 @@ export async function detectPermissionModeCapability(
   const kind = await protocol
   const openapi = await probeOpenApi(server, fetch, kind)
   return hasPermissionModeCapability(openapi, kind)
+}
+
+export async function detectServerApiCapabilities(
+  server: ServerConnection.HttpBase,
+  fetch: typeof globalThis.fetch,
+  protocol: Promise<ServerProtocol> | ServerProtocol,
+): Promise<ServerApiCapabilities> {
+  const kind = await protocol
+  const openapi = await probeOpenApi(server, fetch, kind)
+  if (kind === "v1") {
+    return {
+      project: "v1",
+      mcp: "v1",
+      permissionMode: hasPermissionModeCapability(openapi, kind),
+    }
+  }
+
+  const paths = openApiPaths(openapi)
+  return {
+    // Preserve current-server compatibility when an OpenAPI document is unavailable.
+    project: !paths || hasOperations(paths, currentNamespaceOperations.project) ? "v2" : "v1",
+    mcp: !paths || hasOperations(paths, currentNamespaceOperations.mcp) ? "v2" : "v1",
+    permissionMode: hasPermissionModeCapability(openapi, kind),
+  }
 }

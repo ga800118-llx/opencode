@@ -163,6 +163,11 @@ test("keeps a delayed model request running beyond the former short deadline", a
         provider,
       })
       try {
+        const browserRequestPaths: string[] = []
+        page.on("request", (request) => {
+          const url = new URL(request.url())
+          if (url.origin === runtime.url) browserRequestPaths.push(url.pathname)
+        })
         page.on("response", (response) => {
           const url = new URL(response.url())
           if (url.origin !== runtime.url || url.pathname.includes("event")) return
@@ -220,50 +225,9 @@ test("keeps a delayed model request running beyond the former short deadline", a
             body: JSON.stringify({ healthy: true, version: "2.0.0", pid: runtime.process.pid }),
           })
         })
-        // V2 Session execution is live; these shell catalogs are not part of the current V2 protocol yet.
-        await page.route("**/api/project", (route) => {
-          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
-          return route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
-        })
-        await page.route("**/api/project/current?*", (route) => {
-          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
-          return route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({ id: "runtime-e2e-project", directory: resolvedDirectory }),
-          })
-        })
-        await page.route("**/api/mcp/resource?*", (route) => {
-          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
-          return route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              location: {
-                directory: resolvedDirectory,
-                project: { id: "runtime-e2e-project", directory: resolvedDirectory },
-              },
-              data: { resources: [], templates: [] },
-            }),
-          })
-        })
-        await page.route("**/api/mcp?*", (route) => {
-          if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
-          return route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              location: {
-                directory: resolvedDirectory,
-                project: { id: "runtime-e2e-project", directory: resolvedDirectory },
-              },
-              data: [],
-            }),
-          })
-        })
         await page.route("**/openapi.json", (route) => {
           if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
-          return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ paths: {} }) })
+          return route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" })
         })
         await page.addInitScript(
           ({ server, directory, providerID }) => {
@@ -328,14 +292,26 @@ test("keeps a delayed model request running beyond the former short deadline", a
         const sessionPath = `/server/${base64Encode(runtime.url)}/session/${session.id}`
         await page.goto(sessionPath)
         const [historyResponse, browserModelsResponse, browserProvidersResponse, browserAgentsResponse] =
-          await Promise.all([
-          sessionHistory,
-          browserModels,
-          browserProviders,
-          browserAgents,
-        ])
+          await Promise.all([sessionHistory, browserModels, browserProviders, browserAgents]).catch(async (error) => {
+            throw new Error(
+              [
+                "Browser did not complete the mixed-protocol workspace bootstrap.",
+                `Requests: ${browserRequestPaths.join(", ") || "<none>"}`,
+                `Responses:\n${browserDiagnostics.join("\n") || "<none>"}`,
+                `Page URL: ${page.url()}`,
+                `Page text:\n${await page.locator("body").innerText().catch(() => "<unavailable>")}`,
+              ].join("\n"),
+              { cause: error },
+            )
+          })
         expect(protocolProbes.some((value) => new URL(value).pathname === "/api/health")).toBe(true)
         expect(protocolProbes.some((value) => new URL(value).pathname === "/global/health")).toBe(false)
+        expect(browserRequestPaths).toContain("/doc")
+        expect(browserRequestPaths).toContain("/project")
+        expect(browserRequestPaths).toContain("/mcp")
+        expect(browserRequestPaths).toContain("/experimental/resource")
+        expect(browserRequestPaths.some((path) => path.startsWith("/api/project"))).toBe(false)
+        expect(browserRequestPaths.some((path) => path.startsWith("/api/mcp"))).toBe(false)
         expect(historyResponse.ok()).toBe(true)
         expect(await historyResponse.json()).toEqual({ data: [], cursor: { next: null, previous: null } })
         const browserModelBody = await browserModelsResponse.json()
@@ -425,7 +401,9 @@ test("keeps a delayed model request running beyond the former short deadline", a
           isPromptAdmissionRequest(request, runtime.url, session.id),
         )
         if (!admittedRequest) {
-          throw new Error(`Expected a V2 prompt admission request. Observed:\n${promptRequests.map((request) => request.url()).join("\n") || "<none>"}`)
+          throw new Error(
+            `Expected a V2 prompt admission request. Observed:\n${promptRequests.map((request) => request.url()).join("\n") || "<none>"}`,
+          )
         }
         const promptPayload = admittedRequest.postDataJSON() as unknown
         expect(isPromptAdmissionPayload(promptPayload)).toBe(true)
@@ -893,10 +871,7 @@ async function readV2SessionCounts(database: string, sessionID: string) {
   return { sessionInput: counts.sessionInput, sessionMessage: counts.sessionMessage }
 }
 
-async function stopOpenCodeRuntime(
-  page: Page,
-  runtime: Awaited<ReturnType<typeof startOpenCodeServer>>,
-) {
+async function stopOpenCodeRuntime(page: Page, runtime: Awaited<ReturnType<typeof startOpenCodeServer>>) {
   const pageClosed = page.isClosed() ? Promise.resolve() : page.close().catch(() => undefined)
   await settlesWithin(pageClosed, 1_000)
   runtime.process.kill("SIGTERM")
@@ -912,7 +887,13 @@ async function settlesWithin(promise: Promise<unknown>, timeoutMs: number) {
   const timeout = Promise.withResolvers<boolean>()
   const timer = setTimeout(() => timeout.resolve(false), timeoutMs)
   try {
-    return await Promise.race([promise.then(() => true, () => true), timeout.promise])
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      timeout.promise,
+    ])
   } finally {
     clearTimeout(timer)
   }
