@@ -334,8 +334,8 @@ test("keeps a delayed model request running beyond the former short deadline", a
           browserProviders,
           browserAgents,
         ])
-        expect(protocolProbes.some((value) => new URL(value).pathname === "/global/health")).toBe(true)
         expect(protocolProbes.some((value) => new URL(value).pathname === "/api/health")).toBe(true)
+        expect(protocolProbes.some((value) => new URL(value).pathname === "/global/health")).toBe(false)
         expect(historyResponse.ok()).toBe(true)
         expect(await historyResponse.json()).toEqual({ data: [], cursor: { next: null, previous: null } })
         const browserModelBody = await browserModelsResponse.json()
