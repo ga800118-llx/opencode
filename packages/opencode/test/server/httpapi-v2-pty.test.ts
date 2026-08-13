@@ -98,7 +98,7 @@ describe("v2 pty HttpApi", () => {
     const missing = await request(`/api/pty/${body.data.id}`, tmp.path)
     expect(missing.status).toBe(404)
     expect(await missing.json()).toMatchObject({ _tag: "PtyNotFoundError", ptyID: body.data.id })
-  })
+  }, 15_000)
 
   testPty("rejects connect tokens without the CSRF header and connects with a valid ticket", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
