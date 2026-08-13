@@ -44,6 +44,7 @@ export type PromptInputV2ComposerProps = {
 export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
+  readonly submissionReady: () => boolean
   readonly sessionID: () => string | undefined
 }
 
@@ -57,6 +58,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
     <div class="flex flex-col gap-3">
       <PromptInputV2
         controller={props.controller}
+        disabled={!props.controller.submissionReady()}
         borderUnderlay={props.borderUnderlay}
         class={props.class}
         variantControlVisible={!props.controller.model.loading}
@@ -98,6 +100,11 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   const language = useLanguage()
   const platform = usePlatform()
   const prompt = props.state ?? usePrompt()
+  const submissionReady = () =>
+    !props.controls.agents.loading &&
+    !props.controls.model.loading &&
+    !!props.controls.agents.current &&
+    !!props.controls.model.selection.current()
   let editor: HTMLDivElement | undefined
 
   const interaction = createPromptInputV2State()
@@ -407,12 +414,17 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       submit: {
         stopping,
         working,
-        onSubmit: () => void submission.handleSubmit(new Event("submit")),
+        onSubmit: () => {
+          if (submissionReady()) void submission.handleSubmit(new Event("submit"))
+        },
         onStop: () => void submission.abort(),
       },
     },
   })
+  const canSubmit = controller.canSubmit
+  Object.defineProperty(controller, "canSubmit", { value: () => submissionReady() && canSubmit() })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
+  Object.defineProperty(controller, "submissionReady", { value: submissionReady })
   Object.defineProperty(controller, "sessionID", { value: () => props.controls.session.id })
 
   command.register("prompt-input", () => [

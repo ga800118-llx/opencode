@@ -1193,6 +1193,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
   // Check provider variants directly: `variants` also includes the UI-only default option.
   const showVariantControl = createMemo(() => props.controls.model.selection.variant.list().length > 0)
+  const submissionReady = () =>
+    !props.controls.agents.loading &&
+    !props.controls.model.loading &&
+    !!props.controls.agents.current &&
+    !!props.controls.model.selection.current()
   const accepting = createMemo(() => {
     const id = props.controls.session.id
     if (!id) return permission.isAutoAcceptingDirectory(sdk().directory)
@@ -1379,6 +1384,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
+      if (!working() && !submissionReady()) return
       if (
         working() &&
         prompt
@@ -1462,7 +1468,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       />
       <DockShellForm
         data-dock-border-underlay="legacy"
-        onSubmit={handleSubmit}
+        onSubmit={(event) => {
+          if (working() || submissionReady()) return void handleSubmit(event)
+          event.preventDefault()
+        }}
         classList={{
           "group/prompt-input": true,
           "border-icon-info-active border-dashed": store.draggingType !== null,
@@ -1579,7 +1588,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
-                  disabled={!working() && blank()}
+                  disabled={!working() && (blank() || !submissionReady())}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                   variant="primary"

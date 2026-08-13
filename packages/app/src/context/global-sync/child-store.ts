@@ -228,7 +228,7 @@ export function createChildStoreManager(input: {
             },
             status: "loading" as const,
             get agent() {
-              return agentQuery.isLoading ? [] : (agentQuery.data ?? [])
+              return agentQuery.isLoading || agentQuery.isFetching || agentQuery.isError ? [] : (agentQuery.data ?? [])
             },
             command: [],
             get reference() {

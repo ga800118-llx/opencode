@@ -24,7 +24,9 @@ export interface MockServerConfig {
   todos?: (sessionID: string) => unknown[]
   permissions?: unknown[] | (() => unknown[])
   questions?: unknown[] | (() => unknown[])
-  agents?: unknown[] | ((input: { directory: string; protocol: "v1" | "v2" }) => unknown[])
+  agents?:
+    | unknown[]
+    | ((input: { directory: string; protocol: "v1" | "v2" }) => unknown[] | Promise<unknown[]>)
   fileList?: (path: string) => unknown | Promise<unknown>
   fileContent?: (path: string) => unknown | Promise<unknown>
   findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown
@@ -161,7 +163,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return json(
         route,
         typeof config.agents === "function"
-          ? config.agents({ directory: url.searchParams.get("directory") ?? config.directory, protocol: "v1" })
+          ? await config.agents({ directory: url.searchParams.get("directory") ?? config.directory, protocol: "v1" })
           : (config.agents ?? [{ name: "build", mode: "primary" }]),
       )
     if (path === "/session/status")
@@ -201,7 +203,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         location: location(config),
         data:
           typeof config.agents === "function"
-            ? config.agents({
+            ? await config.agents({
                 directory: url.searchParams.get("location[directory]") ?? config.directory,
                 protocol: "v2",
               })

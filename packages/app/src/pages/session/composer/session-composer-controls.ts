@@ -39,7 +39,7 @@ export function createPromptInputController(input: {
         available: sync().data.agent,
         options: local.agent.list().map((agent) => agent.name),
         current: local.agent.current()?.name ?? "",
-        loading: agentsQuery.isLoading,
+        loading: agentsQuery.isLoading || agentsQuery.isFetching || agentsQuery.isError,
         visible: local.agent.visible(),
         select: local.agent.set,
       },
@@ -47,7 +47,7 @@ export function createPromptInputController(input: {
         selection: input.model ?? local.model,
         paid: providers.paid().length > 0,
         loading:
-          (local.agent.visible() && agentsQuery.isLoading) ||
+          (local.agent.visible() && (agentsQuery.isLoading || agentsQuery.isFetching || agentsQuery.isError)) ||
           providersQuery.isLoading ||
           globalProvidersQuery.isLoading,
       },

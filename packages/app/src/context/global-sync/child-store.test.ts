@@ -11,6 +11,7 @@ import { directoryKey } from "./utils"
 let createChildStoreManager: typeof import("./child-store").createChildStoreManager
 let actualPersisted: typeof import("@/utils/persist").persisted
 let platform: { platform: "web" | "desktop"; storage?: () => DeferredStorage } = { platform: "web" }
+const solidQuery = await import("@tanstack/solid-query")
 const querySingles: Array<() => { queryKey?: unknown[]; enabled?: boolean }> = []
 const persist: typeof import("@/utils/persist").persisted = (_target, store) => [
   store[0],
@@ -23,6 +24,8 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
 const child = () => createStore({} as State)
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
 let agents: State["agent"] = []
+let agentsFetching = false
+let agentsError = false
 
 class DeferredStorage {
   private writes: Array<{
@@ -119,11 +122,18 @@ beforeAll(async () => {
     usePlatform: () => platform,
   }))
   mock.module("@tanstack/solid-query", () => ({
+    ...solidQuery,
     useQuery: (options: () => { queryKey?: unknown[]; enabled?: boolean }) => {
       querySingles.push(options)
       return {
         get isLoading() {
           return options().queryKey?.[1] === "path"
+        },
+        get isFetching() {
+          return options().queryKey?.[1] === "agents" && agentsFetching
+        },
+        get isError() {
+          return options().queryKey?.[1] === "agents" && agentsError
         },
         get data() {
           if (options().queryKey?.[1] === "path") throw new Error("pending path data read")
@@ -144,6 +154,8 @@ beforeAll(async () => {
 beforeEach(() => {
   platform = { platform: "web" }
   agents = []
+  agentsFetching = false
+  agentsError = false
 })
 
 describe("createChildStoreManager", () => {
@@ -396,7 +408,7 @@ describe("createChildStoreManager", () => {
     }
   })
 
-  test("follows agent query updates after an empty startup response", () => {
+  test("follows successful agent updates without exposing stale agents during refresh failures", () => {
     let manager: ReturnType<typeof createChildStoreManager> | undefined
 
     const dispose = createOwner((owner) => {
@@ -421,6 +433,17 @@ describe("createChildStoreManager", () => {
       expect(store.agent).toEqual([])
 
       agents = [{ name: "build", mode: "primary", hidden: false }] as State["agent"]
+      expect(store.agent).toEqual(agents)
+
+      agentsFetching = true
+      expect(store.agent).toEqual([])
+
+      agentsFetching = false
+      agentsError = true
+      expect(store.agent).toEqual([])
+
+      agentsError = false
+      agents = [{ name: "plan", mode: "primary", hidden: false }] as State["agent"]
       expect(store.agent).toEqual(agents)
     } finally {
       dispose()

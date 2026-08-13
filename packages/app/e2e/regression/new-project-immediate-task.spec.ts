@@ -19,20 +19,21 @@ for (const protocol of protocols) {
   test.describe(`${protocol.toUpperCase()} project task recovery`, () => {
     test("adds a project and deduplicates an immediate double New Task click", async ({ page }) => {
       let agentRequests = 0
-      await setup(page, protocol, () => {
+      const agentGate = Promise.withResolvers<void>()
+      await setup(page, protocol, async (input) => {
+        if (input.directory !== directory) return selectableAgents(protocol)
         agentRequests++
         if (agentRequests === 1) return []
+        await agentGate.promise
         return selectableAgents(protocol)
       })
       const transport = await installSseTransport(page, { server: mockServer })
-      const gate = Promise.withResolvers<void>()
       const bootstrapRequests: string[] = []
       await page.route("**/config**", async (route) => {
         if (!isWorkspaceConfigRequest(route.request())) return route.fallback()
         const url = new URL(route.request().url())
         const request = `${page.url()} -> ${url.pathname}${url.search}`
         bootstrapRequests.push(request)
-        if (bootstrapRequests.length === 1) await gate.promise
         await fulfillJson(route, {})
       })
 
@@ -41,17 +42,16 @@ for (const protocol of protocols) {
       await protocolReady
       await transport.waitForConnection()
       const row = await addProject(page, protocol)
-      await page.clock.install({ time: Date.now() })
       const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
       await newTask.evaluate((button) => {
         ;(button as HTMLButtonElement).click()
         ;(button as HTMLButtonElement).click()
       })
 
-      await expect.poll(() => bootstrapRequests.length).toBe(1)
+      await expect.poll(() => agentRequests).toBe(2)
       await expect(newTask).toHaveAttribute("aria-busy", "true")
       expect(await persistedDraftTabs(page)).toHaveLength(0)
-      gate.resolve()
+      agentGate.resolve()
 
       await expect(page).toHaveURL(/\/new-session\?draftId=/)
       await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
@@ -62,6 +62,7 @@ for (const protocol of protocols) {
         `workspace bootstrap requests after double click:\n${bootstrapRequests.join("\n")}`,
       ).toHaveLength(1)
 
+      await page.clock.install({ time: Date.now() })
       await page.clock.fastForward(1_501)
       expect(
         bootstrapRequests,
@@ -112,6 +113,104 @@ for (const protocol of protocols) {
     })
   })
 }
+
+test("submits immediately after a transient empty V2 agent registry recovers", async ({ page }) => {
+  const sessionID = "ses_immediate_task_submit"
+  const prompt = "Submit without restarting after adding the project"
+  const agentGate = Promise.withResolvers<void>()
+  let agentRequests = 0
+  let backgroundRefresh = false
+  let backgroundEmptyResponses = 0
+  await setup(page, "v2", async (input) => {
+    if (input.directory !== directory) return selectableAgents("v2")
+    agentRequests++
+    if (backgroundRefresh && backgroundEmptyResponses < 6) {
+      backgroundEmptyResponses++
+      return []
+    }
+    if (agentRequests === 1) return []
+    await agentGate.promise
+    return selectableAgents("v2")
+  })
+  const transport = await installSseTransport(page, { server: mockServer })
+  const sessionRequests: unknown[] = []
+  const promptRequests: unknown[] = []
+  await page.route("**/api/session**", async (route) => {
+    const url = new URL(route.request().url())
+    if (route.request().method() === "POST" && url.pathname === "/api/session") {
+      sessionRequests.push(route.request().postDataJSON())
+      return fulfillJson(route, {
+        data: {
+          id: sessionID,
+          projectID: project.id,
+          agent: "build",
+          model: { id: "mock-model", providerID: "mock-provider" },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: 1_700_000_000_000, updated: 1_700_000_000_000 },
+          title: "Immediate task submit",
+          location: { directory },
+        },
+      })
+    }
+    if (route.request().method() === "POST" && url.pathname === `/api/session/${sessionID}/prompt`) {
+      promptRequests.push(route.request().postDataJSON())
+      return fulfillJson(route, {
+        data: {
+          admittedSeq: 1,
+          id: "msg_immediate_task_submit",
+          sessionID,
+          timeCreated: 1_700_000_000_000,
+          type: "user",
+          data: { text: prompt },
+          delivery: "steer",
+        },
+      })
+    }
+    return route.fallback()
+  })
+
+  const protocolReady = waitForProtocol(page, "v2")
+  await page.goto("/")
+  await protocolReady
+  await transport.waitForConnection()
+  const row = await addProject(page, "v2")
+  const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
+  await newTask.click()
+
+  await expect.poll(() => agentRequests).toBe(2)
+  expect(await persistedDraftTabs(page)).toHaveLength(0)
+  agentGate.resolve()
+
+  await expect(page).toHaveURL(/\/new-session\?draftId=/)
+  const composer = page.locator('[data-component="prompt-input-v2"]')
+  await expectAppVisible(composer)
+
+  backgroundRefresh = true
+  await transport.send({
+    directory,
+    payload: { id: "evt_agent_background_recovery", type: "agent.updated", properties: {} },
+  })
+  await expect.poll(() => backgroundEmptyResponses, { timeout: 10_000 }).toBe(6)
+  await expect.poll(() => agentRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(9)
+
+  const editor = composer.locator('[data-component="prompt-input"]')
+  await expect(editor).toHaveAttribute("contenteditable", "true")
+  await editor.fill(prompt)
+  const submit = composer.locator('[data-action="prompt-submit"]')
+  await expect(submit).toBeEnabled()
+  await submit.click()
+
+  await expect(page).toHaveURL(new RegExp(`/session/${sessionID}$`))
+  await expect.poll(() => sessionRequests).toHaveLength(1)
+  await expect.poll(() => promptRequests).toHaveLength(1)
+  expect(sessionRequests[0]).toMatchObject({ agent: "build" })
+  expect(
+    ((sessionRequests[0] as { location?: { directory?: string } }).location?.directory ?? "").replaceAll("\\", "/"),
+  ).toBe(directory)
+  expect(promptRequests[0]).toMatchObject({ prompt: { text: prompt } })
+  await expect(page.getByText("Select an agent and model", { exact: true })).toHaveCount(0)
+})
 
 async function setup(
   page: Page,

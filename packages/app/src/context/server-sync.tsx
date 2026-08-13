@@ -102,6 +102,17 @@ export function refreshWorkspaceReadinessOnReconnect(input: {
   return input.directories.filter(input.active).map((directory) => input.refresh(directory))
 }
 
+export function refreshWorkspaceReadinessOnAgentChange(input: {
+  directories: readonly string[]
+  active: (directory: string) => boolean
+  invalidate: (directory: string) => void
+  refresh: (directory: string) => Promise<"ready" | "degraded">
+}) {
+  const directories = input.directories.map(directoryKey)
+  directories.forEach(input.invalidate)
+  return directories.filter(input.active).map(input.refresh)
+}
+
 export function createWorkspaceReadinessController(input: {
   scope: ServerScope
   bootstrap: (directory: string) => Promise<WorkspaceBootstrapResult>
@@ -141,6 +152,7 @@ export function createWorkspaceReadinessController(input: {
     ensureReady,
     refresh: start,
     readiness: (directory: string) => states.get(key(directory))?.status ?? "initializing",
+    invalidate: (directory: string) => states.delete(key(directory)),
     clear: (directory: string) => states.delete(key(directory)),
   }
 }
@@ -627,7 +639,15 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         eventType === "project.directories.updated"
       )
         bootstrap.refetch()
-      if (eventType === "config.updated" || eventType === "agent.updated") void refreshAgents()
+      if (eventType === "config.updated" || eventType === "agent.updated") {
+        void refreshAgents()
+        refreshWorkspaceReadinessOnAgentChange({
+          directories: Object.keys(children.children),
+          active: children.active,
+          invalidate: workspaceReadiness.invalidate,
+          refresh: workspaceReadiness.refresh,
+        }).forEach((request) => void request.catch(() => undefined))
+      }
       if (eventType === "server.connected") {
         if (recent) return
         refreshWorkspaceReadinessOnReconnect({
@@ -668,7 +688,10 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       eventType === "agent.updated"
     )
       queue.push(key)
-    if (eventType === "config.updated" || eventType === "agent.updated") void refreshAgents(key)
+    if (eventType === "config.updated" || eventType === "agent.updated") {
+      workspaceReadiness.invalidate(key)
+      void refreshAgents(key)
+    }
     if (eventType === "mcp.status.changed") void queryClient.invalidateQueries(queryOptionsApi.mcp(key))
     if (eventType === "mcp.resources.changed") void queryClient.invalidateQueries(queryOptionsApi.mcpResources(key))
     const [store, setStore] = existing

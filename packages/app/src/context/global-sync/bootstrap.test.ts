@@ -409,6 +409,25 @@ describe("query keys", () => {
     expect(result).toEqual([expect.objectContaining({ name: "build", mode: "primary" })])
   })
 
+  test("stops after exactly six empty agent registry responses", async () => {
+    let calls = 0
+    const api = {
+      list: async () => {
+        calls++
+        return { location: {}, data: [] }
+      },
+    } as unknown as AgentApi
+    const options = loadAgentsQuery(ServerScope.local, "/repo", api)
+
+    expect(options.retry).toBe(false)
+    const interval = options.refetchInterval
+    if (typeof interval !== "function") throw new Error("Agent recovery interval must be dynamic")
+    expect(interval({ state: { status: "error" } } as Parameters<typeof interval>[0])).toBe(2_000)
+    expect(interval({ state: { status: "success" } } as Parameters<typeof interval>[0])).toBe(false)
+    await expect(new QueryClient().fetchQuery(options)).rejects.toThrow("No selectable agent is available")
+    expect(calls).toBe(6)
+  })
+
   test("loads commands from the current location-scoped endpoint", async () => {
     const calls: unknown[] = []
     const api = {

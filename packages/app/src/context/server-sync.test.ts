@@ -15,6 +15,7 @@ import {
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
+  refreshWorkspaceReadinessOnAgentChange,
   refreshWorkspaceReadinessOnReconnect,
   seedActiveSessionStatuses,
 } from "./server-sync"
@@ -248,6 +249,41 @@ describe("workspace readiness", () => {
     expect(ready.readiness("/project")).toBe("initializing")
     expect(await ready.ensureReady("/project")).toBe("ready")
     expect(readyCalls).toBe(2)
+  })
+
+  test("invalidates every changed agent workspace and refreshes only active workspaces", async () => {
+    const invalidated: string[] = []
+    const refreshed: string[] = []
+    const requests = refreshWorkspaceReadinessOnAgentChange({
+      directories: ["C:\\active\\", "C:\\inactive\\"],
+      active: (directory) => directory === "C:/active",
+      invalidate: (directory) => invalidated.push(directory),
+      refresh: async (directory) => {
+        refreshed.push(directory)
+        return "ready"
+      },
+    })
+
+    expect(invalidated).toEqual(["C:/active", "C:/inactive"])
+    expect(await Promise.all(requests)).toEqual(["ready"])
+    expect(refreshed).toEqual(["C:/active"])
+  })
+
+  test("makes an invalidated ready workspace retry on the next readiness request", async () => {
+    let calls = 0
+    const controller = createWorkspaceReadinessController({
+      scope: ServerScope.local,
+      bootstrap: async () => {
+        calls++
+        return { status: "ready" as const, errors: [] }
+      },
+    })
+
+    expect(await controller.ensureReady("/project")).toBe("ready")
+    controller.invalidate("/project/")
+    expect(controller.readiness("/project")).toBe("initializing")
+    expect(await controller.ensureReady("/project")).toBe("ready")
+    expect(calls).toBe(2)
   })
 })
 

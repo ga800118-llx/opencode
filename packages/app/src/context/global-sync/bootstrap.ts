@@ -273,6 +273,8 @@ export const loadAgentsQuery = (
 ) =>
   queryOptions({
     queryKey: [scope, directory, "agents"],
+    retry: false,
+    refetchInterval: (query) => (query.state.status === "error" ? 2_000 : false),
     queryFn: () =>
       retry(
         async () => {
@@ -445,7 +447,7 @@ export async function bootstrapDirectory(input: {
             if (next) input.setStore("project", next)
           })),
     () =>
-      input.queryClient.ensureQueryData(
+      input.queryClient.fetchQuery(
         loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol),
       ),
   ].filter(Boolean) as Array<() => Promise<unknown>>
