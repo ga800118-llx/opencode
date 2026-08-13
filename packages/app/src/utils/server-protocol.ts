@@ -27,6 +27,18 @@ async function probe(server: ServerConnection.HttpBase, fetch: typeof globalThis
   return value
 }
 
+async function probeOpenApi(
+  server: ServerConnection.HttpBase,
+  fetch: typeof globalThis.fetch,
+  protocol: ServerProtocol,
+) {
+  if (protocol === "v1") return probe(server, fetch, "/doc").catch(() => undefined)
+  return (
+    (await probe(server, fetch, "/openapi.json").catch(() => undefined)) ??
+    probe(server, fetch, "/doc").catch(() => undefined)
+  )
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
@@ -55,7 +67,7 @@ export async function detectServerProtocol(
   const current = await probe(server, fetch, "/api/health").catch(() => undefined)
   if (current && "pid" in current && typeof current.pid === "number") return "v2"
   if (current && "healthy" in current && current.healthy === true) {
-    const openapi = await probe(server, fetch, "/openapi.json").catch(() => undefined)
+    const openapi = await probeOpenApi(server, fetch, "v2")
     if (hasV2ProtocolCapability(openapi)) return "v2"
   }
 
@@ -71,6 +83,6 @@ export async function detectPermissionModeCapability(
   protocol: Promise<ServerProtocol> | ServerProtocol,
 ) {
   const kind = await protocol
-  const openapi = await probe(server, fetch, kind === "v1" ? "/doc" : "/openapi.json").catch(() => undefined)
+  const openapi = await probeOpenApi(server, fetch, kind)
   return hasPermissionModeCapability(openapi, kind)
 }

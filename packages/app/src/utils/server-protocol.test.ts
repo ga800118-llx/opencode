@@ -19,7 +19,8 @@ describe("detectServerProtocol", () => {
       const path = new URL(input instanceof Request ? input.url : input).pathname
       paths.push(path)
       if (path === "/api/health") return Promise.resolve(json({ healthy: true }))
-      if (path === "/openapi.json") {
+      if (path === "/openapi.json") return Promise.resolve(new Response("<html></html>"))
+      if (path === "/doc") {
         return Promise.resolve(
           json({
             paths: {
@@ -34,7 +35,7 @@ describe("detectServerProtocol", () => {
     })
 
     expect(await detectServerProtocol(server, fetcher)).toBe("v2")
-    expect(paths).toEqual(["/api/health", "/openapi.json"])
+    expect(paths).toEqual(["/api/health", "/openapi.json", "/doc"])
   })
 
   test("falls back to the legacy health endpoint without a V2 capability", async () => {
@@ -171,8 +172,12 @@ describe("detectPermissionModeCapability", () => {
   })
 
   test("recognizes the current V2 permission-mode operation", async () => {
-    const fetcher = mockFetch(() =>
-      Promise.resolve(
+    const paths: string[] = []
+    const fetcher = mockFetch((input) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      paths.push(path)
+      if (path === "/openapi.json") return Promise.resolve(json({}, 404))
+      return Promise.resolve(
         json({
           paths: {
             "/api/session/{sessionID}/permission-mode": {
@@ -180,10 +185,11 @@ describe("detectPermissionModeCapability", () => {
             },
           },
         }),
-      ),
-    )
+      )
+    })
 
     expect(await detectPermissionModeCapability(server, fetcher, "v2")).toBe(true)
+    expect(paths).toEqual(["/openapi.json", "/doc"])
   })
 
   test("rejects an older V2 OpenAPI document without the POST operation", async () => {
