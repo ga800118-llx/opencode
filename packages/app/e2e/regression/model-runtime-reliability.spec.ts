@@ -229,6 +229,22 @@ test("keeps a delayed model request running beyond the former short deadline", a
           if (new URL(route.request().url()).origin !== runtime.url) return route.fallback()
           return route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" })
         })
+        let agentResponses = 0
+        await page.route("**/api/agent?*", (route) => {
+          const url = new URL(route.request().url())
+          if (
+            url.origin !== runtime.url ||
+            url.searchParams.get("location[directory]") !== resolvedDirectory ||
+            agentResponses > 0
+          )
+            return route.fallback()
+          agentResponses++
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ location: { directory: resolvedDirectory }, data: [] }),
+          })
+        })
         await page.addInitScript(
           ({ server, directory, providerID }) => {
             localStorage.clear()
@@ -279,13 +295,19 @@ test("keeps a delayed model request running beyond the former short deadline", a
           { timeout: APP_READY_TIMEOUT },
         )
         const browserAgents = page.waitForResponse(
-          (response) => {
+          async (response) => {
             const url = new URL(response.url())
-            return (
+            if (
               url.origin === runtime.url &&
               url.pathname === "/api/agent" &&
               url.searchParams.get("location[directory]") === resolvedDirectory
-            )
+            ) {
+              const body = (await response.json().catch(() => undefined)) as
+                | { data?: Array<{ id?: string }> }
+                | undefined
+              return body?.data?.some((agent) => agent.id === "build") === true
+            }
+            return false
           },
           { timeout: APP_READY_TIMEOUT },
         )
@@ -335,6 +357,7 @@ test("keeps a delayed model request running beyond the former short deadline", a
         expect(browserAgentBody, `Browser V2 agents: ${JSON.stringify(browserAgentBody, null, 2)}`).toMatchObject({
           data: expect.arrayContaining([expect.objectContaining({ id: "build" })]),
         })
+        expect(agentResponses).toBe(1)
         expect(new URL(page.url()).pathname).toBe(sessionPath)
 
         const composer = page.locator('[data-component="prompt-input-v2"]')

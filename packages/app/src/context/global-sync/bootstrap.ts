@@ -57,6 +57,13 @@ type GlobalStore = {
   reload: undefined | "pending" | "complete"
 }
 
+export class AgentRegistryUnavailableError extends Error {
+  constructor(directory: string) {
+    super(`No selectable agent is available for ${directory}`)
+    this.name = "AgentRegistryUnavailableError"
+  }
+}
+
 function waitForPaint() {
   return new Promise<void>((resolve) => {
     let done = false
@@ -267,10 +274,24 @@ export const loadAgentsQuery = (
   queryOptions({
     queryKey: [scope, directory, "agents"],
     queryFn: () =>
-      retry(async () => {
-        if ((await protocol) === "v1" && legacy) return normalizeAgentList((await legacy.app.agents()).data ?? [])
-        return sdk.list({ location: { directory } }).then((result) => normalizeAgentList(result.data))
-      }),
+      retry(
+        async () => {
+          const data = await retry(async () => {
+            if ((await protocol) === "v1" && legacy)
+              return normalizeAgentList((await legacy.app.agents()).data ?? [])
+            return sdk.list({ location: { directory } }).then((result) => normalizeAgentList(result.data))
+          })
+          if (data.some((agent) => agent.mode !== "subagent" && !agent.hidden)) return data
+          throw new AgentRegistryUnavailableError(directory)
+        },
+        {
+          attempts: 6,
+          delay: 250,
+          factor: 2,
+          maxDelay: 1_000,
+          retryIf: (error) => error instanceof AgentRegistryUnavailableError,
+        },
+      ),
   })
 
 export const loadCommands = (
@@ -423,14 +444,14 @@ export async function bootstrapDirectory(input: {
             const next = projectID(data.directory ?? input.directory, input.global.project)
             if (next) input.setStore("project", next)
           })),
+    () =>
+      input.queryClient.ensureQueryData(
+        loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol),
+      ),
   ].filter(Boolean) as Array<() => Promise<unknown>>
 
   const optional = [
     () => Promise.resolve(input.loadSessions(input.directory)),
-    () =>
-      input.queryClient
-        .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
-        .then((data) => input.setStore("agent", data)),
     () =>
       retry(() =>
         (async () => {

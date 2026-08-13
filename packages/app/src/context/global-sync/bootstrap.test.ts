@@ -23,7 +23,20 @@ type ProjectApi = ServerApi["project"]
 
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
 const api = {
-  agent: { list: async () => ({ location: {}, data: [] }) },
+  agent: {
+    list: async () => ({
+      location: {},
+      data: [
+        {
+          id: "build",
+          mode: "primary",
+          hidden: false,
+          request: { headers: {}, body: {} },
+          permissions: [],
+        },
+      ],
+    }),
+  },
   provider: { list: async () => ({ location: {}, data: [] }) },
   model: {
     list: async () => ({ location: {}, data: [] }),
@@ -349,14 +362,51 @@ describe("query keys", () => {
     const api = {
       list: async (input: unknown) => {
         calls.push(input)
-        return { location: {}, data: [] }
+        return {
+          location: {},
+          data: [
+            {
+              id: "build",
+              mode: "primary",
+              hidden: false,
+              request: { headers: {}, body: {} },
+              permissions: [],
+            },
+          ],
+        }
       },
     } as unknown as AgentApi
 
     const result = await new QueryClient().fetchQuery(loadAgentsQuery(ServerScope.local, "/repo", api))
 
     expect(calls).toEqual([{ location: { directory: "/repo" } }])
-    expect(result).toEqual([])
+    expect(result).toEqual([expect.objectContaining({ name: "build", mode: "primary" })])
+  })
+
+  test("retries a transient empty agent registry before making the workspace ready", async () => {
+    let calls = 0
+    const api = {
+      list: async () => ({
+        location: {},
+        data:
+          ++calls === 1
+            ? []
+            : [
+                {
+                  id: "build",
+                  mode: "primary",
+                  hidden: false,
+                  request: { headers: {}, body: {} },
+                  permissions: [],
+                },
+              ],
+      }),
+    } as unknown as AgentApi
+
+    const result = await new QueryClient().fetchQuery(loadAgentsQuery(ServerScope.local, "/repo", api))
+
+    expect(calls).toBe(2)
+    expect(result).toEqual([expect.objectContaining({ name: "build", mode: "primary" })])
   })
 
   test("loads commands from the current location-scoped endpoint", async () => {

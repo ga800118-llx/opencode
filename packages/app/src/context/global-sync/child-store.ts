@@ -202,6 +202,10 @@ export function createChildStoreManager(input: {
             ...input.queryOptions.references(key),
             enabled: instanceQueriesEnabled(),
           }))
+          const agentQuery = useQuery(() => ({
+            ...input.queryOptions.agents(key),
+            enabled: instanceQueriesEnabled(),
+          }))
 
           const child = createStore<State>({
             project: "",
@@ -223,7 +227,9 @@ export function createChildStoreManager(input: {
               return pathQuery.data ?? EMPTY
             },
             status: "loading" as const,
-            agent: [],
+            get agent() {
+              return agentQuery.isLoading ? [] : (agentQuery.data ?? [])
+            },
             command: [],
             get reference() {
               return referenceQuery.isLoading ? [] : (referenceQuery.data ?? [])

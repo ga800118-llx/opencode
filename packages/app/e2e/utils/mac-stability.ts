@@ -112,6 +112,7 @@ export async function setupMockApp(
     projects?: Array<{ worktree: string; expanded?: boolean }>
     tabs?: unknown[]
     provider?: ReturnType<typeof providerFixture>
+    agents?: import("./mock-server").MockServerConfig["agents"]
     fileList?: (path: string) => unknown | Promise<unknown>
     findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown
     failProjectMetaWrites?: { name: string; count?: number }
@@ -123,6 +124,7 @@ export async function setupMockApp(
     directory: input.directory,
     project,
     provider: input.provider ?? providerFixture(),
+    agents: input.agents,
     sessions: input.sessions ?? [],
     pageMessages: () => ({ items: [] }),
     fileList: input.fileList,

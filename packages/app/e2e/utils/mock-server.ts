@@ -24,6 +24,7 @@ export interface MockServerConfig {
   todos?: (sessionID: string) => unknown[]
   permissions?: unknown[] | (() => unknown[])
   questions?: unknown[] | (() => unknown[])
+  agents?: unknown[] | ((input: { directory: string; protocol: "v1" | "v2" }) => unknown[])
   fileList?: (path: string) => unknown | Promise<unknown>
   fileContent?: (path: string) => unknown | Promise<unknown>
   findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown
@@ -43,7 +44,6 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     },
     "/project": [config.project],
     "/project/current": config.project,
-    "/agent": [{ name: "build", mode: "primary" }],
     "/vcs": { branch: "main", default_branch: "main" },
     "/session": config.sessions,
   }
@@ -157,6 +157,13 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return json(route, typeof config.permissions === "function" ? config.permissions() : (config.permissions ?? []))
     if (path === "/question")
       return json(route, typeof config.questions === "function" ? config.questions() : (config.questions ?? []))
+    if (path === "/agent")
+      return json(
+        route,
+        typeof config.agents === "function"
+          ? config.agents({ directory: url.searchParams.get("directory") ?? config.directory, protocol: "v1" })
+          : (config.agents ?? [{ name: "build", mode: "primary" }]),
+      )
     if (path === "/session/status")
       return json(
         route,
@@ -192,16 +199,22 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (path === "/api/agent")
       return json(route, {
         location: location(config),
-        data: [
-          {
-            id: "build",
-            name: "Build",
-            mode: "primary",
-            hidden: false,
-            request: { settings: {}, headers: {}, body: {} },
-            permissions: [],
-          },
-        ],
+        data:
+          typeof config.agents === "function"
+            ? config.agents({
+                directory: url.searchParams.get("location[directory]") ?? config.directory,
+                protocol: "v2",
+              })
+            : (config.agents ?? [
+                {
+                  id: "build",
+                  name: "Build",
+                  mode: "primary",
+                  hidden: false,
+                  request: { settings: {}, headers: {}, body: {} },
+                  permissions: [],
+                },
+              ]),
       })
     if (path === "/api/command") return json(route, { location: location(config), data: [] })
     if (path === "/api/mcp") return json(route, { location: location(config), data: [] })

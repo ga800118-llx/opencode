@@ -22,6 +22,7 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
 
 const child = () => createStore({} as State)
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
+let agents: State["agent"] = []
 
 class DeferredStorage {
   private writes: Array<{
@@ -129,6 +130,7 @@ beforeAll(async () => {
           if (options().queryKey?.[1] === "mcp") return options().enabled ? { demo: { status: "disabled" } } : undefined
           if (options().queryKey?.[1] === "lsp") return []
           if (options().queryKey?.[1] === "providers") return provider
+          if (options().queryKey?.[1] === "agents") return agents
           return undefined
         },
       }
@@ -141,6 +143,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   platform = { platform: "web" }
+  agents = []
 })
 
 describe("createChildStoreManager", () => {
@@ -270,7 +273,7 @@ describe("createChildStoreManager", () => {
     try {
       if (!manager) throw new Error("manager required")
       const [store, setStore] = manager.child("/project", { bootstrap: false })
-      expect(querySingles.length - offset).toBe(6)
+      expect(querySingles.length - offset).toBe(7)
       const query = querySingles[offset + 1]
       const resourceQuery = querySingles[offset + 2]
       if (!query) throw new Error("query required")
@@ -368,11 +371,12 @@ describe("createChildStoreManager", () => {
       const [store] = manager.child("/project", { bootstrap: false })
       const queries = querySingles.slice(offset)
 
-      expect(queries).toHaveLength(6)
+      expect(queries).toHaveLength(7)
       expect(queries[0]?.().enabled).toBe(false)
       expect(queries[3]?.().enabled).toBe(false)
       expect(queries[4]?.().enabled).toBe(false)
       expect(queries[5]?.().enabled).toBe(false)
+      expect(queries[6]?.().enabled).toBe(false)
       expect(store.path.directory).toBe("/project")
       expect(store.provider_ready).toBe(false)
       expect(store.lsp_ready).toBe(false)
@@ -387,6 +391,37 @@ describe("createChildStoreManager", () => {
 
       manager.child("/project", { bootstrap: false })
       expect(queries[0]?.().enabled).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("follows agent query updates after an empty startup response", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store] = manager.child("/project")
+      expect(store.agent).toEqual([])
+
+      agents = [{ name: "build", mode: "primary", hidden: false }] as State["agent"]
+      expect(store.agent).toEqual(agents)
     } finally {
       dispose()
     }

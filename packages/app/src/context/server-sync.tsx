@@ -333,6 +333,13 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     queryClient.refetchQueries({
       predicate: (query) => query.queryKey[0] === serverSDK.scope && query.queryKey[2] === "providers",
     })
+  const refreshAgents = (directory?: string) =>
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        query.queryKey[0] === serverSDK.scope &&
+        query.queryKey[2] === "agents" &&
+        (!directory || query.queryKey[1] === directoryKey(directory)),
+    })
 
   let bootedAt = 0
   let bootingRoot = false
@@ -620,6 +627,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         eventType === "project.directories.updated"
       )
         bootstrap.refetch()
+      if (eventType === "config.updated" || eventType === "agent.updated") void refreshAgents()
       if (eventType === "server.connected") {
         if (recent) return
         refreshWorkspaceReadinessOnReconnect({
@@ -660,6 +668,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       eventType === "agent.updated"
     )
       queue.push(key)
+    if (eventType === "config.updated" || eventType === "agent.updated") void refreshAgents(key)
     if (eventType === "mcp.status.changed") void queryClient.invalidateQueries(queryOptionsApi.mcp(key))
     if (eventType === "mcp.resources.changed") void queryClient.invalidateQueries(queryOptionsApi.mcpResources(key))
     const [store, setStore] = existing

@@ -18,7 +18,12 @@ test.use({ viewport: { width: 1440, height: 900 } })
 for (const protocol of protocols) {
   test.describe(`${protocol.toUpperCase()} project task recovery`, () => {
     test("adds a project and deduplicates an immediate double New Task click", async ({ page }) => {
-      await setup(page, protocol)
+      let agentRequests = 0
+      await setup(page, protocol, () => {
+        agentRequests++
+        if (agentRequests === 1) return []
+        return selectableAgents(protocol)
+      })
       const transport = await installSseTransport(page, { server: mockServer })
       const gate = Promise.withResolvers<void>()
       const bootstrapRequests: string[] = []
@@ -50,6 +55,7 @@ for (const protocol of protocols) {
 
       await expect(page).toHaveURL(/\/new-session\?draftId=/)
       await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
+      expect(agentRequests).toBeGreaterThanOrEqual(2)
       expect(await persistedDraftTabs(page)).toHaveLength(1)
       expect(
         bootstrapRequests,
@@ -107,12 +113,17 @@ for (const protocol of protocols) {
   })
 }
 
-async function setup(page: Page, protocol: (typeof protocols)[number]) {
+async function setup(
+  page: Page,
+  protocol: (typeof protocols)[number],
+  agents?: import("../utils/mock-server").MockServerConfig["agents"],
+) {
   await setupMockApp(page, {
     directory,
     protocol,
     project,
     projects: [],
+    agents,
     fileList: (path) => {
       if (protocol === "v1")
         return path
@@ -123,6 +134,20 @@ async function setup(page: Page, protocol: (typeof protocols)[number]) {
     },
     findFiles: () => [project.name],
   })
+}
+
+function selectableAgents(protocol: (typeof protocols)[number]) {
+  if (protocol === "v1") return [{ name: "build", mode: "primary" }]
+  return [
+    {
+      id: "build",
+      name: "Build",
+      mode: "primary",
+      hidden: false,
+      request: { settings: {}, headers: {}, body: {} },
+      permissions: [],
+    },
+  ]
 }
 
 function waitForProtocol(page: Page, protocol: (typeof protocols)[number]) {
