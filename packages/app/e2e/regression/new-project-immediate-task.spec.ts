@@ -111,6 +111,35 @@ for (const protocol of protocols) {
       expect(readinessAttempts).toBe(2)
       expect(await persistedDraftTabs(page)).toHaveLength(1)
     })
+
+    test("recovers after six empty agent responses without leaving a draft", async ({ page }) => {
+      let agentRequests = 0
+      await setup(page, protocol, async (input) => {
+        if (input.directory !== directory) return selectableAgents(protocol)
+        agentRequests++
+        if (agentRequests <= 6) return []
+        return selectableAgents(protocol)
+      })
+
+      const protocolReady = waitForProtocol(page, protocol)
+      await page.goto("/")
+      await protocolReady
+      const row = await addProject(page, protocol)
+      const newTask = row.locator("..").locator('[data-action="home-project-new-session"]')
+      await newTask.click()
+
+      await expect.poll(() => agentRequests, { timeout: 10_000 }).toBe(6)
+      await expect(newTask).toBeEnabled()
+      await expect(page).toHaveURL(/\/$/)
+      expect(await persistedDraftTabs(page)).toHaveLength(0)
+      await expect(page.getByText("Failed to reload ImmediateTask", { exact: true })).toBeVisible()
+
+      await newTask.click()
+      await expect(page).toHaveURL(/\/new-session\?draftId=/)
+      await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
+      expect(agentRequests).toBeGreaterThanOrEqual(7)
+      expect(await persistedDraftTabs(page)).toHaveLength(1)
+    })
   })
 }
 
@@ -118,15 +147,20 @@ test("submits immediately after a transient empty V2 agent registry recovers", a
   const sessionID = "ses_immediate_task_submit"
   const prompt = "Submit without restarting after adding the project"
   const agentGate = Promise.withResolvers<void>()
+  const backgroundGate = Promise.withResolvers<void>()
+  const recoveryGate = Promise.withResolvers<void>()
   let agentRequests = 0
   let backgroundRefresh = false
-  let backgroundEmptyResponses = 0
+  let backgroundRequests = 0
   await setup(page, "v2", async (input) => {
     if (input.directory !== directory) return selectableAgents("v2")
     agentRequests++
-    if (backgroundRefresh && backgroundEmptyResponses < 6) {
-      backgroundEmptyResponses++
-      return []
+    if (backgroundRefresh) {
+      backgroundRequests++
+      if (backgroundRequests === 1) await backgroundGate.promise
+      if (backgroundRequests <= 6) return []
+      await recoveryGate.promise
+      return selectableAgents("v2")
     }
     if (agentRequests === 1) return []
     await agentGate.promise
@@ -185,19 +219,37 @@ test("submits immediately after a transient empty V2 agent registry recovers", a
   await expect(page).toHaveURL(/\/new-session\?draftId=/)
   const composer = page.locator('[data-component="prompt-input-v2"]')
   await expectAppVisible(composer)
+  const editor = composer.locator('[data-component="prompt-input"]')
+  await editor.fill(prompt)
+  const submit = composer.locator('[data-action="prompt-submit"]')
+  await expect(submit).toBeEnabled()
 
   backgroundRefresh = true
   await transport.send({
     directory,
     payload: { id: "evt_agent_background_recovery", type: "agent.updated", properties: {} },
   })
-  await expect.poll(() => backgroundEmptyResponses, { timeout: 10_000 }).toBe(6)
-  await expect.poll(() => agentRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(9)
+  await expect.poll(() => backgroundRequests).toBe(1)
+  await expect(editor).toHaveAttribute("contenteditable", "false")
+  await expect(submit).toBeDisabled()
+  await submit.evaluate((button) => (button as HTMLButtonElement).click())
+  await editor.evaluate((element) =>
+    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  )
+  expect(sessionRequests).toHaveLength(0)
+  expect(promptRequests).toHaveLength(0)
+  await expect(editor).toHaveText(prompt)
 
-  const editor = composer.locator('[data-component="prompt-input"]')
+  backgroundGate.resolve()
+  await expect.poll(() => backgroundRequests, { timeout: 10_000 }).toBe(7)
+  await expect(editor).toHaveAttribute("contenteditable", "false")
+  await expect(submit).toBeDisabled()
+  expect(sessionRequests).toHaveLength(0)
+  expect(promptRequests).toHaveLength(0)
+  await expect(editor).toHaveText(prompt)
+
+  recoveryGate.resolve()
   await expect(editor).toHaveAttribute("contenteditable", "true")
-  await editor.fill(prompt)
-  const submit = composer.locator('[data-action="prompt-submit"]')
   await expect(submit).toBeEnabled()
   await submit.click()
 
