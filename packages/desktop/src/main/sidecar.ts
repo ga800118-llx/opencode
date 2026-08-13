@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import * as http from "node:http"
 import * as tls from "node:tls"
 
@@ -54,6 +55,7 @@ async function start(command: StartCommand) {
     ensureLoopbackNoProxy()
     useSystemCertificates()
     useEnvProxy()
+    await verifyBundledGitForInternalPackage()
     const { Server } = await import("virtual:opencode-server")
 
     listener = await Server.listen({
@@ -68,6 +70,19 @@ async function start(command: StartCommand) {
     parentPort.postMessage({ type: "error", error: serializeError(error) })
     setImmediate(() => process.exit(1))
   }
+}
+
+async function verifyBundledGitForInternalPackage() {
+  if (process.env.GUAI_CODE_INTERNAL_PACKAGE_SMOKE !== "1") return
+  await new Promise<void>((resolve, reject) => {
+    execFile("git", ["--version"], (error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    })
+  })
 }
 
 async function stop() {

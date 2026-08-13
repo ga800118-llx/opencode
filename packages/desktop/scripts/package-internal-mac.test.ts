@@ -943,6 +943,7 @@ describe("internal Mac package", () => {
       LANG: "C",
       LC_ALL: "C",
       GIT_TRACE2_EVENT: path.join(smoke, "git-trace.json"),
+      GUAI_CODE_INTERNAL_PACKAGE_SMOKE: "1",
       OPENCODE_UPDATER_ENABLED: "false",
       OPENCODE_SIDECAR_V2: "0",
     })
