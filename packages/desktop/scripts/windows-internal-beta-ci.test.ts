@@ -42,6 +42,11 @@ describe("Windows internal beta CI safety contracts", () => {
 
   test("uses one durable Electron profile and allowlisted safeStorage diagnostics", async () => {
     const workflow = await Bun.file(workflowPath).text()
+    const electronRuntime = section(
+      workflow,
+      "      - name: Prepare Electron runtime",
+      "      - name: Parse verifier with Windows PowerShell 5.1",
+    )
     const smoke = section(
       workflow,
       "      - name: Verify native safeStorage",
@@ -51,6 +56,13 @@ describe("Windows internal beta CI safety contracts", () => {
     const userDataSetPath = 'app.setPath("userData", expectedProfilePath)'
     const sessionDataSetPath = 'app.setPath("sessionData", expectedProfilePath)'
 
+    expect(electronRuntime).toContain('require.resolve("electron/package.json")')
+    expect(electronRuntime).toContain('"ffmpeg.dll"')
+    expect(electronRuntime).toContain('"icudtl.dat"')
+    expect(electronRuntime).toContain('"resources\\default_app.asar"')
+    expect(electronRuntime).toContain('Remove-Item -LiteralPath $electronDistDirectory -Recurse -Force')
+    expect(electronRuntime).toContain('& node (Join-Path $electronPackageDirectory "install.js")')
+    expect(electronRuntime).toContain('throw "Electron runtime is incomplete: $($missingRuntimeFiles -join \', \')"')
     expect(smoke).toContain(userDataSetPath)
     expect(smoke).toContain(sessionDataSetPath)
     expect(smoke.indexOf(userDataSetPath)).toBeLessThan(readyIndex)
