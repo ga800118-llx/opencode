@@ -103,6 +103,7 @@ test("session methods use the public HTTP contract", async () => {
         )
       }
       if (url.includes("/prompt")) return Response.json(admission)
+      if (url.includes("/compact")) return Response.json(compactionAdmission)
       if (url.includes("/context")) return Response.json({ data: [] })
       if (url.includes("/message/")) return Response.json({ data: modelSwitchedMessage })
       if (url.endsWith("/api/session/active")) return Response.json({ data: { ses_test: { type: "running" } } })
@@ -130,7 +131,7 @@ test("session methods use the public HTTP contract", async () => {
     prompt: { text: "Hello" },
     resume: false,
   })
-  await client.sessions.compact({ sessionID: "ses_test" })
+  const compacted = await client.sessions.compact({ sessionID: "ses_test", id: "msg_compact" })
   await client.sessions.wait({ sessionID: "ses_test" })
   const context = await client.sessions.context({ sessionID: "ses_test" })
   const history = await client.sessions.history({ sessionID: "ses_test", after: 0, limit: 1 })
@@ -148,6 +149,7 @@ test("session methods use the public HTTP contract", async () => {
   expect(created.id).toBe("ses_test")
   expect(created.permissionMode).toBe("auto")
   expect(admitted.id).toBe("msg_test")
+  expect(compacted).toEqual(compactionAdmission.data)
   expect(context).toEqual([])
   expect(history).toEqual({ data: [permissionModeSwitchedEvent], hasMore: true })
   expect(
@@ -164,7 +166,7 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/session/ses_test/model"],
     ["POST", "http://localhost:3000/api/session/ses_test/permission-mode"],
     ["POST", "http://localhost:3000/api/session/ses_test/prompt"],
-    ["POST", "http://localhost:3000/api/session/ses_test/compact"],
+    ["POST", "http://localhost:3000/api/session/ses_test/compact?id=msg_compact"],
     ["POST", "http://localhost:3000/api/session/ses_test/wait"],
     ["GET", "http://localhost:3000/api/session/ses_test/context"],
     ["GET", "http://localhost:3000/api/session/ses_test/history?limit=1&after=0"],
@@ -186,6 +188,8 @@ test("session methods use the public HTTP contract", async () => {
     prompt: { text: "Hello" },
     resume: false,
   })
+  const compactRequest = requests.find((request) => request.url.includes("/api/session/ses_test/compact"))
+  expect(compactRequest?.init?.body).toBeUndefined()
 })
 
 test("skill management methods use the public HTTP contract", async () => {
@@ -302,6 +306,16 @@ const admission = {
     sessionID: "ses_test",
     prompt: { text: "Hello" },
     delivery: "steer",
+    timeCreated: 1_717_171_717_000,
+  },
+}
+
+const compactionAdmission = {
+  data: {
+    type: "compaction",
+    admittedSeq: 1,
+    id: "msg_compact",
+    sessionID: "ses_test",
     timeCreated: 1_717_171_717_000,
   },
 }

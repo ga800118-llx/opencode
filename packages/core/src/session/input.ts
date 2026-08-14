@@ -2,9 +2,10 @@ export * as SessionInput from "./input"
 
 import { and, asc, eq, isNull, lte } from "drizzle-orm"
 import { DateTime, Effect, Schema } from "effect"
-import { Admitted, Delivery } from "@opencode-ai/schema/session-input"
+import { Admitted, Compaction, CompactionEntry, Delivery, Entry, PromptEntry } from "@opencode-ai/schema/session-input"
 import type { Database } from "../database/database"
 import type { EventV2 } from "../event"
+import { KeyedMutex } from "../effect/keyed-mutex"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { Prompt } from "./prompt"
@@ -13,20 +14,58 @@ import { SessionInputTable, SessionMessageTable } from "./sql"
 
 type DatabaseService = Database.Interface["db"]
 
-export { Admitted, Delivery }
+export { Admitted, Compaction, CompactionEntry, Delivery, Entry, PromptEntry }
 
 const decodePrompt = Schema.decodeUnknownSync(Prompt)
 const encodePrompt = Schema.encodeSync(Prompt)
+const inboxLocks = KeyedMutex.makeUnsafe<SessionSchema.ID>()
+const activeModelCalls = new Set<SessionSchema.ID>()
 
-const fromRow = (row: typeof SessionInputTable.$inferSelect): Admitted =>
-  Admitted.make({
+export class LifecycleConflict extends Schema.TaggedErrorClass<LifecycleConflict>()("SessionInput.LifecycleConflict", {
+  id: SessionMessage.ID,
+}) {}
+
+const fromRow = (row: typeof SessionInputTable.$inferSelect): Entry => {
+  const base = {
     admittedSeq: row.admitted_seq,
     id: SessionMessage.ID.make(row.id),
     sessionID: SessionSchema.ID.make(row.session_id),
+    timeCreated: DateTime.makeUnsafe(row.time_created),
+  }
+  if (row.type === "compaction")
+    return CompactionEntry.make({
+      ...base,
+      type: "compaction",
+      ...(row.promoted_seq === null ? {} : { handledSeq: row.promoted_seq }),
+    })
+  if (!row.prompt || !row.delivery) throw new LifecycleConflict({ id: base.id })
+  return PromptEntry.make({
+    ...base,
+    type: "prompt",
     prompt: decodePrompt(row.prompt),
     delivery: row.delivery,
-    timeCreated: DateTime.makeUnsafe(row.time_created),
     ...(row.promoted_seq === null ? {} : { promotedSeq: row.promoted_seq }),
+  })
+}
+
+const toAdmitted = (entry: PromptEntry): Admitted =>
+  Admitted.make({
+    admittedSeq: entry.admittedSeq,
+    id: entry.id,
+    sessionID: entry.sessionID,
+    prompt: entry.prompt,
+    delivery: entry.delivery,
+    timeCreated: entry.timeCreated,
+    ...(entry.promotedSeq === undefined ? {} : { promotedSeq: entry.promotedSeq }),
+  })
+
+const toCompactionAdmission = (entry: CompactionEntry): Compaction =>
+  Compaction.make({
+    type: "compaction",
+    admittedSeq: entry.admittedSeq,
+    id: entry.id,
+    sessionID: entry.sessionID,
+    timeCreated: entry.timeCreated,
   })
 
 export const find = Effect.fn("SessionInput.find")(function* (db: DatabaseService, id: SessionMessage.ID) {
@@ -34,9 +73,52 @@ export const find = Effect.fn("SessionInput.find")(function* (db: DatabaseServic
   return row === undefined ? undefined : fromRow(row)
 })
 
-export class LifecycleConflict extends Schema.TaggedErrorClass<LifecycleConflict>()("SessionInput.LifecycleConflict", {
-  id: SessionMessage.ID,
-}) {}
+export const pendingCompaction = Effect.fn("SessionInput.pendingCompaction")(function* (
+  db: DatabaseService,
+  sessionID: SessionSchema.ID,
+) {
+  const row = yield* db
+    .select()
+    .from(SessionInputTable)
+    .where(
+      and(
+        eq(SessionInputTable.session_id, sessionID),
+        eq(SessionInputTable.type, "compaction"),
+        isNull(SessionInputTable.promoted_seq),
+      ),
+    )
+    .orderBy(asc(SessionInputTable.admitted_seq))
+    .limit(1)
+    .get()
+    .pipe(Effect.orDie)
+  if (!row) return
+  const entry = fromRow(row)
+  return entry.type === "compaction" ? entry : undefined
+})
+
+export const claimModelCall = Effect.fn("SessionInput.claimModelCall")(function* (
+  db: DatabaseService,
+  sessionID: SessionSchema.ID,
+  compactionID?: SessionMessage.ID,
+) {
+  return yield* inboxLocks.withLock(sessionID)(
+    Effect.gen(function* () {
+      const pending = yield* pendingCompaction(db, sessionID)
+      if (pending?.id !== compactionID) return false
+      if (activeModelCalls.has(sessionID)) return false
+      activeModelCalls.add(sessionID)
+      return true
+    }),
+  )
+})
+
+export const releaseModelCall = Effect.fn("SessionInput.releaseModelCall")((sessionID: SessionSchema.ID) =>
+  inboxLocks.withLock(sessionID)(
+    Effect.sync(() => {
+      activeModelCalls.delete(sessionID)
+    }),
+  ),
+)
 
 export const admit = Effect.fn("SessionInput.admit")(function* (
   db: DatabaseService,
@@ -49,7 +131,10 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
   },
 ) {
   const existing = yield* find(db, input.id)
-  if (existing !== undefined) return existing
+  if (existing !== undefined) {
+    if (existing.type !== "prompt") return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+    return toAdmitted(existing)
+  }
   const timestamp = yield* DateTime.now
   return yield* events
     .publish(SessionEvent.PromptAdmitted, {
@@ -75,9 +160,63 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
             ),
       ),
       Effect.catchDefect((defect) =>
-        find(db, input.id).pipe(Effect.flatMap((stored) => (stored ? Effect.succeed(stored) : Effect.die(defect)))),
+        find(db, input.id).pipe(
+          Effect.flatMap((stored) =>
+            stored?.type === "prompt" ? Effect.succeed(toAdmitted(stored)) : Effect.die(defect),
+          ),
+        ),
       ),
     )
+})
+
+export const admitCompaction = Effect.fn("SessionInput.admitCompaction")(function* (
+  db: DatabaseService,
+  events: EventV2.Interface,
+  input: { readonly id: SessionMessage.ID; readonly sessionID: SessionSchema.ID; readonly coalesce: boolean },
+) {
+  return yield* inboxLocks.withLock(input.sessionID)(
+    Effect.gen(function* () {
+      const exact = yield* find(db, input.id)
+      if (exact) {
+        if (exact.type === "compaction" && exact.sessionID === input.sessionID) return toCompactionAdmission(exact)
+        return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+      }
+      const pending = yield* pendingCompaction(db, input.sessionID)
+      if (pending) {
+        if (input.coalesce) return toCompactionAdmission(pending)
+        return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+      }
+      const timestamp = yield* DateTime.now
+      return yield* events
+        .publish(SessionEvent.Compaction.Admitted, {
+          inputID: input.id,
+          sessionID: input.sessionID,
+          timestamp,
+        })
+        .pipe(
+          Effect.flatMap((event) => {
+            if (event.durable === undefined)
+              return Effect.die("Compaction admission event is missing aggregate sequence")
+            return pendingCompaction(db, input.sessionID).pipe(
+              Effect.flatMap((stored) =>
+                stored?.id === input.id
+                  ? Effect.succeed(toCompactionAdmission(stored))
+                  : Effect.die(new LifecycleConflict({ id: input.id })),
+              ),
+            )
+          }),
+          Effect.catchDefect((defect) =>
+            pendingCompaction(db, input.sessionID).pipe(
+              Effect.flatMap((stored) => {
+                if (stored?.id === input.id) return Effect.succeed(toCompactionAdmission(stored))
+                if (stored && input.coalesce) return Effect.succeed(toCompactionAdmission(stored))
+                return Effect.die(defect)
+              }),
+            ),
+          ),
+        )
+    }),
+  )
 })
 
 export const projectAdmitted = Effect.fn("SessionInput.projectAdmitted")(function* (
@@ -103,6 +242,7 @@ export const projectAdmitted = Effect.fn("SessionInput.projectAdmitted")(functio
     .values({
       id: input.id,
       session_id: input.sessionID,
+      type: "prompt",
       admitted_seq: input.admittedSeq,
       prompt: encodePrompt(input.prompt),
       delivery: input.delivery,
@@ -113,6 +253,42 @@ export const projectAdmitted = Effect.fn("SessionInput.projectAdmitted")(functio
     .get()
     .pipe(Effect.orDie)
   if (!stored) return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+})
+
+export const projectCompactionAdmitted = Effect.fn("SessionInput.projectCompactionAdmitted")(function* (
+  db: DatabaseService,
+  input: {
+    readonly admittedSeq: number
+    readonly id: SessionMessage.ID
+    readonly sessionID: SessionSchema.ID
+    readonly timeCreated: DateTime.Utc
+  },
+) {
+  const message = yield* db
+    .select({ id: SessionMessageTable.id })
+    .from(SessionMessageTable)
+    .where(eq(SessionMessageTable.id, input.id))
+    .get()
+    .pipe(Effect.orDie)
+  if (message !== undefined) return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+  const stored = yield* db
+    .insert(SessionInputTable)
+    .values({
+      id: input.id,
+      session_id: input.sessionID,
+      type: "compaction",
+      admitted_seq: input.admittedSeq,
+      time_created: DateTime.toEpochMillis(input.timeCreated),
+    })
+    .onConflictDoNothing()
+    .returning()
+    .get()
+    .pipe(Effect.orDie)
+  if (stored) {
+    const entry = fromRow(stored)
+    return entry.type === "compaction" ? entry : yield* Effect.die(new LifecycleConflict({ id: entry.id }))
+  }
+  return yield* Effect.die(new LifecycleConflict({ id: input.id }))
 })
 
 export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(function* (
@@ -126,6 +302,7 @@ export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(functio
     readonly promotedSeq: number
   },
 ) {
+  if (yield* pendingCompaction(db, input.sessionID)) return yield* Effect.die(new LifecycleConflict({ id: input.id }))
   const updated = yield* db
     .update(SessionInputTable)
     .set({ promoted_seq: input.promotedSeq })
@@ -133,6 +310,7 @@ export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(functio
       and(
         eq(SessionInputTable.id, input.id),
         eq(SessionInputTable.session_id, input.sessionID),
+        eq(SessionInputTable.type, "prompt"),
         isNull(SessionInputTable.promoted_seq),
       ),
     )
@@ -141,13 +319,14 @@ export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(functio
     .pipe(Effect.orDie)
   if (updated) {
     const stored = fromRow(updated)
-    if (!matchesProjection(stored, input)) return yield* Effect.die(new LifecycleConflict({ id: input.id }))
+    if (stored.type !== "prompt" || !matchesProjection(stored, input))
+      return yield* Effect.die(new LifecycleConflict({ id: input.id }))
     return
   }
 
   const stored = yield* find(db, input.id)
   if (stored) {
-    if (!matchesProjection(stored, input) || stored.promotedSeq !== input.promotedSeq)
+    if (stored.type !== "prompt" || !matchesProjection(stored, input) || stored.promotedSeq !== input.promotedSeq)
       return yield* Effect.die(new LifecycleConflict({ id: input.id }))
     return
   }
@@ -157,6 +336,7 @@ export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(functio
     .values({
       id: input.id,
       session_id: input.sessionID,
+      type: "prompt",
       prompt: encodePrompt(input.prompt),
       delivery: input.delivery,
       admitted_seq: input.promotedSeq,
@@ -167,17 +347,42 @@ export const projectPrompted = Effect.fn("SessionInput.projectPrompted")(functio
     .pipe(Effect.orDie)
 })
 
+export const settleCompaction = Effect.fn("SessionInput.settleCompaction")(function* (
+  db: DatabaseService,
+  input: { readonly id: SessionMessage.ID; readonly sessionID: SessionSchema.ID; readonly handledSeq: number },
+) {
+  const updated = yield* db
+    .update(SessionInputTable)
+    .set({ promoted_seq: input.handledSeq })
+    .where(
+      and(
+        eq(SessionInputTable.id, input.id),
+        eq(SessionInputTable.session_id, input.sessionID),
+        eq(SessionInputTable.type, "compaction"),
+        isNull(SessionInputTable.promoted_seq),
+      ),
+    )
+    .returning()
+    .get()
+    .pipe(Effect.orDie)
+  if (!updated) return
+  const stored = fromRow(updated)
+  return stored.type === "compaction" ? stored : yield* Effect.die(new LifecycleConflict({ id: stored.id }))
+})
+
 export const hasPending = Effect.fn("SessionInput.hasPending")(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
   delivery: Delivery,
 ) {
+  if (yield* pendingCompaction(db, sessionID)) return false
   const row = yield* db
     .select({ id: SessionInputTable.id })
     .from(SessionInputTable)
     .where(
       and(
         eq(SessionInputTable.session_id, sessionID),
+        eq(SessionInputTable.type, "prompt"),
         isNull(SessionInputTable.promoted_seq),
         eq(SessionInputTable.delivery, delivery),
       ),
@@ -219,27 +424,41 @@ const publish = Effect.fn("SessionInput.publish")(function* (
   sessionID: SessionSchema.ID,
   rows: ReadonlyArray<typeof SessionInputTable.$inferSelect>,
 ) {
-  for (const row of rows) {
-    const id = SessionMessage.ID.make(row.id)
-    yield* events
-      .publish(SessionEvent.Prompted, {
-        sessionID,
-        timestamp: DateTime.makeUnsafe(row.time_created),
-        messageID: id,
-        prompt: decodePrompt(row.prompt),
-        delivery: row.delivery,
-      })
-      .pipe(
-        Effect.catchDefect((defect) =>
-          defect instanceof LifecycleConflict
-            ? find(db, id).pipe(
-                Effect.flatMap((stored) => (stored?.promotedSeq === undefined ? Effect.die(defect) : Effect.void)),
-              )
-            : Effect.die(defect),
-        ),
+  return yield* inboxLocks.withLock(sessionID)(
+    Effect.gen(function* () {
+      if (yield* pendingCompaction(db, sessionID)) return 0
+      yield* Effect.forEach(
+        rows,
+        (row) => {
+          const entry = fromRow(row)
+          if (entry.type !== "prompt") return Effect.die(new LifecycleConflict({ id: entry.id }))
+          return events
+            .publish(SessionEvent.Prompted, {
+              sessionID,
+              timestamp: entry.timeCreated,
+              messageID: entry.id,
+              prompt: entry.prompt,
+              delivery: entry.delivery,
+            })
+            .pipe(
+              Effect.catchDefect((defect) =>
+                defect instanceof LifecycleConflict
+                  ? find(db, entry.id).pipe(
+                      Effect.flatMap((stored) =>
+                        stored?.type === "prompt" && stored.promotedSeq !== undefined
+                          ? Effect.void
+                          : Effect.die(defect),
+                      ),
+                    )
+                  : Effect.die(defect),
+              ),
+            )
+        },
+        { discard: true },
       )
-  }
-  return rows.length
+      return rows.length
+    }),
+  )
 })
 
 export const promoteSteers = Effect.fn("SessionInput.promoteSteers")(function* (
@@ -248,12 +467,14 @@ export const promoteSteers = Effect.fn("SessionInput.promoteSteers")(function* (
   sessionID: SessionSchema.ID,
   cutoff: number,
 ) {
+  if (yield* pendingCompaction(db, sessionID)) return 0
   const rows = yield* db
     .select()
     .from(SessionInputTable)
     .where(
       and(
         eq(SessionInputTable.session_id, sessionID),
+        eq(SessionInputTable.type, "prompt"),
         isNull(SessionInputTable.promoted_seq),
         eq(SessionInputTable.delivery, "steer"),
         lte(SessionInputTable.admitted_seq, cutoff),
@@ -270,12 +491,14 @@ export const promoteNextQueued = Effect.fn("SessionInput.promoteNextQueued")(fun
   events: EventV2.Interface,
   sessionID: SessionSchema.ID,
 ) {
+  if (yield* pendingCompaction(db, sessionID)) return false
   const row = yield* db
     .select()
     .from(SessionInputTable)
     .where(
       and(
         eq(SessionInputTable.session_id, sessionID),
+        eq(SessionInputTable.type, "prompt"),
         isNull(SessionInputTable.promoted_seq),
         eq(SessionInputTable.delivery, "queue"),
       ),

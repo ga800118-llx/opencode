@@ -402,16 +402,17 @@ export function make(options: ClientOptions) {
           requestOptions,
         ).then((value) => value.data),
       compact: (input: SessionsCompactInput, requestOptions?: RequestOptions) =>
-        request<SessionsCompactOutput>(
+        request<{ readonly data: SessionsCompactOutput }>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/compact`,
-            successStatus: 204,
-            declaredStatuses: [404, 503, 400, 401],
-            empty: true,
+            query: { id: input["id"] },
+            successStatus: 200,
+            declaredStatuses: [409, 404, 400, 401],
+            empty: false,
           },
           requestOptions,
-        ),
+        ).then((value) => value.data),
       wait: (input: SessionsWaitInput, requestOptions?: RequestOptions) =>
         request<SessionsWaitOutput>(
           {

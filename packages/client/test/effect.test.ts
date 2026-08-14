@@ -100,6 +100,9 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
     if (url.includes("/prompt")) {
       return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(admission)))
     }
+    if (url.includes("/compact")) {
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(compactionAdmission)))
+    }
     if (url.includes("/context")) {
       return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ data: [] })))
     }
@@ -144,7 +147,10 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       prompt: Prompt.make({ text: "Hello" }),
       resume: false,
     })
-    yield* client.sessions.compact({ sessionID: Session.ID.make("ses_test") })
+    const compacted = yield* client.sessions.compact({
+      sessionID: Session.ID.make("ses_test"),
+      id: SessionMessage.ID.make("msg_compact"),
+    })
     yield* client.sessions.wait({ sessionID: Session.ID.make("ses_test") })
     const context = yield* client.sessions.context({ sessionID: Session.ID.make("ses_test") })
     const history = yield* client.sessions.history({
@@ -167,7 +173,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       sessionID: Session.ID.make("ses_test"),
       messageID: SessionMessage.ID.make("msg_model"),
     })
-    return { page, active, created, admitted, context, history, historyNext, events, message }
+    return { page, active, created, admitted, compacted, context, history, historyNext, events, message }
   }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
 
   expect(DateTime.toEpochMillis(result.page.data[0].time.created)).toBe(1_717_171_717_000)
@@ -179,6 +185,8 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(Object.getPrototypeOf(result.admitted)).toBe(Object.prototype)
   expect(Object.getPrototypeOf(result.admitted.prompt)).toBe(Object.prototype)
   expect(DateTime.toEpochMillis(result.admitted.timeCreated)).toBe(1_717_171_717_000)
+  expect(result.compacted).toMatchObject({ type: "compaction", id: "msg_compact", sessionID: "ses_test" })
+  expect(DateTime.toEpochMillis(result.compacted.timeCreated)).toBe(1_717_171_717_000)
   expect(result.context).toEqual([])
   expect(DateTime.toEpochMillis(result.history.data[0].data.timestamp)).toBe(1_717_171_717_000)
   expect(
@@ -306,6 +314,16 @@ const admission = {
     sessionID: "ses_test",
     prompt: { text: "Hello" },
     delivery: "steer",
+    timeCreated: 1_717_171_717_000,
+  },
+}
+
+const compactionAdmission = {
+  data: {
+    type: "compaction",
+    admittedSeq: 1,
+    id: "msg_compact",
+    sessionID: "ses_test",
     timeCreated: 1_717_171_717_000,
   },
 }

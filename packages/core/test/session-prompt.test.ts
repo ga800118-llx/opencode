@@ -36,6 +36,7 @@ const execution = Layer.succeed(
       Effect.sync(() => {
         interruptCalls.push(sessionID)
       }),
+    handoff: (_sessionID, effect) => effect,
     wake: (sessionID) =>
       Effect.sync(() => {
         wakeCalls.push(sessionID)
@@ -179,7 +180,8 @@ describe("SessionV2.prompt", () => {
       expect(message.prompt.files).toEqual([
         { uri: "data:image/png;base64,aGVsbG8=", name: "image.png", mime: "image/png" },
       ])
-      expect((yield* admitted(message.id))?.prompt.files).toEqual(message.prompt.files)
+      const stored = yield* admitted(message.id)
+      expect(stored?.type === "prompt" ? stored.prompt.files : undefined).toEqual(message.prompt.files)
     }),
   )
 

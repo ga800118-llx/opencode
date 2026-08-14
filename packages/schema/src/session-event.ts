@@ -407,6 +407,16 @@ export const Retried = Event.define({
 export type Retried = typeof Retried.Type
 
 export namespace Compaction {
+  export const Admitted = Event.define({
+    type: "session.next.compaction.admitted",
+    ...options,
+    schema: {
+      ...Base,
+      inputID: SessionMessage.ID,
+    },
+  })
+  export type Admitted = typeof Admitted.Type
+
   export const Started = Event.define({
     type: "session.next.compaction.started",
     ...options,
@@ -440,6 +450,18 @@ export namespace Compaction {
     },
   })
   export type Ended = typeof Ended.Type
+
+  export const Failed = Event.define({
+    type: "session.next.compaction.failed",
+    ...options,
+    schema: {
+      ...Base,
+      messageID: SessionMessage.ID,
+      reason: Started.data.fields.reason,
+      error: UnknownError,
+    },
+  })
+  export type Failed = typeof Failed.Type
 }
 
 export namespace RevertEvent {
@@ -481,8 +503,10 @@ export const DurableDefinitions = Event.inventory(
   Reasoning.Started,
   Reasoning.Ended,
   Retried,
+  Compaction.Admitted,
   Compaction.Started,
   Compaction.Ended,
+  Compaction.Failed,
   RevertEvent.Staged,
   RevertEvent.Cleared,
   RevertEvent.Committed,
@@ -516,9 +540,11 @@ export const Definitions = Event.inventory(
   Tool.Success,
   Tool.Failed,
   Retried,
+  Compaction.Admitted,
   Compaction.Started,
   Compaction.Delta,
   Compaction.Ended,
+  Compaction.Failed,
   RevertEvent.Staged,
   RevertEvent.Cleared,
   RevertEvent.Committed,

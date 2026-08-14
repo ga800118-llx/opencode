@@ -56,13 +56,14 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { Location } from "@opencode-ai/core/location"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect"
-import { asc, eq } from "drizzle-orm"
+import { asc, eq, sql } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
 
 const requests: LLMRequest[] = []
 let response: LLMEvent[] = []
 let responses: LLMEvent[][] | undefined
 let responseStream: Stream.Stream<LLMEvent, LLMError> | undefined
+let lazyStreamStart = false
 let streamGate: Deferred.Deferred<void> | undefined
 let streamStarted: Deferred.Deferred<void> | undefined
 let streamFailure: LLMError | undefined
@@ -71,27 +72,31 @@ let toolExecutionsStarted: Deferred.Deferred<void> | undefined
 let toolExecutionsReady = 5
 let activeToolExecutions = 0
 let maxActiveToolExecutions = 0
+let snapshotCaptureHook = Effect.void
 const client = Layer.succeed(
   LLMClient.Service,
   LLMClient.Service.of({
     prepare: () => Effect.die("unused"),
     stream: ((request: LLMRequest) => {
-      requests.push(request)
-      if (responseStream) {
-        const stream = responseStream
-        responseStream = undefined
-        return stream
+      const start = () => {
+        requests.push(request)
+        if (responseStream) {
+          const stream = responseStream
+          responseStream = undefined
+          return stream
+        }
+        const events = streamFailure
+          ? Stream.fail(streamFailure)
+          : Stream.fromIterable(responses === undefined ? response : (responses.shift() ?? []))
+        if (!streamGate) return events
+        return Stream.unwrap(
+          (streamStarted ? Deferred.succeed(streamStarted, undefined) : Effect.void).pipe(
+            Effect.andThen(Deferred.await(streamGate)),
+            Effect.as(events),
+          ),
+        )
       }
-      const events = streamFailure
-        ? Stream.fail(streamFailure)
-        : Stream.fromIterable(responses === undefined ? response : (responses.shift() ?? []))
-      if (!streamGate) return events
-      return Stream.unwrap(
-        (streamStarted ? Deferred.succeed(streamStarted, undefined) : Effect.void).pipe(
-          Effect.andThen(Deferred.await(streamGate)),
-          Effect.as(events),
-        ),
-      )
+      return lazyStreamStart ? Stream.unwrap(Effect.sync(start)) : start()
     }) as unknown as LLMClientShape["stream"],
     generate: () => Effect.die("unused"),
   }),
@@ -225,8 +230,19 @@ const config = Layer.succeed(
       ]),
   }),
 )
+const snapshot = Layer.succeed(
+  Snapshot.Service,
+  Snapshot.Service.of({
+    capture: () => snapshotCaptureHook.pipe(Effect.as(undefined)),
+    files: () => Effect.succeed([]),
+    diff: () => Effect.succeed([]),
+    preview: () => Effect.succeed([]),
+    restore: () => Effect.void,
+    checkout: () => Effect.void,
+  }),
+)
 const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
-  [Snapshot.node, Snapshot.noopLayer],
+  [Snapshot.node, snapshot],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
   [SystemContextRegistry.node, systemContext],
@@ -248,6 +264,7 @@ const execution = Layer.effect(
       resume: coordinator.run,
       wake: coordinator.wake,
       interrupt: coordinator.interrupt,
+      handoff: coordinator.handoff,
     })
   }),
 ).pipe(Layer.provide(runnerLayer))
@@ -282,7 +299,7 @@ const it = testEffect(
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
       [SkillGuidance.node, skillGuidance],
       [ReferenceGuidance.node, referenceGuidance],
-      [Snapshot.node, Snapshot.noopLayer],
+      [Snapshot.node, snapshot],
       [SessionExecution.node, execution],
       [Config.node, config],
     ],
@@ -322,6 +339,7 @@ const setup = Effect.gen(function* () {
   responses = undefined
   streamFailure = undefined
   responseStream = undefined
+  lazyStreamStart = false
   streamGate = undefined
   streamStarted = undefined
   toolExecutionGate = undefined
@@ -329,6 +347,7 @@ const setup = Effect.gen(function* () {
   toolExecutionsReady = 5
   activeToolExecutions = 0
   maxActiveToolExecutions = 0
+  snapshotCaptureHook = Effect.void
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -703,6 +722,7 @@ describe("SessionRunnerLLM", () => {
         timestamp: DateTime.makeUnsafe(1),
         location: Location.Ref.make({ directory: AbsolutePath.make("/moved") }),
       })
+      const compaction = yield* session.compact({ sessionID })
       expect(
         yield* db
           .select()
@@ -711,12 +731,22 @@ describe("SessionRunnerLLM", () => {
           .get(),
       ).toBeUndefined()
 
-      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
+      const second = yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
       const exit = yield* session.resume(sessionID).pipe(Effect.exit)
 
       expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
       expect(requests).toHaveLength(1)
-      expect(yield* SessionInput.hasPending(db, sessionID, "steer")).toBe(true)
+      const stored = yield* SessionInput.find(db, second.id)
+      expect(stored?.type).toBe("prompt")
+      expect(stored?.type === "prompt" ? stored.promotedSeq : "missing").toBeUndefined()
+      expect(yield* SessionInput.pendingCompaction(db, sessionID)).toMatchObject({ id: compaction.id })
+      expect(
+        (yield* session.history({ sessionID, limit: 100 })).events.some(
+          (event) =>
+            (event.type === "session.next.compaction.started" || event.type === "session.next.compaction.failed") &&
+            event.data.messageID === compaction.id,
+        ),
+      ).toBe(false)
     }),
   )
 
@@ -1145,6 +1175,53 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("runs a manual barrier admitted during automatic compaction before the provider retry", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = fragmentFixture("text", "text-before-auto-race", ["Earlier answer"]).completeEvents
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Earlier question ".repeat(180) }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      currentModel = compactModel
+      requests.length = 0
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      responses = [
+        fragmentFixture("text", "text-auto-race", ["automatic summary"]).completeEvents,
+        fragmentFixture("text", "text-after-race", ["Continued"]).completeEvents,
+      ]
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Recent exact request ".repeat(180) }),
+        resume: false,
+      })
+      const active = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+      const manual = yield* session.compact({ sessionID })
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(active)
+      streamGate = undefined
+      streamStarted = undefined
+
+      expect(requests).toHaveLength(2)
+      expect(userTexts(requests[0]!)[0]).toContain("Create a new anchored summary")
+      expect(userTexts(requests[1]!)[0]).not.toContain("Create a new anchored summary")
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      const history = (yield* session.history({ sessionID, limit: 100 })).events
+      const failed = history.findIndex(
+        (event) => event.type === "session.next.compaction.failed" && event.data.messageID === manual.id,
+      )
+      const providerRetry = history.findLastIndex((event) => event.type === "session.next.step.started")
+      expect(failed).toBeGreaterThanOrEqual(0)
+      expect(failed).toBeLessThan(providerRetry)
+    }),
+  )
+
   it.effect("forces one compaction and retries after provider context overflow", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
@@ -1267,6 +1344,9 @@ describe("SessionRunnerLLM", () => {
       streamGate = undefined
       expect(requests).toHaveLength(2)
       expect((yield* session.context(sessionID)).some((message) => message.type === "compaction")).toBe(false)
+      expect((yield* session.history({ sessionID, limit: 50 })).events.map((event) => event.type)).toEqual(
+        expect.arrayContaining(["session.next.compaction.started", "session.next.compaction.failed"]),
+      )
     }),
   )
 
@@ -1304,6 +1384,205 @@ describe("SessionRunnerLLM", () => {
 
       expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Initial context"])
       expect(systemTexts(requests.at(-1)!)).toContain("Changed context")
+    }),
+  )
+
+  it.effect("settles a manual compaction barrier when stored context cannot be decoded", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = fragmentFixture("text", "text-before-corruption", ["Stored answer"]).completeEvents
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Stored question" }), resume: false })
+      yield* session.resume(sessionID)
+      const user = (yield* session.context(sessionID)).find((message) => message.type === "user")
+      expect(user).toBeDefined()
+      yield* (yield* Database.Service).db.run(
+        sql`UPDATE session_message SET data = ${JSON.stringify({})} WHERE id = ${user!.id}`,
+      )
+
+      const admitted = yield* session.compact({ sessionID })
+      expect(yield* session.resume(sessionID).pipe(Effect.exit)).toMatchObject({ _tag: "Failure" })
+
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      expect(
+        (yield* session.history({ sessionID, limit: 100 })).events.some(
+          (event) =>
+            event.type === "session.next.compaction.failed" &&
+            event.data.reason === "manual" &&
+            event.data.messageID === admitted.id,
+        ),
+      ).toBe(true)
+    }),
+  )
+
+  it.effect("orders compaction admission before a provider turn waiting at its final start boundary", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      currentModel = recoveryModel
+      lazyStreamStart = true
+      const session = yield* SessionV2.Service
+      const captureStarted = yield* Deferred.make<void>()
+      const captureGate = yield* Deferred.make<void>()
+      snapshotCaptureHook = Deferred.succeed(captureStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(captureGate)),
+      )
+      responses = [
+        fragmentFixture("text", "text-start-boundary-summary", ["start boundary summary"]).completeEvents,
+        fragmentFixture("text", "text-start-boundary-final", ["Final answer"]).completeEvents,
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Wait before provider start" }), resume: false })
+      const active = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(captureStarted)
+
+      const admitted = yield* session.compact({ sessionID })
+      yield* Deferred.succeed(captureGate, undefined)
+      yield* Fiber.join(active)
+      snapshotCaptureHook = Effect.void
+      lazyStreamStart = false
+
+      expect(requests).toHaveLength(2)
+      expect(userTexts(requests[0]!)[0]).toContain("Create a new anchored summary")
+      expect(userTexts(requests[1]!)[0]).not.toContain("Create a new anchored summary")
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      const history = (yield* session.history({ sessionID, limit: 100 })).events
+      const ended = history.findIndex(
+        (event) => event.type === "session.next.compaction.ended" && event.data.messageID === admitted.id,
+      )
+      const providerStarted = history.findIndex((event) => event.type === "session.next.step.started")
+      expect(ended).toBeGreaterThanOrEqual(0)
+      expect(ended).toBeLessThan(providerStarted)
+    }),
+  )
+
+  it.effect("runs one durable compaction barrier before later steer and queued prompts", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      currentModel = recoveryModel
+      const session = yield* SessionV2.Service
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      responses = [
+        fragmentFixture("text", "text-active", ["Active complete"]).completeEvents,
+        [LLMEvent.textDelta({ id: "summary", text: "durable summary" })],
+        fragmentFixture("text", "text-steer", ["Steer complete"]).completeEvents,
+        fragmentFixture("text", "text-queue", ["Queue complete"]).completeEvents,
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Active work" }), resume: false })
+      const active = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+
+      const first = yield* session.compact({ sessionID })
+      const second = yield* session.compact({ sessionID })
+      expect(second.id).toBe(first.id)
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toMatchObject({
+        id: first.id,
+      })
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Steer after compaction" }),
+        resume: false,
+      })
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Queue after compaction" }),
+        delivery: "queue",
+        resume: false,
+      })
+      expect(yield* SessionInput.hasPending((yield* Database.Service).db, sessionID, "steer")).toBe(false)
+
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(active)
+      streamGate = undefined
+      streamStarted = undefined
+
+      expect(requests).toHaveLength(4)
+      expect(userTexts(requests[1]!)[0]).toContain("Create a new anchored summary")
+      expect(userTexts(requests[2]!)).toContain("Steer after compaction")
+      expect(userTexts(requests[3]!)).toContain("Queue after compaction")
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      expect((yield* session.context(sessionID)).find((message) => message.id === first.id)).toMatchObject({
+        type: "compaction",
+        summary: "durable summary",
+      })
+    }),
+  )
+
+  it.effect("runs a durable compaction barrier before a tool-driven continuation turn", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      currentModel = recoveryModel
+      const session = yield* SessionV2.Service
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-before-compaction", name: "echo", input: { text: "hello" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [LLMEvent.textDelta({ id: "summary", text: "tool continuation summary" })],
+        fragmentFixture("text", "text-after-compaction", ["Done"]).completeEvents,
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use a tool" }), resume: false })
+      const active = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+
+      const admitted = yield* session.compact({ sessionID })
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(active)
+      streamGate = undefined
+      streamStarted = undefined
+
+      expect(requests).toHaveLength(3)
+      expect(userTexts(requests[1]!)[0]).toContain("Create a new anchored summary")
+      expect(userTexts(requests[2]!)[0]).not.toContain("Create a new anchored summary")
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      expect((yield* session.context(sessionID)).find((message) => message.id === admitted.id)).toMatchObject({
+        type: "compaction",
+        summary: "tool continuation summary",
+      })
+    }),
+  )
+
+  it.effect("releases queued prompts when durable compaction fails", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      currentModel = recoveryModel
+      const session = yield* SessionV2.Service
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      responses = [
+        fragmentFixture("text", "text-active-failure", ["Active complete"]).completeEvents,
+        [],
+        fragmentFixture("text", "text-after-failure", ["Continued"]).completeEvents,
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Active work" }), resume: false })
+      const active = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+
+      yield* session.compact({ sessionID })
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Continue after failure" }),
+        delivery: "queue",
+        resume: false,
+      })
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(active)
+      streamGate = undefined
+      streamStarted = undefined
+
+      expect(requests).toHaveLength(3)
+      expect(userTexts(requests[2]!)).toContain("Continue after failure")
+      expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toBeUndefined()
+      expect((yield* session.history({ sessionID, limit: 50 })).events.map((event) => event.type)).toContain(
+        "session.next.compaction.failed",
+      )
     }),
   )
 

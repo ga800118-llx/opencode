@@ -9,8 +9,8 @@ import { WorkspaceEvent } from "../src/workspace-event"
 
 describe("public event manifest", () => {
   test("owns the complete public event surface", () => {
-    expect(EventManifest.ServerDefinitions.length).toBe(59)
-    expect(EventManifest.Definitions.length).toBe(89)
+    expect(EventManifest.ServerDefinitions.length).toBe(61)
+    expect(EventManifest.Definitions.length).toBe(91)
     expect(SessionV1.Event.Definitions).toEqual([
       SessionV1.Event.Created,
       SessionV1.Event.Updated,
@@ -23,8 +23,8 @@ describe("public event manifest", () => {
       SessionV1.Event.Diff,
       SessionV1.Event.Error,
     ])
-    expect(EventManifest.Latest.size).toBe(89)
-    expect(EventManifest.Durable.size).toBe(36)
+    expect(EventManifest.Latest.size).toBe(91)
+    expect(EventManifest.Durable.size).toBe(38)
   })
 
   test("uses canonical definitions for current public events", () => {
@@ -32,10 +32,12 @@ describe("public event manifest", () => {
     expect(Session.Event.Definitions).toBe(SessionEvent.Definitions)
     expect(Workspace.Event).toBe(WorkspaceEvent)
     expect(Workspace.Event.Definitions).toBe(WorkspaceEvent.Definitions)
-    expect(EventManifest.Latest.get("session.next.permission-mode.switched")).toBe(
-      SessionEvent.PermissionModeSwitched,
-    )
+    expect(EventManifest.Latest.get("session.next.permission-mode.switched")).toBe(SessionEvent.PermissionModeSwitched)
     expect(EventManifest.Latest.get("session.next.step.ended")).toBe(SessionEvent.Step.Ended)
+    expect(EventManifest.Latest.get("session.next.compaction.admitted")).toBe(SessionEvent.Compaction.Admitted)
+    expect(EventManifest.Latest.get("session.next.compaction.started")).toBe(SessionEvent.Compaction.Started)
+    expect(EventManifest.Latest.get("session.next.compaction.ended")).toBe(SessionEvent.Compaction.Ended)
+    expect(EventManifest.Latest.get("session.next.compaction.failed")).toBe(SessionEvent.Compaction.Failed)
     expect(EventManifest.Latest.get("todo.updated")).toBe(SessionTodo.Event.Updated)
     expect(EventManifest.Latest.get("project.updated")).toBe(Project.Event.Updated)
     expect(Project.Event.Definitions).toEqual([Project.Event.Updated])
@@ -45,11 +47,9 @@ describe("public event manifest", () => {
     expect(Reference.Event.Definitions).toEqual([Reference.Event.Updated])
     expect(EventManifest.Latest.has("ide.installed")).toBe(false)
     expect(IdeEvent.Definitions).toEqual([IdeEvent.Installed])
-    expect(EventManifest.Definitions.slice(44, 47)).toEqual([
-      SessionV1.Event.PartDelta,
-      SessionV1.Event.Diff,
-      SessionV1.Event.Error,
-    ])
+    expect(EventManifest.Definitions).toContain(SessionV1.Event.PartDelta)
+    expect(EventManifest.Definitions).toContain(SessionV1.Event.Diff)
+    expect(EventManifest.Definitions).toContain(SessionV1.Event.Error)
     expect(EventManifest.Durable.has("session.next.step.ended.1")).toBe(false)
     expect(EventManifest.Durable.get("session.next.step.ended.2")).toBe(SessionEvent.Step.Ended)
   })

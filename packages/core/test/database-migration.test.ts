@@ -15,6 +15,7 @@ import eventSourcedSessionInputMigration from "@opencode-ai/core/database/migrat
 import contextEpochAgentMigration from "@opencode-ai/core/database/migration/20260605042240_add_context_epoch_agent"
 import simplifyIntegrationCredentialsMigration from "@opencode-ai/core/database/migration/20260611192811_lush_chimera"
 import simplifySessionInputMigration from "@opencode-ai/core/database/migration/20260622202450_simplify_session_input"
+import durableCompactionBarrierMigration from "@opencode-ai/core/database/migration/20260813160036_durable-compaction-barrier"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -86,18 +87,56 @@ describe("DatabaseMigration", () => {
         expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: migrations.length })
         expect(
           yield* db.all(
-            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
+            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_type_delivery_seq_idx', 'session_input_session_pending_compaction_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
           ),
         ).toEqual([
           { name: "event_aggregate_seq_idx" },
           { name: "event_aggregate_type_seq_idx" },
           { name: "session_input_session_admitted_seq_idx" },
-          { name: "session_input_session_pending_delivery_seq_idx" },
+          { name: "session_input_session_pending_compaction_idx" },
+          { name: "session_input_session_pending_type_delivery_seq_idx" },
           { name: "session_input_session_promoted_seq_idx" },
           { name: "session_message_session_seq_idx" },
           { name: "session_message_session_time_created_id_idx" },
           { name: "session_message_session_type_seq_idx" },
         ])
+      }),
+    )
+  })
+
+  test("upgrades existing prompt inbox rows for durable compaction", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY)`)
+        yield* db.run(sql`INSERT INTO session (id) VALUES ('session')`)
+        yield* db.run(
+          sql`CREATE TABLE session_input (id text PRIMARY KEY, session_id text NOT NULL REFERENCES session(id) ON DELETE CASCADE, prompt text NOT NULL, delivery text NOT NULL, admitted_seq integer NOT NULL, promoted_seq integer, time_created integer NOT NULL)`,
+        )
+        yield* db.run(
+          sql`CREATE INDEX session_input_session_pending_delivery_seq_idx ON session_input (session_id, promoted_seq, delivery, admitted_seq)`,
+        )
+        yield* db.run(
+          sql`CREATE UNIQUE INDEX session_input_session_admitted_seq_idx ON session_input (session_id, admitted_seq)`,
+        )
+        yield* db.run(
+          sql`CREATE UNIQUE INDEX session_input_session_promoted_seq_idx ON session_input (session_id, promoted_seq)`,
+        )
+        yield* db.run(
+          sql`INSERT INTO session_input (id, session_id, prompt, delivery, admitted_seq, time_created) VALUES ('input', 'session', '{"text":"hello"}', 'steer', 3, 4)`,
+        )
+
+        yield* db.transaction((tx) => durableCompactionBarrierMigration.up(tx))
+
+        expect(
+          yield* db.get(sql`SELECT id, type, prompt, delivery, admitted_seq FROM session_input WHERE id = 'input'`),
+        ).toEqual({ id: "input", type: "prompt", prompt: '{"text":"hello"}', delivery: "steer", admitted_seq: 3 })
+        yield* db.run(
+          sql`INSERT INTO session_input (id, session_id, type, admitted_seq, time_created) VALUES ('compact', 'session', 'compaction', 5, 6)`,
+        )
+        expect(yield* db.get(sql`SELECT type FROM session_input WHERE id = 'compact'`)).toEqual({
+          type: "compaction",
+        })
       }),
     )
   })
@@ -261,7 +300,7 @@ describe("DatabaseMigration", () => {
           sql`INSERT INTO event (id, aggregate_id, seq, type, data) VALUES ('event', 'session', 9, 'session.updated.1', '{}')`,
         )
         yield* db.run(
-          sql`INSERT INTO session_input (id, session_id, prompt, delivery, admitted_seq, time_created) VALUES ('input', 'session', '{}', 'steer', 9, 1)`,
+          sql`INSERT INTO session_input (id, session_id, type, prompt, delivery, admitted_seq, time_created) VALUES ('input', 'session', 'prompt', '{}', 'steer', 9, 1)`,
         )
         yield* db.run(
           sql`INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('projected', 'session', 'user', 9, 1, 1, '{}')`,

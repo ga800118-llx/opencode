@@ -138,6 +138,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
         )
       },
       "session.next.prompt.admitted": () => Effect.void,
+      "session.next.compaction.admitted": () => Effect.void,
       "session.next.context.updated": (event) =>
         adapter.appendMessage(
           SessionMessage.System.make({
@@ -388,6 +389,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
           }),
         )
       },
+      "session.next.compaction.failed": () => Effect.void,
       "session.next.revert.staged": () => Effect.void,
       "session.next.revert.cleared": () => Effect.void,
       "session.next.revert.committed": () => Effect.void,

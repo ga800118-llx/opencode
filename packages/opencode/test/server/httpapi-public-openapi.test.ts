@@ -234,17 +234,24 @@ describe("PublicApi OpenAPI v2 errors", () => {
     }
   })
 
-  test("documents v2 unfinished session mutation errors", () => {
+  test("documents durable v2 compaction responses", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+    const compact = spec.paths["/api/session/{sessionID}/compact"]?.post
+    const responses = compact?.responses
+
+    expect(compact?.requestBody).toBeUndefined()
+    expect(compact?.parameters).toContainEqual(expect.objectContaining({ in: "query", name: "id", required: false }))
+    expect(responses?.["200"]).toBeDefined()
+    expect(componentName(responseRef(responses?.["409"]) ?? "")).toBe("ConflictError")
+    expect(responses?.["503"]).toBeUndefined()
+  })
+
+  test("documents unfinished v2 wait errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
-    for (const route of [
-      ["post", "/api/session/{sessionID}/compact"],
-      ["post", "/api/session/{sessionID}/wait"],
-    ] as const) {
-      expect(componentName(responseRef(spec.paths[route[1]]?.[route[0]]?.responses?.["503"]) ?? "")).toBe(
-        "ServiceUnavailableError",
-      )
-    }
+    expect(
+      componentName(responseRef(spec.paths["/api/session/{sessionID}/wait"]?.post?.responses?.["503"]) ?? ""),
+    ).toBe("ServiceUnavailableError")
   })
 
   test("documents v2 session read data errors", () => {

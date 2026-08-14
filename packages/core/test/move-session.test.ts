@@ -3,7 +3,7 @@ import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 import { eq } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -14,11 +14,24 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProjectDirectories } from "@opencode-ai/core/project/directories"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
+
+const handoffs: SessionV2.ID[] = []
+const execution = Layer.succeed(
+  SessionExecution.Service,
+  SessionExecution.Service.of({
+    active: Effect.succeed(new Set()),
+    resume: () => Effect.void,
+    wake: () => Effect.void,
+    interrupt: () => Effect.void,
+    handoff: (sessionID, effect) => Effect.sync(() => handoffs.push(sessionID)).pipe(Effect.andThen(effect)),
+  }),
+)
 
 const it = testEffect(
   AppNodeBuilder.build(
@@ -31,6 +44,7 @@ const it = testEffect(
       SessionProjector.node,
       SessionStore.node,
     ]),
+    [[SessionExecution.node, execution]],
   ),
 )
 
@@ -53,6 +67,7 @@ async function initRepo(directory: string) {
 describe("MoveSession", () => {
   it.live("moves session changes to another project directory", () =>
     Effect.gen(function* () {
+      handoffs.length = 0
       const root = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
         (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
@@ -106,11 +121,13 @@ describe("MoveSession", () => {
           .where(eq(SessionTable.id, sessionID))
           .get(),
       ).toEqual({ directory: moved, path: "" })
+      expect(handoffs).toEqual([sessionID])
     }),
   )
 
   it.live("moves within a checkout without transferring existing changes", () =>
     Effect.gen(function* () {
+      handoffs.length = 0
       const root = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
         (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
@@ -158,11 +175,13 @@ describe("MoveSession", () => {
           .where(eq(SessionTable.id, sessionID))
           .get(),
       ).toEqual({ directory: destination, path: "packages" })
+      expect(handoffs).toEqual([sessionID])
     }),
   )
 
   it.live("moves nested session changes without cleaning unrelated files", () =>
     Effect.gen(function* () {
+      handoffs.length = 0
       const root = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
         (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
@@ -230,6 +249,7 @@ describe("MoveSession", () => {
       )
       expect(yield* Effect.promise(() => fs.readFile(path.join(source, "tracked.txt"), "utf8"))).toBe("unrelated\n")
       expect(yield* Effect.promise(() => fs.readFile(path.join(source, "untracked.txt"), "utf8"))).toBe("unrelated\n")
+      expect(handoffs).toEqual([sessionID])
     }),
   )
 })

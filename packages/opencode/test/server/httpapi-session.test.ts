@@ -713,19 +713,45 @@ describe("session HttpApi", () => {
   )
 
   it.instance(
-    "returns v2 public unavailable errors for unfinished session mutations",
+    "durably admits v2 compaction while wait remains unavailable",
     () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
         const headers = { "x-opencode-directory": test.directory }
-        const session = yield* createSession({ title: "v2 unavailable" })
+        const session = yield* createSession({ title: "v2 compaction" })
 
-        const compact = yield* request(`/api/session/${session.id}/compact`, { method: "POST", headers })
-        expect(compact.status).toBe(503)
-        expect(yield* responseJson(compact)).toEqual({
-          _tag: "ServiceUnavailableError",
-          message: "Session compact is not available yet",
-          service: "session.compact",
+        const compactRequest = () =>
+          request(`/api/session/${session.id}/compact?id=msg_http_compaction`, {
+            method: "POST",
+            headers,
+          })
+        const compact = yield* compactRequest()
+        const retried = yield* compactRequest()
+        expect(compact.status).toBe(200)
+        expect(retried.status).toBe(200)
+        const compactBody = yield* responseJson(compact)
+        const retriedBody = yield* responseJson(retried)
+        expect(retriedBody).toEqual(compactBody)
+        expect(compactBody).toMatchObject({
+          data: {
+            type: "compaction",
+            id: "msg_http_compaction",
+            sessionID: session.id,
+          },
+        })
+        expect(retriedBody).toMatchObject({
+          data: {
+            type: "compaction",
+            id: "msg_http_compaction",
+            sessionID: session.id,
+          },
+        })
+
+        const legacySession = yield* createSession({ title: "v2 legacy compaction" })
+        const legacy = yield* request(`/api/session/${legacySession.id}/compact`, { method: "POST", headers })
+        expect(legacy.status).toBe(200)
+        expect(yield* responseJson(legacy)).toMatchObject({
+          data: { type: "compaction", sessionID: legacySession.id },
         })
 
         const wait = yield* request(`/api/session/${session.id}/wait`, { method: "POST", headers })

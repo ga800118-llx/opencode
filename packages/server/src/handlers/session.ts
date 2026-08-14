@@ -190,25 +190,26 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.compact",
         Effect.fn(function* (ctx) {
-          yield* session.compact({ sessionID: ctx.params.sessionID }).pipe(
-            Effect.catchTag("Session.NotFoundError", (error) =>
-              Effect.fail(
-                new SessionNotFoundError({
-                  sessionID: error.sessionID,
-                  message: `Session not found: ${error.sessionID}`,
-                }),
+          return {
+            data: yield* session.compact({ sessionID: ctx.params.sessionID, id: ctx.query.id }).pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
+              ),
+              Effect.catchTag("Session.CompactionConflictError", (error) =>
+                Effect.fail(
+                  new ConflictError({
+                    message: `Compaction input ID conflicts with an existing durable record: ${error.inputID}`,
+                    resource: error.inputID,
+                  }),
+                ),
               ),
             ),
-            Effect.catchTag("Session.OperationUnavailableError", (error) =>
-              Effect.fail(
-                new ServiceUnavailableError({
-                  message: `Session ${error.operation} is not available yet`,
-                  service: `session.${error.operation}`,
-                }),
-              ),
-            ),
-          )
-          return HttpApiSchema.NoContent.make()
+          }
         }),
       )
       .handle(

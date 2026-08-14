@@ -8,7 +8,7 @@ import {
   isContextOverflowFailure,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
-import { Cause, DateTime, Effect, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
+import { Cause, DateTime, Effect, Exit, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
@@ -29,6 +29,7 @@ import { SessionCompaction } from "../compaction"
 import { SessionEvent } from "../event"
 import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
+import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
@@ -116,6 +117,18 @@ const layer = Layer.effect(
     const getContext = Effect.fn("SessionRunner.getContext")(function* (sessionID: SessionSchema.ID) {
       return yield* store.context(sessionID)
     })
+    const ownsSession = (session: SessionSchema.Info) =>
+      session.location.directory === location.directory && session.location.workspaceID === location.workspaceID
+    const runModelCall = <A, E, R>(
+      sessionID: SessionSchema.ID,
+      use: () => Effect.Effect<A, E, R>,
+      compactionID?: SessionMessage.ID,
+    ): Effect.Effect<Option.Option<A>, E, R> =>
+      Effect.acquireUseRelease(
+        SessionInput.claimModelCall(db, sessionID, compactionID),
+        (claimed) => (claimed ? use().pipe(Effect.map(Option.some)) : Effect.succeed(Option.none<A>())),
+        (claimed) => (claimed ? SessionInput.releaseModelCall(sessionID) : Effect.void),
+      )
     const failInterruptedTools = Effect.fn("SessionRunner.failInterruptedTools")(function* (
       sessionID: SessionSchema.ID,
     ) {
@@ -136,6 +149,63 @@ const layer = Layer.effect(
           })
         }
       }
+    })
+
+    const runPendingCompaction = Effect.fn("SessionRunner.runPendingCompaction")(function* (
+      sessionID: SessionSchema.ID,
+    ) {
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          if (!ownsSession(yield* getSession(sessionID))) return yield* Effect.interrupt
+          const pending = yield* SessionInput.pendingCompaction(db, sessionID)
+          if (!pending) return false
+          const compacted = yield* restore(
+            runModelCall(
+              sessionID,
+              () =>
+                Effect.gen(function* () {
+                  const session = yield* getSession(sessionID)
+                  if (!ownsSession(session)) return "moved" as const
+                  const entries = (yield* store.context(sessionID)).map((message, seq) => ({ seq, message }))
+                  const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                  if (!model) return "unavailable" as const
+                  if (!ownsSession(yield* getSession(sessionID))) return "moved" as const
+                  return (yield* compaction.compactManual({
+                    sessionID,
+                    entries,
+                    model,
+                    inputID: pending.id,
+                  }))
+                    ? ("compacted" as const)
+                    : ("unavailable" as const)
+                }),
+              pending.id,
+            ),
+          ).pipe(Effect.exit)
+          const result = Exit.isSuccess(compacted) ? Option.getOrUndefined(compacted.value) : undefined
+          if (Exit.isSuccess(compacted) && result === undefined) return false
+          if (result === "moved") return yield* Effect.interrupt
+          if (result === "compacted") return true
+          const current = yield* SessionInput.pendingCompaction(db, sessionID)
+          if (current?.id === pending.id)
+            yield* events.publish(SessionEvent.Compaction.Failed, {
+              sessionID,
+              messageID: pending.id,
+              timestamp: yield* DateTime.now,
+              reason: "manual",
+              error: {
+                type: "unknown",
+                message: Exit.isFailure(compacted)
+                  ? Cause.hasInterrupts(compacted.cause)
+                    ? "Compaction was interrupted"
+                    : "Compaction failed"
+                  : "Compaction is unavailable",
+              },
+            })
+          if (Exit.isSuccess(compacted)) return true
+          return yield* Effect.failCause(compacted.cause)
+        }),
+      )
     })
 
     const awaitToolFibers = (fibers: FiberSet.FiberSet<void, ToolOutputStore.Error>) =>
@@ -176,9 +246,9 @@ const layer = Layer.effect(
       step: number,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
+      if (yield* runPendingCompaction(sessionID)) return yield* Effect.die(continueAfterCompaction(step))
       const session = yield* getSession(sessionID)
-      if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
-        return yield* Effect.interrupt
+      if (!ownsSession(session)) return yield* Effect.interrupt
       const agent = yield* agents.select(session.agent)
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
       const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
@@ -212,8 +282,12 @@ const layer = Layer.effect(
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
-      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
-        return yield* Effect.die(continueAfterCompaction(currentStep))
+      const automaticCompaction = yield* runModelCall(session.id, () =>
+        compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }),
+      )
+      if (Option.isNone(automaticCompaction)) return yield* Effect.die(continueAfterCompaction(currentStep))
+      if (automaticCompaction.value) return yield* Effect.die(continueAfterCompaction(currentStep))
+      if (yield* runPendingCompaction(session.id)) return yield* Effect.die(continueAfterCompaction(currentStep))
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
@@ -229,63 +303,77 @@ const layer = Layer.effect(
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
         withPublication(publisher.publish(event, outputPaths))
       let overflowFailure: ProviderErrorEvent | undefined
-      const providerStream = llm.stream(request).pipe(
-        Stream.runForEach((event) =>
-          Effect.gen(function* () {
-            if (overflowFailure || publisher.hasProviderError()) return
-            if (LLMEvent.is.providerError(event)) {
-              if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
-                overflowFailure = event
-                return
-              }
-            }
-            yield* publish(event)
-            if (event.type !== "tool-call" || event.providerExecuted) return
-            if (!toolMaterialization) {
-              yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
-              return
-            }
-            needsContinuation = true
-            const assistantMessageID = yield* publisher.assistantMessageID(event.id)
-            yield* Effect.uninterruptibleMask((restore) =>
-              restore(
-                toolMaterialization.settle({
-                  sessionID: session.id,
-                  agent: agent.id,
-                  assistantMessageID,
-                  call: event,
-                }),
-              ).pipe(
-                Effect.flatMap((settlement) =>
-                  publish(
-                    LLMEvent.toolResult({
-                      id: event.id,
-                      name: event.name,
-                      result: settlement.result,
-                      output: settlement.output,
-                    }),
-                    settlement.outputPaths ?? [],
-                  ),
-                ),
-              ),
-            ).pipe(FiberSet.run(toolFibers))
-          }),
-        ),
-        Effect.ensuring(withPublication(publisher.flush())),
-      )
 
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const stream = yield* restore(providerStream).pipe(Effect.exit)
+          const claimedStream = yield* restore(
+            runModelCall(session.id, () =>
+              llm.stream(request).pipe(
+                Stream.runForEach((event) =>
+                  Effect.gen(function* () {
+                    if (overflowFailure || publisher.hasProviderError()) return
+                    if (LLMEvent.is.providerError(event)) {
+                      if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
+                        overflowFailure = event
+                        return
+                      }
+                    }
+                    yield* publish(event)
+                    if (event.type !== "tool-call" || event.providerExecuted) return
+                    if (!toolMaterialization) {
+                      yield* withPublication(
+                        publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"),
+                      )
+                      return
+                    }
+                    needsContinuation = true
+                    const assistantMessageID = yield* publisher.assistantMessageID(event.id)
+                    yield* Effect.uninterruptibleMask((restore) =>
+                      restore(
+                        toolMaterialization.settle({
+                          sessionID: session.id,
+                          agent: agent.id,
+                          assistantMessageID,
+                          call: event,
+                        }),
+                      ).pipe(
+                        Effect.flatMap((settlement) =>
+                          publish(
+                            LLMEvent.toolResult({
+                              id: event.id,
+                              name: event.name,
+                              result: settlement.result,
+                              output: settlement.output,
+                            }),
+                            settlement.outputPaths ?? [],
+                          ),
+                        ),
+                      ),
+                    ).pipe(FiberSet.run(toolFibers))
+                  }),
+                ),
+                Effect.ensuring(withPublication(publisher.flush())),
+              ),
+            ),
+          ).pipe(Effect.exit)
+          if (Exit.isSuccess(claimedStream) && Option.isNone(claimedStream.value))
+            return yield* Effect.die(continueAfterCompaction(currentStep))
+          const stream = Exit.isFailure(claimedStream) ? claimedStream : Exit.succeed(undefined)
           const failure =
             stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
           if (
             recoverOverflow &&
             !publisher.hasAssistantStarted() &&
-            isContextOverflowFailure(overflowFailure ?? failure) &&
-            (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
-          )
-            return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
+            isContextOverflowFailure(overflowFailure ?? failure)
+          ) {
+            if (yield* restore(runPendingCompaction(session.id)))
+              return yield* Effect.die(continueAfterCompaction(currentStep))
+            const recovered = yield* restore(
+              runModelCall(session.id, () => recoverOverflow({ sessionID: session.id, entries, model, request })),
+            )
+            if (Option.isNone(recovered)) return yield* Effect.die(continueAfterCompaction(currentStep))
+            if (recovered.value) return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
+          }
           if (overflowFailure) yield* publish(overflowFailure)
           const llmFailure = failure instanceof LLMError ? failure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
@@ -384,6 +472,7 @@ const layer = Layer.effect(
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
     }) {
+      yield* runPendingCompaction(input.sessionID)
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return
@@ -397,11 +486,20 @@ const layer = Layer.effect(
           const result = yield* runTurn(input.sessionID, promotion, step)
           needsContinuation = result.needsContinuation
           step = result.step + 1
+          if (needsContinuation) {
+            yield* runPendingCompaction(input.sessionID)
+            promotion = "steer"
+            continue
+          }
+          yield* runPendingCompaction(input.sessionID)
           promotion = "steer"
-          if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
         }
-        shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
-        promotion = shouldRun ? "queue" : undefined
+        yield* runPendingCompaction(input.sessionID)
+        const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+        const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
+        shouldRun = hasSteer || hasQueue
+        promotion = hasSteer ? "steer" : hasQueue ? "queue" : undefined
       }
     })
 

@@ -244,6 +244,232 @@ describe("SessionRunCoordinator", () => {
     ),
   )
 
+  it.effect("defers new work until an execution handoff completes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = yield* Deferred.make<void>()
+        const firstInterrupted = yield* Deferred.make<void>()
+        const handoffStarted = yield* Deferred.make<void>()
+        const handoffGate = yield* Deferred.make<void>()
+        const secondStarted = yield* Deferred.make<void>()
+        let runs = 0
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => ++runs).pipe(
+              Effect.flatMap((run) =>
+                run === 1
+                  ? Deferred.succeed(firstStarted, undefined).pipe(
+                      Effect.andThen(Effect.never),
+                      Effect.onInterrupt(() => Deferred.succeed(firstInterrupted, undefined)),
+                    )
+                  : Deferred.succeed(secondStarted, undefined),
+              ),
+            ),
+        })
+
+        yield* coordinator.wake("session")
+        yield* Deferred.await(firstStarted)
+        const handoff = yield* coordinator
+          .handoff(
+            "session",
+            Deferred.succeed(handoffStarted, undefined).pipe(Effect.andThen(Deferred.await(handoffGate))),
+          )
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(firstInterrupted)
+        yield* Deferred.await(handoffStarted)
+        yield* coordinator.wake("session")
+        const resumed = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Effect.yieldNow
+
+        expect(runs).toBe(1)
+        yield* Deferred.succeed(handoffGate, undefined)
+        yield* Effect.all([Fiber.join(handoff), Fiber.join(resumed)])
+        yield* Deferred.await(secondStarted)
+        expect(runs).toBe(2)
+      }),
+    ),
+  )
+
+  it.effect("restarts after handoff when a waiting resume is interrupted", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handoffStarted = yield* Deferred.make<void>()
+        const handoffGate = yield* Deferred.make<void>()
+        const drainStarted = yield* Deferred.make<void>()
+        const forces: boolean[] = []
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: (_key: string, force) =>
+            Effect.sync(() => forces.push(force)).pipe(Effect.andThen(Deferred.succeed(drainStarted, undefined))),
+        })
+        const handoff = yield* coordinator
+          .handoff(
+            "session",
+            Deferred.succeed(handoffStarted, undefined).pipe(Effect.andThen(Deferred.await(handoffGate))),
+          )
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(handoffStarted)
+        const resumed = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Effect.yieldNow
+        yield* Fiber.interrupt(resumed)
+
+        yield* Deferred.succeed(handoffGate, undefined)
+        yield* Fiber.join(handoff)
+        yield* Deferred.await(drainStarted)
+        expect(forces).toEqual([true])
+      }),
+    ),
+  )
+
+  it.effect("preserves a forced resume across concurrent handoffs", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstHandoffStarted = yield* Deferred.make<void>()
+        const firstHandoffGate = yield* Deferred.make<void>()
+        const firstDrainStarted = yield* Deferred.make<void>()
+        const firstDrainInterrupted = yield* Deferred.make<void>()
+        const secondHandoffStarted = yield* Deferred.make<void>()
+        const secondHandoffGate = yield* Deferred.make<void>()
+        const secondDrainStarted = yield* Deferred.make<void>()
+        const forces: boolean[] = []
+        const coordinator = yield* SessionRunCoordinator.make<string, never>({
+          drain: (_key, force) => {
+            forces.push(force)
+            return forces.length === 1
+              ? Deferred.succeed(firstDrainStarted, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.onInterrupt(() => Deferred.succeed(firstDrainInterrupted, undefined)),
+                )
+              : Deferred.succeed(secondDrainStarted, undefined)
+          },
+        })
+        const firstHandoff = yield* coordinator
+          .handoff(
+            "session",
+            Deferred.succeed(firstHandoffStarted, undefined).pipe(Effect.andThen(Deferred.await(firstHandoffGate))),
+          )
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(firstHandoffStarted)
+        const resumed = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Effect.yieldNow
+        const secondHandoff = yield* coordinator
+          .handoff(
+            "session",
+            Deferred.succeed(secondHandoffStarted, undefined).pipe(Effect.andThen(Deferred.await(secondHandoffGate))),
+          )
+          .pipe(Effect.forkChild)
+
+        yield* Deferred.succeed(firstHandoffGate, undefined)
+        yield* Deferred.await(firstDrainStarted)
+        yield* Deferred.await(firstDrainInterrupted)
+        yield* Deferred.await(secondHandoffStarted)
+        yield* Deferred.succeed(secondHandoffGate, undefined)
+        yield* Deferred.await(secondDrainStarted)
+        yield* Effect.all([Fiber.join(firstHandoff), Fiber.join(secondHandoff), Fiber.join(resumed)])
+
+        expect(forces).toEqual([true, true])
+      }),
+    ),
+  )
+
+  it.effect("cancels a joined resume while handoff cleanup is still running", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstDrainStarted = yield* Deferred.make<void>()
+        const cleanupStarted = yield* Deferred.make<void>()
+        const cleanupGate = yield* Deferred.make<void>()
+        const secondDrainStarted = yield* Deferred.make<void>()
+        let runs = 0
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => ++runs).pipe(
+              Effect.flatMap((run) =>
+                run === 1
+                  ? Deferred.succeed(firstDrainStarted, undefined).pipe(
+                      Effect.andThen(Effect.never),
+                      Effect.onInterrupt(() =>
+                        Deferred.succeed(cleanupStarted, undefined).pipe(Effect.andThen(Deferred.await(cleanupGate))),
+                      ),
+                    )
+                  : Deferred.succeed(secondDrainStarted, undefined),
+              ),
+            ),
+        })
+
+        yield* coordinator.wake("session")
+        yield* Deferred.await(firstDrainStarted)
+        const resumed = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Effect.yieldNow
+        const handoff = yield* coordinator.handoff("session", Effect.void).pipe(Effect.forkChild)
+        yield* Deferred.await(cleanupStarted)
+
+        const canceled = yield* Deferred.make<Exit.Exit<void, never>>()
+        const removeObserver = resumed.addObserver((exit) => Deferred.doneUnsafe(canceled, Effect.succeed(exit)))
+        resumed.interruptUnsafe()
+        const canceledExit = yield* Deferred.await(canceled).pipe(
+          Effect.timeout("100 millis"),
+          Effect.ensuring(Deferred.succeed(cleanupGate, undefined)),
+        )
+        removeObserver()
+        expect(Exit.isFailure(canceledExit) && Cause.hasInterruptsOnly(canceledExit.cause)).toBeTrue()
+
+        yield* Fiber.join(handoff)
+        yield* Deferred.await(secondDrainStarted)
+      }),
+    ),
+  )
+
+  it.effect("cancels a joined resume after it transfers to the handoff successor", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstDrainStarted = yield* Deferred.make<void>()
+        const firstDrainInterrupted = yield* Deferred.make<void>()
+        const handoffStarted = yield* Deferred.make<void>()
+        const handoffGate = yield* Deferred.make<void>()
+        const secondDrainStarted = yield* Deferred.make<void>()
+        let runs = 0
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => ++runs).pipe(
+              Effect.flatMap((run) =>
+                run === 1
+                  ? Deferred.succeed(firstDrainStarted, undefined).pipe(
+                      Effect.andThen(Effect.never),
+                      Effect.onInterrupt(() => Deferred.succeed(firstDrainInterrupted, undefined)),
+                    )
+                  : Deferred.succeed(secondDrainStarted, undefined),
+              ),
+            ),
+        })
+
+        yield* coordinator.wake("session")
+        yield* Deferred.await(firstDrainStarted)
+        const resumed = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Effect.yieldNow
+        const handoff = yield* coordinator
+          .handoff(
+            "session",
+            Deferred.succeed(handoffStarted, undefined).pipe(Effect.andThen(Deferred.await(handoffGate))),
+          )
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(firstDrainInterrupted)
+        yield* Deferred.await(handoffStarted)
+
+        const canceled = yield* Deferred.make<Exit.Exit<void, never>>()
+        const removeObserver = resumed.addObserver((exit) => Deferred.doneUnsafe(canceled, Effect.succeed(exit)))
+        resumed.interruptUnsafe()
+        const canceledExit = yield* Deferred.await(canceled).pipe(
+          Effect.timeout("100 millis"),
+          Effect.ensuring(Deferred.succeed(handoffGate, undefined)),
+        )
+        removeObserver()
+        expect(Exit.isFailure(canceledExit) && Cause.hasInterruptsOnly(canceledExit.cause)).toBeTrue()
+
+        yield* Fiber.join(handoff)
+        yield* Deferred.await(secondDrainStarted)
+      }),
+    ),
+  )
+
   it.effect("runs a wake registered during interruption cleanup", () =>
     Effect.scoped(
       Effect.gen(function* () {

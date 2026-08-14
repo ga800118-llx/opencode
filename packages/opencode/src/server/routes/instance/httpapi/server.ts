@@ -288,7 +288,10 @@ export function createRoutes(
       corsVaryFix,
       fenceLayer,
       cors(corsOptions),
-      AppNodeBuilderV1.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
+      AppNodeBuilderV1.build(MoveSession.node, [
+        [LocationServiceMap.node, locationServiceMapV2],
+        [SessionExecution.node, SessionExecutionLocal.node],
+      ]),
       HttpServer.layerServices,
     ]),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),

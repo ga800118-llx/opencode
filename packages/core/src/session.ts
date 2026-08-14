@@ -88,8 +88,8 @@ type CreateInput = {
 }
 
 type CompactInput = {
+  id?: SessionMessage.ID
   sessionID: SessionSchema.ID
-  prompt?: Prompt
 }
 
 export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Session.NotFoundError", {
@@ -109,10 +109,22 @@ export class PromptConflictError extends Schema.TaggedErrorClass<PromptConflictE
   sessionID: SessionSchema.ID,
   messageID: SessionMessage.ID,
 }) {}
+export class CompactionConflictError extends Schema.TaggedErrorClass<CompactionConflictError>()(
+  "Session.CompactionConflictError",
+  {
+    sessionID: SessionSchema.ID,
+    inputID: SessionMessage.ID,
+  },
+) {}
 export const MessageNotFoundError = SessionRevert.MessageNotFoundError
 export type MessageNotFoundError = SessionRevert.MessageNotFoundError
 
-export type Error = NotFoundError | MessageDecodeError | OperationUnavailableError | PromptConflictError
+export type Error =
+  | NotFoundError
+  | MessageDecodeError
+  | OperationUnavailableError
+  | PromptConflictError
+  | CompactionConflictError
 
 export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
@@ -171,7 +183,9 @@ export interface Interface {
     skill: string
     resume?: boolean
   }) => Effect.Effect<void, OperationUnavailableError>
-  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
+  readonly compact: (
+    input: CompactInput,
+  ) => Effect.Effect<SessionInput.Compaction, NotFoundError | CompactionConflictError>
   readonly wait: (id: SessionSchema.ID) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
@@ -445,10 +459,27 @@ const layer = Layer.effect(
           }),
         ),
       ),
-      compact: Effect.fn("V2Session.compact")(function* (input) {
-        yield* result.get(input.sessionID)
-        return yield* new OperationUnavailableError({ operation: "compact" })
-      }),
+      compact: Effect.fn("V2Session.compact")((input) =>
+        Effect.uninterruptible(
+          Effect.gen(function* () {
+            yield* result.get(input.sessionID)
+            const inputID = input.id ?? SessionMessage.ID.create()
+            const admitted = yield* SessionInput.admitCompaction(db, events, {
+              id: inputID,
+              sessionID: input.sessionID,
+              coalesce: input.id === undefined,
+            }).pipe(
+              Effect.catchDefect((defect) =>
+                defect instanceof SessionInput.LifecycleConflict
+                  ? new CompactionConflictError({ sessionID: input.sessionID, inputID })
+                  : Effect.die(defect),
+              ),
+            )
+            yield* execution.wake(input.sessionID)
+            return admitted
+          }),
+        ),
+      ),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
         return yield* new OperationUnavailableError({ operation: "wait" })

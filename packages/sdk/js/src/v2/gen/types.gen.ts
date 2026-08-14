@@ -43,9 +43,11 @@ export type Event =
   | EventSessionNextToolSuccess
   | EventSessionNextToolFailed
   | EventSessionNextRetried
+  | EventSessionNextCompactionAdmitted
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventSessionNextCompactionFailed
   | EventSessionNextRevertStaged
   | EventSessionNextRevertCleared
   | EventSessionNextRevertCommitted
@@ -1145,6 +1147,15 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.next.compaction.admitted"
+        properties: {
+          timestamp: number
+          sessionID: string
+          inputID: string
+        }
+      }
+    | {
+        id: string
         type: "session.next.compaction.started"
         properties: {
           timestamp: number
@@ -1173,6 +1184,17 @@ export type GlobalEvent = {
           reason: "auto" | "manual"
           text: string
           recent: string
+        }
+      }
+    | {
+        id: string
+        type: "session.next.compaction.failed"
+        properties: {
+          timestamp: number
+          sessionID: string
+          messageID: string
+          reason: "auto" | "manual"
+          error: SessionErrorUnknown
         }
       }
     | {
@@ -1643,8 +1665,10 @@ export type GlobalEvent = {
     | SyncEventSessionNextToolSuccess
     | SyncEventSessionNextToolFailed
     | SyncEventSessionNextRetried
+    | SyncEventSessionNextCompactionAdmitted
     | SyncEventSessionNextCompactionStarted
     | SyncEventSessionNextCompactionEnded
+    | SyncEventSessionNextCompactionFailed
     | SyncEventSessionNextRevertStaged
     | SyncEventSessionNextRevertCleared
     | SyncEventSessionNextRevertCommitted
@@ -2774,8 +2798,10 @@ export type SessionDurableEvent =
   | SessionNextReasoningStarted
   | SessionNextReasoningEnded
   | SessionNextRetried
+  | SessionNextCompactionAdmitted
   | SessionNextCompactionStarted
   | SessionNextCompactionEnded
+  | SessionNextCompactionFailed
   | SessionNextRevertStaged
   | SessionNextRevertCleared
   | SessionNextRevertCommitted
@@ -2924,9 +2950,11 @@ export type V2Event =
   | SessionNextToolSuccess
   | SessionNextToolFailed
   | SessionNextRetried
+  | SessionNextCompactionAdmitted
   | SessionNextCompactionStarted
   | SessionNextCompactionDelta
   | SessionNextCompactionEnded
+  | SessionNextCompactionFailed
   | SessionNextRevertStaged
   | SessionNextRevertCleared
   | SessionNextRevertCommitted
@@ -3792,6 +3820,22 @@ export type SyncEventSessionNextRetried = {
   }
 }
 
+export type SyncEventSessionNextCompactionAdmitted = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.compaction.admitted.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      inputID: string
+    }
+  }
+}
+
 export type SyncEventSessionNextCompactionStarted = {
   type: "sync"
   id: string
@@ -3824,6 +3868,24 @@ export type SyncEventSessionNextCompactionEnded = {
       reason: "auto" | "manual"
       text: string
       recent: string
+    }
+  }
+}
+
+export type SyncEventSessionNextCompactionFailed = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.compaction.failed.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      messageID: string
+      reason: "auto" | "manual"
+      error: SessionErrorUnknown
     }
   }
 }
@@ -3997,6 +4059,14 @@ export type SessionInputAdmitted = {
   delivery: "steer" | "queue"
   timeCreated: number
   promotedSeq?: number
+}
+
+export type SessionInputCompaction = {
+  type: "compaction"
+  admittedSeq: number
+  id: string
+  sessionID: string
+  timeCreated: number
 }
 
 export type SessionMessageAgentSwitched = {
@@ -4745,6 +4815,25 @@ export type SessionNextRetried = {
   }
 }
 
+export type SessionNextCompactionAdmitted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.compaction.admitted"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    inputID: string
+  }
+}
+
 export type SessionNextCompactionStarted = {
   id: string
   metadata?: {
@@ -4784,6 +4873,27 @@ export type SessionNextCompactionEnded = {
     reason: "auto" | "manual"
     text: string
     recent: string
+  }
+}
+
+export type SessionNextCompactionFailed = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.compaction.failed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    reason: "auto" | "manual"
+    error: SessionErrorUnknown
   }
 }
 
@@ -6695,6 +6805,16 @@ export type EventSessionNextRetried = {
   }
 }
 
+export type EventSessionNextCompactionAdmitted = {
+  id: string
+  type: "session.next.compaction.admitted"
+  properties: {
+    timestamp: number
+    sessionID: string
+    inputID: string
+  }
+}
+
 export type EventSessionNextCompactionStarted = {
   id: string
   type: "session.next.compaction.started"
@@ -6727,6 +6847,18 @@ export type EventSessionNextCompactionEnded = {
     reason: "auto" | "manual"
     text: string
     recent: string
+  }
+}
+
+export type EventSessionNextCompactionFailed = {
+  id: string
+  type: "session.next.compaction.failed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    reason: "auto" | "manual"
+    error: SessionErrorUnknown
   }
 }
 
@@ -11797,7 +11929,9 @@ export type V2SessionCompactData = {
   path: {
     sessionID: string
   }
-  query?: never
+  query?: {
+    id?: string
+  }
   url: "/api/session/{sessionID}/compact"
 }
 
@@ -11815,18 +11949,20 @@ export type V2SessionCompactErrors = {
    */
   404: SessionNotFoundError
   /**
-   * ServiceUnavailableError
+   * ConflictError
    */
-  503: ServiceUnavailableError
+  409: ConflictError
 }
 
 export type V2SessionCompactError = V2SessionCompactErrors[keyof V2SessionCompactErrors]
 
 export type V2SessionCompactResponses = {
   /**
-   * <No Content>
+   * Success
    */
-  204: void
+  200: {
+    data: SessionInputCompaction
+  }
 }
 
 export type V2SessionCompactResponse = V2SessionCompactResponses[keyof V2SessionCompactResponses]

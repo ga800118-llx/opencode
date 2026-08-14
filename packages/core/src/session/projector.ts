@@ -383,6 +383,17 @@ const layer = Layer.effectDiscard(
         })
       }),
     )
+    yield* events.project(SessionEvent.Compaction.Admitted, (event) =>
+      Effect.gen(function* () {
+        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
+        yield* SessionInput.projectCompactionAdmitted(db, {
+          admittedSeq: event.durable.seq,
+          id: event.data.inputID,
+          sessionID: event.data.sessionID,
+          timeCreated: event.data.timestamp,
+        })
+      }),
+    )
     yield* events.project(SessionEvent.ContextUpdated, (event) => run(db, event))
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, event))
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, event))
@@ -401,7 +412,29 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, event))
     yield* events.project(SessionEvent.Reasoning.Ended, (event) => run(db, event))
     // yield* events.project(SessionEvent.Retried, (event) => run(db, event))
-    yield* events.project(SessionEvent.Compaction.Ended, (event) => run(db, event))
+    yield* events.project(SessionEvent.Compaction.Ended, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        if (event.data.reason !== "manual") return
+        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
+        yield* SessionInput.settleCompaction(db, {
+          id: event.data.messageID,
+          sessionID: event.data.sessionID,
+          handledSeq: event.durable.seq,
+        })
+      }),
+    )
+    yield* events.project(SessionEvent.Compaction.Failed, (event) =>
+      Effect.gen(function* () {
+        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
+        if (event.data.reason === "manual")
+          yield* SessionInput.settleCompaction(db, {
+            id: event.data.messageID,
+            sessionID: event.data.sessionID,
+            handledSeq: event.durable.seq,
+          })
+      }),
+    )
     yield* events.project(SessionEvent.RevertEvent.Staged, (event) =>
       db
         .update(SessionTable)

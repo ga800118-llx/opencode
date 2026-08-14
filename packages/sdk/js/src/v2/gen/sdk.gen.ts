@@ -5758,15 +5758,26 @@ export class Session3 extends HeyApiClient {
   /**
    * Compact session
    *
-   * Compact a session conversation.
+   * Queue a durable session compaction request.
    */
   public compact<ThrowOnError extends boolean = false>(
     parameters: {
       sessionID: string
+      id?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "id" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).post<V2SessionCompactResponses, V2SessionCompactErrors, ThrowOnError>({
       url: "/api/session/{sessionID}/compact",
       ...options,
