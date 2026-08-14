@@ -298,10 +298,12 @@ jobs:
             [void]$startInfo.ArgumentList.Add("--disable-gpu")
             $process = [System.Diagnostics.Process]::new()
             $process.StartInfo = $startInfo
+            $result = $null
             try {
               if (-not $process.Start()) {
                 throw "safeStorage $Mode Electron process did not start."
               }
+              $processId = $process.Id
               if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
                 $process.Kill($true)
                 if (-not $process.WaitForExit(10000)) {
@@ -309,14 +311,15 @@ jobs:
                 }
                 throw "safeStorage $Mode Electron process timed out after $TimeoutSeconds seconds."
               }
-              return [ordered]@{
-                processId = $process.Id
+              $result = [ordered]@{
+                processId = $processId
                 exitCode = $process.ExitCode
               }
             }
             finally {
               $process.Dispose()
             }
+            return $result
           }
 
           function Get-DurableLocalStateStatus {

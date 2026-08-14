@@ -79,6 +79,11 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(smoke).toContain("Select-AllowlistedDiagnostic")
     expect(smoke).not.toContain("error.message")
     expect(smoke).not.toContain("error.stack")
+    expect(smoke.indexOf("$processId = $process.Id")).toBeLessThan(
+      smoke.indexOf("$process.WaitForExit($TimeoutSeconds * 1000)"),
+    )
+    expect(smoke).toContain("processId = $processId")
+    expect(smoke.indexOf("return $result")).toBeGreaterThan(smoke.indexOf("$process.Dispose()"))
 
     const childFailure = section(smoke, "const writeFailure", "let startupError")
     expect(childFailure).not.toMatch(
