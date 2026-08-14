@@ -297,8 +297,8 @@ jobs:
             )
 
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-            $startInfo.FileName = $ElectronPath
-            $startInfo.WorkingDirectory = $ApplicationPath
+            $startInfo.FileName = [System.IO.Path]::GetFullPath($ElectronPath)
+            $startInfo.WorkingDirectory = [System.IO.Path]::GetFullPath($ApplicationPath)
             $startInfo.UseShellExecute = $false
             [void]$startInfo.ArgumentList.Add($ApplicationPath)
             [void]$startInfo.ArgumentList.Add("--user-data-dir=$UserDataPath")

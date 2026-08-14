@@ -79,6 +79,8 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(smoke).toContain("Select-AllowlistedDiagnostic")
     expect(smoke).not.toContain("error.message")
     expect(smoke).not.toContain("error.stack")
+    expect(smoke).toContain("$startInfo.FileName = [System.IO.Path]::GetFullPath($ElectronPath)")
+    expect(smoke).toContain("$startInfo.WorkingDirectory = [System.IO.Path]::GetFullPath($ApplicationPath)")
     expect(smoke.indexOf("$processId = $process.Id")).toBeLessThan(
       smoke.indexOf("$process.WaitForExit($TimeoutSeconds * 1000)"),
     )
