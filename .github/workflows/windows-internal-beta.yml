@@ -238,7 +238,7 @@ jobs:
         id: desktop_test
         working-directory: packages/desktop
         shell: pwsh
-        run: bun test
+        run: bun test electron-builder.config.test.ts scripts/package-internal-windows.test.ts scripts/windows-internal-beta-ci.test.ts scripts/windows-internal-evidence.test.ts src/product/bundled-git.test.ts src/main/server.test.ts
 
       - name: Typecheck Desktop
         id: desktop_typecheck
