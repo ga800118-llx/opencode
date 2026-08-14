@@ -161,6 +161,11 @@ describe("Windows internal beta CI safety contracts", () => {
       "      - name: Upload validated smoke evidence",
       "      - name: Upload sanitized smoke evidence",
     )
+    const deliveryUpload = section(
+      workflow,
+      "      - name: Upload Windows delivery",
+      "      - name: Upload validated smoke evidence",
+    )
 
     expect(scan).toContain(
       "if: always() && steps.package.outcome == 'success' && steps.safe_storage.outcome == 'success' && steps.verifier.outcome == 'success'",
@@ -176,6 +181,7 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(prepare).not.toContain("Assert-UploadableEvidence")
     expect(prepare).not.toContain("ConvertTo-Json")
     expect(prepare).not.toContain("Copy-Item")
+    expect(deliveryUpload).toContain("if: success() && !inputs.safe_storage_diagnostic")
     expect(upload).toContain("steps.safe_storage.outcome == 'success'")
     expect(upload).toContain("steps.credential_scan.outcome == 'success'")
     expect(upload).toContain("steps.uploadable_evidence.outcome == 'success'")

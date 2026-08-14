@@ -1032,7 +1032,7 @@ jobs:
           } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $sanitizedDirectory "sanitized-smoke-evidence.json") -Encoding utf8
 
       - name: Upload Windows delivery
-        if: success()
+        if: success() && !inputs.safe_storage_diagnostic
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: guai-code-windows-internal-beta-delivery
