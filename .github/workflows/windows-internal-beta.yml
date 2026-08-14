@@ -2,6 +2,12 @@ name: Windows internal beta
 
 on:
   workflow_dispatch:
+    inputs:
+      safe_storage_diagnostic:
+        description: Run the Windows safeStorage check without packaging
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -260,6 +266,7 @@ jobs:
 
       - name: Package Windows internal beta
         id: package
+        if: ${{ !inputs.safe_storage_diagnostic }}
         working-directory: packages/desktop
         shell: pwsh
         run: bun run package:win:internal
@@ -299,22 +306,59 @@ jobs:
             $process = [System.Diagnostics.Process]::new()
             $process.StartInfo = $startInfo
             $result = $null
+            $operation = "start"
             try {
               if (-not $process.Start()) {
                 throw "safeStorage $Mode Electron process did not start."
               }
+              $operation = "read-process-id"
               $processId = $process.Id
+              $operation = "wait-for-exit"
               if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                $operation = "terminate"
                 $process.Kill($true)
                 if (-not $process.WaitForExit(10000)) {
                   throw "safeStorage $Mode Electron process tree did not exit after termination."
                 }
                 throw "safeStorage $Mode Electron process timed out after $TimeoutSeconds seconds."
               }
+              $operation = "read-exit-code"
               $result = [ordered]@{
                 processId = $processId
                 exitCode = $process.ExitCode
               }
+            }
+            catch {
+              $allowedExceptionTypes = @(
+                "ArgumentException",
+                "Exception",
+                "InvalidOperationException",
+                "IOException",
+                "MethodInvocationException",
+                "NotSupportedException",
+                "ObjectDisposedException",
+                "UnauthorizedAccessException",
+                "Win32Exception"
+              )
+              $exceptionType = $_.Exception.GetType().Name
+              $innerException = $_.Exception.InnerException
+              $innerExceptionType = if ($null -eq $innerException) { "None" } else { $innerException.GetType().Name }
+              if ($allowedExceptionTypes -cnotcontains $exceptionType) {
+                $exceptionType = "UnexpectedException"
+              }
+              if ($innerExceptionType -ne "None" -and $allowedExceptionTypes -cnotcontains $innerExceptionType) {
+                $innerExceptionType = "UnexpectedException"
+              }
+              $win32Exception = if ($_.Exception -is [System.ComponentModel.Win32Exception]) {
+                $_.Exception
+              } elseif ($innerException -is [System.ComponentModel.Win32Exception]) {
+                $innerException
+              } else {
+                $null
+              }
+              $nativeErrorCode = if ($null -eq $win32Exception) { 0 } else { $win32Exception.NativeErrorCode }
+              Write-Host "safeStorage process diagnostic: operation=$operation exception=$exceptionType innerException=$innerExceptionType nativeErrorCode=$nativeErrorCode"
+              throw
             }
             finally {
               $process.Dispose()

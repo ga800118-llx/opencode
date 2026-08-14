@@ -84,6 +84,10 @@ describe("Windows internal beta CI safety contracts", () => {
     )
     expect(smoke).toContain("processId = $processId")
     expect(smoke.indexOf("return $result")).toBeGreaterThan(smoke.indexOf("$process.Dispose()"))
+    expect(smoke).toContain("safeStorage process diagnostic: operation=$operation")
+    expect(smoke).toContain("nativeErrorCode=$nativeErrorCode")
+    expect(smoke).not.toContain("$_.Exception.Message")
+    expect(smoke).not.toContain("$_.Exception.StackTrace")
 
     const childFailure = section(smoke, "const writeFailure", "let startupError")
     expect(childFailure).not.toMatch(
