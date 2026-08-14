@@ -296,19 +296,22 @@ jobs:
               [int]$TimeoutSeconds
             )
 
-            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-            $startInfo.FileName = [System.IO.Path]::GetFullPath($ElectronPath)
-            $startInfo.WorkingDirectory = [System.IO.Path]::GetFullPath($ApplicationPath)
-            $startInfo.UseShellExecute = $false
-            [void]$startInfo.ArgumentList.Add($ApplicationPath)
-            [void]$startInfo.ArgumentList.Add("--user-data-dir=$UserDataPath")
-            [void]$startInfo.ArgumentList.Add("--disable-gpu")
-            $process = [System.Diagnostics.Process]::new()
-            $process.StartInfo = $startInfo
+            $startParameters = @{
+              FilePath = [System.IO.Path]::GetFullPath($ElectronPath)
+              ArgumentList = @(
+                ('"{0}"' -f [System.IO.Path]::GetFullPath($ApplicationPath)),
+                ('--user-data-dir="{0}"' -f [System.IO.Path]::GetFullPath($UserDataPath)),
+                "--disable-gpu"
+              )
+              WorkingDirectory = [System.IO.Path]::GetFullPath($ApplicationPath)
+              PassThru = $true
+            }
+            $process = $null
             $result = $null
             $operation = "start"
             try {
-              if (-not $process.Start()) {
+              $process = Start-Process @startParameters
+              if ($null -eq $process) {
                 throw "safeStorage $Mode Electron process did not start."
               }
               $operation = "read-process-id"
@@ -361,7 +364,9 @@ jobs:
               throw
             }
             finally {
-              $process.Dispose()
+              if ($null -ne $process) {
+                $process.Dispose()
+              }
             }
             return $result
           }
