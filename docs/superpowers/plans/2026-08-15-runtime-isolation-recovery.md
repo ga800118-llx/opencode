@@ -130,7 +130,7 @@ git commit -m "fix(desktop): isolate embedded runtime state"
 - Modify: `packages/desktop/src/main/index.ts`
 - Modify: `packages/desktop/src/main/model-center/service.test.ts`
 
-- [ ] **Step 1: Write failing overlay tests**
+- [x] **Step 1: Write failing overlay tests**
 
 Use two saved `ProductProviderProfile` fixtures and a fake `presentProfile`. Assert `createProductRuntimeConfig` returns an exact OpenCode config object:
 
@@ -151,13 +151,13 @@ Cover these recovery cases:
 - an interrupted temporary write leaves the previous valid overlay readable;
 - the manifest contains path/count/timestamp metadata and no profile headers or credentials.
 
-- [ ] **Step 2: Run the focused test and confirm failure**
+- [x] **Step 2: Run the focused test and confirm failure**
 
 Run: `bun test ./src/main/model-center/runtime-config.test.ts` from `packages/desktop`.
 
 Expected: FAIL because the overlay module is absent.
 
-- [ ] **Step 3: Implement exact config generation and atomic persistence**
+- [x] **Step 3: Implement exact config generation and atomic persistence**
 
 Expose this focused API:
 
@@ -181,7 +181,7 @@ export async function writeProductRuntimeConfig(input: {
 
 Write JSON to `model-profiles.json.tmp-<pid>-<uuid>`, fsync/close it, and rename it over `model-profiles.json`. Write the migration marker once and replace the nonsensitive manifest on every successful generation. Do not serialize credentials, sensitive header values, or standalone OpenCode providers.
 
-- [ ] **Step 4: Integrate startup and controlled refresh**
+- [x] **Step 4: Integrate startup and controlled refresh**
 
 In `index.ts`, call `writeProductRuntimeConfig` after the credential proxy starts and before the first sidecar starts. Replace the model-center service's `reloadCredentials` callback with:
 
@@ -196,7 +196,7 @@ await restartProductSidecar()
 
 This makes startup, save, remove, and default selection converge on one exact file. Log only profile/provider counts and file paths.
 
-- [ ] **Step 5: Verify overlay and service behavior**
+- [x] **Step 5: Verify overlay and service behavior**
 
 Run from `packages/desktop`:
 
@@ -207,7 +207,7 @@ bun typecheck
 
 Expected: all tests pass; the secrets test finds no API key in generated config, logs, or manifests.
 
-- [ ] **Step 6: Commit the authoritative overlay**
+- [x] **Step 6: Commit the authoritative overlay**
 
 ```bash
 git add packages/desktop/src/main/model-center/runtime-config.ts packages/desktop/src/main/model-center/runtime-config.test.ts packages/desktop/src/main/model-center/service.test.ts packages/desktop/src/main/index.ts
