@@ -44,7 +44,7 @@
 - Modify: `packages/desktop/src/main/sidecar.ts`
 - Modify: `packages/desktop/src/main/server.test.ts`
 
-- [ ] **Step 1: Write failing path-policy tests**
+- [x] **Step 1: Write failing path-policy tests**
 
 Add tests that call a pure `createDesktopRuntimeEnvironment` function with a temporary `userDataPath` and inherited values pointing at `~/.config/opencode`, `~/.local/share/opencode`, and a test database. Assert the result replaces all persistence locations:
 
@@ -61,13 +61,13 @@ expect(environment.OPENCODE_CONFIG).toBe(path.join(userDataPath, "runtime", "con
 
 Also assert an explicit onboarding root produces paths under that root and never under the real Electron `userData` directory.
 
-- [ ] **Step 2: Run the tests to confirm the API is missing**
+- [x] **Step 2: Run the tests to confirm the API is missing**
 
 Run: `bun test ./src/main/runtime-environment.test.ts ./src/main/server.test.ts` from `packages/desktop`.
 
 Expected: FAIL because `createDesktopRuntimeEnvironment` and the full sidecar environment integration do not exist.
 
-- [ ] **Step 3: Implement the pure runtime policy**
+- [x] **Step 3: Implement the pure runtime policy**
 
 Create one focused module with this public shape:
 
@@ -96,7 +96,7 @@ export async function ensureDesktopRuntime(paths: DesktopRuntimePaths): Promise<
 
 `createDesktopRuntimeEnvironment` must preserve unrelated shell values but overwrite `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `OPENCODE_DB`, and `OPENCODE_CONFIG`. `ensureDesktopRuntime` creates all four roots with `fs/promises.mkdir({ recursive: true })`.
 
-- [ ] **Step 4: Pass the explicit environment to every local sidecar**
+- [x] **Step 4: Pass the explicit environment to every local sidecar**
 
 In `index.ts`, derive paths immediately after `app.setPath("userData", ...)`, create them before sidecar startup, and merge their environment with the bundled Git and credential environments passed to `spawnLocalServer`.
 
@@ -104,7 +104,7 @@ Keep `preferAppEnv` responsible only for loading the interactive shell and enabl
 
 In `sidecar.ts`, make `prepareSidecarEnv` validate that all six persistence variables already exist, then set only server username/password. This preserves the critical invariant that the virtual OpenCode server is imported only after the isolated environment is installed.
 
-- [ ] **Step 5: Verify isolation tests and type checking**
+- [x] **Step 5: Verify isolation tests and type checking**
 
 Run from `packages/desktop`:
 
@@ -115,7 +115,7 @@ bun typecheck
 
 Expected: all selected tests pass and typecheck exits 0.
 
-- [ ] **Step 6: Commit runtime isolation**
+- [x] **Step 6: Commit runtime isolation**
 
 ```bash
 git add packages/desktop/src/main/runtime-environment.ts packages/desktop/src/main/runtime-environment.test.ts packages/desktop/src/main/server.ts packages/desktop/src/main/server.test.ts packages/desktop/src/main/sidecar.ts packages/desktop/src/main/index.ts
