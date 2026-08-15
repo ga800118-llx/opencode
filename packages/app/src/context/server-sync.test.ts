@@ -741,6 +741,31 @@ describe("active session query", () => {
     })
   })
 
+  test("keeps a newer retry status when the active snapshot omits it and forced sync fails", async () => {
+    const active = deferred<ActiveSessionStatuses>()
+    const runtime = runtimeSession(new Set(["omitted"]))
+    runtime.session.set("session_status", "omitted", { type: "busy" })
+    runtime.session.set("message", "omitted", [runtimeErrorMessage("omitted")])
+    runtime.session.pin("omitted")
+    const controller = runtimeController(runtime.session, () => active.promise)
+
+    const refresh = controller.refreshRuntime()
+    await Promise.resolve()
+    runtime.session.apply({
+      type: "session.status",
+      properties: { sessionID: "omitted", status: { type: "retry", attempt: 3, message: "retry", next: 20 } },
+    })
+    active.resolve({})
+
+    await expect(refresh).rejects.toThrow("resolve failed")
+    expect(runtime.session.data.session_status.omitted).toEqual({
+      type: "retry",
+      attempt: 3,
+      message: "retry",
+      next: 20,
+    })
+  })
+
   test("reports once for coalesced background failures and again for a later refresh", async () => {
     const errors: unknown[] = []
     const requests = [deferred<ActiveSessionStatuses>(), deferred<ActiveSessionStatuses>()]

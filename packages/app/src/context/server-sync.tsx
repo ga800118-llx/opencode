@@ -366,7 +366,9 @@ export function createRuntimeRefreshController(input: {
       if (result.status === "fulfilled") return
       const sessionID = sessionIDs[index]
       if (!sessionID || backendActive.has(sessionID)) return
-      if (input.session.statusVersion(sessionID) !== resolutionVersions.get(sessionID)) return
+      const statusVersion = input.session.statusVersion(sessionID)
+      if (startedAt === undefined || statusVersion > startedAt) return
+      if (statusVersion !== resolutionVersions.get(sessionID)) return
       if (input.session.data.session_status[sessionID]?.type === "idle") return
       replaceSessionStatus(input.session, sessionID, { type: "idle" })
     })
