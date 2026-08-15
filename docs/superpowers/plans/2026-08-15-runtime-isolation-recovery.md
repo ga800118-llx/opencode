@@ -221,7 +221,7 @@ git commit -m "fix(desktop): derive providers from model profiles"
 - Modify: `packages/app/src/product/model-center/controller.test.ts`
 - Modify: `packages/app/src/components/settings-v2/model-center.tsx`
 
-- [ ] **Step 1: Rewrite controller tests around one authority**
+- [x] **Step 1: Rewrite controller tests around one authority**
 
 Change the fake dependencies so the controller receives only `modelCenter` and `refreshRuntime`. Assert:
 
@@ -237,13 +237,13 @@ Add equivalent exact-order assertions for remove and default selection. Assert a
 
 Default selection is the exception to the explicit reload call: the desktop host already performs the generated-config write, sidecar restart, and rollback as one transaction inside `selectDefault`. Its exact order is `selectDefault`, then `refreshRuntime`, with no second `reloadCredentials` call.
 
-- [ ] **Step 2: Run the controller test and confirm the old contract fails**
+- [x] **Step 2: Run the controller test and confirm the old contract fails**
 
 Run: `bun test ./src/product/model-center/controller.test.ts` from `packages/app`.
 
 Expected: FAIL because the controller still requires `disabledProviders`, `currentModel`, and `updateConfig`.
 
-- [ ] **Step 3: Simplify the controller**
+- [x] **Step 3: Simplify the controller**
 
 Use this dependency boundary:
 
@@ -256,11 +256,11 @@ type ProductModelCenterControllerOptions = {
 
 `save` and `remove` call their product-host operation, then `modelCenter.reloadCredentials()`, then `refreshRuntime()`. `selectDefault` calls the transactional product-host operation and then `refreshRuntime()`; it must not trigger a second sidecar restart. Remove `enableProviderPatch`, `disableProviderPatch`, `defaultModelPatch`, compensating global config updates, and local observed/configured model tracking from this controller. The desktop host/profile repository is authoritative; the generated overlay performs exact replacement.
 
-- [ ] **Step 4: Update the settings integration**
+- [x] **Step 4: Update the settings integration**
 
 In `model-center.tsx`, remove the `openCodeConfigPatch` bridge and initially adapt the controller's `refreshRuntime` callback to `serverSync().refreshProviders()`. Task 4 replaces that adapter with the complete reconnect reconciliation method. Cloud-provider settings continue to use the existing OpenCode config APIs elsewhere.
 
-- [ ] **Step 5: Verify model-center UI and product tests**
+- [x] **Step 5: Verify model-center UI and product tests**
 
 Run from `packages/app`:
 
@@ -271,7 +271,7 @@ bun typecheck
 
 Expected: tests pass, including save/remove/default error presentation.
 
-- [ ] **Step 6: Commit the controller simplification**
+- [x] **Step 6: Commit the controller simplification**
 
 ```bash
 git add packages/app/src/product/model-center/controller.ts packages/app/src/product/model-center/controller.test.ts packages/app/src/components/settings-v2/model-center.tsx
