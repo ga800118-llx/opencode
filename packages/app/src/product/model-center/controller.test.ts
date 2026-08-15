@@ -230,6 +230,19 @@ describe("createModelCenterController", () => {
     expect(fake.stored()).toEqual([profile])
   })
 
+  test("keeps a removed profile deleted when the host credential reload fails", async () => {
+    const fake = fixture({
+      failure: { operation: "reloadCredentials", error: new Error("private reload failure") },
+      stored: [profile],
+    })
+
+    await expect(fake.controller.remove(profile.id)).rejects.toThrow(
+      "An unexpected product error occurred. Retry once; if it continues, report the safe diagnostic fields.",
+    )
+    expect(fake.calls).toEqual([["remove", profile.id], ["reloadCredentials"]])
+    expect(fake.stored()).toEqual([])
+  })
+
   test("normalizes refresh failures without rolling back host mutations", async () => {
     const failure = {
       operation: "refreshRuntime",
