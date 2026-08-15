@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { Message, OpencodeClient, Session } from "@opencode-ai/sdk/v2/client"
 import type {
   McpListInput,
   McpResourceCatalogInput,
@@ -12,13 +12,14 @@ import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/evict
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"
 import {
   createWorkspaceReadinessController,
+  createRuntimeRefreshController,
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
   refetchProviderQueries,
   refreshWorkspaceReadinessOnAgentChange,
   refreshWorkspaceReadinessOnReconnect,
-  seedActiveSessionStatuses,
+  reconcileActiveSessionStatuses,
 } from "./server-sync"
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
@@ -377,24 +378,199 @@ describe("active session query", () => {
     expect([...options.queryKey]).toEqual([ServerScope.local, "activeSessions"])
   })
 
-  test("does not overwrite statuses already written by events", () => {
+  test("authoritatively overwrites active statuses and idles missing renderer work", () => {
     const session = createServerSession({} as OpencodeClient)
-    session.set("session_status", "ses_retry", { type: "retry", attempt: 2, message: "retrying", next: 10 })
+    session.set("session_status", "running", { type: "retry", attempt: 1, message: "stale", next: 5 })
+    session.set("session_status", "retrying", { type: "busy" })
+    session.set("session_status", "completed", { type: "busy" })
+    session.set("session_status", "failed", { type: "retry", attempt: 2, message: "failed", next: 10 })
+    session.set("session_status", "busy", { type: "idle" })
+    session.set("session_status", "stopped", { type: "busy" })
+    session.set("session_status", "idle", { type: "idle" })
 
-    seedActiveSessionStatuses(session, {
-      ses_running: { type: "running" },
-      ses_retry: { type: "running" },
+    const result = reconcileActiveSessionStatuses(session, {
+      running: { type: "running" },
+      retrying: { type: "retry", attempt: 3, message: "retrying", next: 20 },
+      busy: { type: "busy" },
+      stopped: { type: "idle" },
     })
 
-    expect(session.data.session_status.ses_running).toEqual({ type: "busy" })
-    expect(session.data.session_status.ses_retry).toEqual({
+    expect(session.data.session_status.running).toEqual({ type: "busy" })
+    expect(session.data.session_status.retrying).toEqual({
       type: "retry",
-      attempt: 2,
+      attempt: 3,
       message: "retrying",
-      next: 10,
+      next: 20,
     })
+    expect(session.data.session_status.completed).toEqual({ type: "idle" })
+    expect(session.data.session_status.failed).toEqual({ type: "idle" })
+    expect(session.data.session_status.busy).toEqual({ type: "busy" })
+    expect(session.data.session_status.stopped).toEqual({ type: "idle" })
+    expect(session.data.session_status.idle).toEqual({ type: "idle" })
+    expect(result).toEqual({ active: ["running", "retrying", "busy"], idle: ["stopped", "completed", "failed"] })
+  })
+
+  test("refetches cached active data on every settled runtime refresh", async () => {
+    let calls = 0
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const options = loadActiveSessionsQuery(ServerScope.local, {
+      active: async () => {
+        calls++
+        const active: Record<string, { type: "running" }> = calls === 1 ? { initial: { type: "running" } } : {}
+        return active
+      },
+    })
+    await queryClient.fetchQuery(options)
+    const session = createServerSession({} as OpencodeClient)
+    const controller = createRuntimeRefreshController({
+      refreshConfig: async () => undefined,
+      refreshProviders: async () => undefined,
+      refreshActiveSessions: async () => {
+        await queryClient.refetchQueries({ queryKey: options.queryKey, exact: true }, { throwOnError: true })
+        return queryClient.getQueryData(options.queryKey) ?? {}
+      },
+      refreshAgents: async () => undefined,
+      session,
+    })
+
+    await controller.refreshRuntime()
+    await controller.refreshRuntime()
+
+    expect(calls).toBe(3)
+  })
+
+  test("coalesces concurrent refreshes and starts a new refresh after settlement", async () => {
+    const active = deferred<Record<string, { type: "running" }>>()
+    let calls = 0
+    const controller = createRuntimeRefreshController({
+      refreshConfig: async () => undefined,
+      refreshProviders: async () => undefined,
+      refreshActiveSessions: () => {
+        calls++
+        if (calls === 1) return active.promise
+        return Promise.resolve({})
+      },
+      refreshAgents: async () => undefined,
+      session: createServerSession({} as OpencodeClient),
+    })
+
+    const first = controller.refreshRuntime()
+    const second = controller.refreshRuntime()
+    expect(first).toBe(second)
+    await Promise.resolve()
+    expect(calls).toBe(1)
+
+    active.resolve({})
+    await first
+    await controller.refreshRuntime()
+    expect(calls).toBe(2)
+  })
+
+  test("reconciles completed, failed, and running work and refreshes loaded content", async () => {
+    const runtime = runtimeSession()
+    const failedMessage = runtimeErrorMessage("failed")
+    runtime.session.set("session_status", "completed", { type: "busy" })
+    runtime.session.set("session_status", "failed", { type: "retry", attempt: 2, message: "failed", next: 10 })
+    runtime.session.set("session_status", "running", { type: "idle" })
+    runtime.session.set("message", "completed", [])
+    runtime.session.set("message", "failed", [failedMessage])
+    runtime.session.set("message", "visible", [])
+    const controller = runtimeController(runtime.session, async () => ({ running: { type: "running" } }))
+
+    await controller.refreshRuntime()
+
+    expect(runtime.session.data.session_status.completed).toEqual({ type: "idle" })
+    expect(runtime.session.data.session_status.failed).toEqual({ type: "idle" })
+    expect(runtime.session.data.session_status.running).toEqual({ type: "busy" })
+    expect(runtime.resolved.toSorted()).toEqual(["completed", "failed", "running", "visible"])
+    expect(runtime.synced.toSorted()).toEqual(["completed", "failed", "visible"])
+  })
+
+  test("clears stale busy state when active refresh fails", async () => {
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "stale", { type: "busy" })
+    const controller = runtimeController(runtime.session, async () => {
+      throw new Error("active refresh failed")
+    })
+
+    await expect(controller.refreshRuntime()).rejects.toThrow("active refresh failed")
+    expect(runtime.session.data.session_status.stale).toEqual({ type: "idle" })
+  })
+
+  test("keeps existing error content when forced visible resolution fails", async () => {
+    const runtime = runtimeSession(new Set(["failed"]))
+    const failedMessage = runtimeErrorMessage("failed")
+    runtime.session.set("session_status", "failed", { type: "busy" })
+    runtime.session.set("message", "failed", [failedMessage])
+    const controller = runtimeController(runtime.session, async () => ({}))
+
+    await expect(controller.refreshRuntime()).rejects.toThrow("resolve failed")
+    expect(runtime.session.data.session_status.failed).toEqual({ type: "idle" })
+    expect(runtime.session.data.message.failed).toEqual([failedMessage])
   })
 })
+
+function runtimeController(
+  session: ReturnType<typeof createServerSession>,
+  refreshActiveSessions: () => Promise<Record<string, { type: "running" }>>,
+) {
+  return createRuntimeRefreshController({
+    refreshConfig: async () => undefined,
+    refreshProviders: async () => undefined,
+    refreshActiveSessions,
+    refreshAgents: async () => undefined,
+    session,
+  })
+}
+
+function runtimeSession(failMessages = new Set<string>()) {
+  const resolved: string[] = []
+  const synced: string[] = []
+  const client = {
+    session: {
+      get: async (input: { sessionID: string }) => {
+        resolved.push(input.sessionID)
+        return { data: runtimeSessionInfo(input.sessionID) }
+      },
+      messages: async (input: { sessionID: string }) => {
+        synced.push(input.sessionID)
+        if (failMessages.has(input.sessionID)) throw new Error("resolve failed")
+        return { data: [], response: { headers: new Headers() } }
+      },
+    },
+  } as unknown as OpencodeClient
+  return { resolved, session: createServerSession(client), synced }
+}
+
+function runtimeSessionInfo(id: string): Session {
+  return {
+    id,
+    slug: id,
+    projectID: "project",
+    directory: "/repo",
+    title: id,
+    version: "1",
+    time: { created: 1, updated: 1 },
+  }
+}
+
+function runtimeErrorMessage(sessionID: string): Message {
+  return {
+    id: "error",
+    sessionID,
+    role: "assistant",
+    time: { created: 1, completed: 2 },
+    error: { name: "UnknownError", data: { message: "model failed" } },
+    parentID: "user",
+    modelID: "model",
+    providerID: "provider",
+    mode: "build",
+    agent: "build",
+    path: { cwd: "/repo", root: "/repo" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  }
+}
 
 describe("pickDirectoriesToEvict", () => {
   test("keeps pinned stores and evicts idle stores", () => {

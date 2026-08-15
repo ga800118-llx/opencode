@@ -1517,6 +1517,9 @@ export function createServerSession(
       if (!count || count === 1) pinned.delete(sessionID)
       if (count && count > 1) pinned.set(sessionID, count - 1)
     },
+    reconnectCandidates() {
+      return [...new Set([...pinned.keys(), ...Object.keys(data.message), ...Object.keys(data.session_message)])]
+    },
     apply,
     applyV2,
   }

@@ -168,6 +168,15 @@ function setup(sessions: Record<string, Session | (Session | Promise<Session>)[]
 }
 
 describe("server session", () => {
+  test("reports pinned and loaded content as reconnect candidates", () => {
+    const ctx = setup({ pinned: session("pinned"), loaded: session("loaded"), projected: session("projected") })
+    ctx.store.pin("pinned")
+    ctx.store.set("message", "loaded", [])
+    ctx.store.set("session_message", "projected", [])
+
+    expect(ctx.store.reconnectCandidates().toSorted()).toEqual(["loaded", "pinned", "projected"])
+  })
+
   test("projects only current permission mode switch events into session info", async () => {
     const current = {
       ...session("child"),

@@ -8,7 +8,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
+import { type Accessor, batch, createEffect, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { InitError } from "../pages/error"
@@ -57,7 +57,6 @@ import type {
   McpResourceCatalogInput,
   McpResourceCatalogOutput,
   McpServer,
-  SessionActiveOutput,
 } from "@opencode-ai/client/promise"
 import { toggleMcp } from "./global-sync/mcp"
 import { createServerSession, type ServerSession } from "./server-session"
@@ -89,10 +88,12 @@ type ApiQueryOptions<T, K extends readonly unknown[]> = SolidQueryOptions<T, Err
 }
 
 type SessionActiveApi = {
-  readonly active: () => Promise<SessionActiveOutput>
+  readonly active: () => Promise<ActiveSessionStatuses>
 }
 
 type ProviderRefreshOptions = { readonly throwOnError?: boolean }
+export type ActiveSessionStatuses = Record<string, SessionStatus | { readonly type: "running" }>
+type RuntimeRefreshSession = Pick<ServerSession, "data" | "set" | "resolve" | "sync" | "reconnectCandidates">
 
 export type WorkspaceReadiness = "initializing" | "ready" | "degraded" | "failed"
 
@@ -220,8 +221,8 @@ export const loadLspQuery = (scope: ServerScope, directory: string, sdk: Opencod
 export const loadActiveSessionsQuery = (
   scope: ServerScope,
   api: SessionActiveApi,
-): ApiQueryOptions<SessionActiveOutput, readonly [ServerScope, "activeSessions"]> =>
-  queryOptions<SessionActiveOutput, Error, SessionActiveOutput, readonly [ServerScope, "activeSessions"]>({
+): ApiQueryOptions<ActiveSessionStatuses, readonly [ServerScope, "activeSessions"]> =>
+  queryOptions<ActiveSessionStatuses, Error, ActiveSessionStatuses, readonly [ServerScope, "activeSessions"]>({
     queryKey: [scope, "activeSessions"] as const,
     queryFn: () => api.active(),
     enabled: true,
@@ -232,14 +233,101 @@ export const loadActiveSessionsQuery = (
     refetchOnWindowFocus: false,
   })
 
-export function seedActiveSessionStatuses(
+export function reconcileActiveSessionStatuses(
   session: Pick<ServerSession, "data" | "set">,
-  active: SessionActiveOutput | Record<string, SessionStatus>,
+  active: ActiveSessionStatuses,
 ) {
-  for (const sessionID of Object.keys(active)) {
-    if (session.data.session_status[sessionID] !== undefined) continue
-    const status = active[sessionID]
-    session.set("session_status", sessionID, status?.type === "running" ? { type: "busy" } : status)
+  const backend = new Set(Object.keys(active))
+  const activeIDs: string[] = []
+  const idleIDs: string[] = []
+
+  for (const [sessionID, status] of Object.entries(active)) {
+    const previous = session.data.session_status[sessionID]?.type
+    const next = status.type === "running" ? { type: "busy" as const } : status
+    replaceSessionStatus(session, sessionID, next)
+    if (next.type !== "idle") activeIDs.push(sessionID)
+    if (next.type === "idle" && previous !== "idle") idleIDs.push(sessionID)
+  }
+
+  for (const [sessionID, status] of Object.entries(session.data.session_status)) {
+    if (status.type === "idle" || backend.has(sessionID)) continue
+    replaceSessionStatus(session, sessionID, { type: "idle" })
+    idleIDs.push(sessionID)
+  }
+
+  return { active: activeIDs, idle: idleIDs }
+}
+
+function replaceSessionStatus(
+  session: Pick<ServerSession, "set">,
+  sessionID: string,
+  status: SessionStatus,
+) {
+  session.set("session_status", sessionID, reconcile(status, { merge: false }))
+}
+
+export function createRuntimeRefreshController(input: {
+  readonly refreshConfig: () => Promise<unknown>
+  readonly refreshProviders: () => Promise<unknown>
+  readonly refreshActiveSessions: () => Promise<ActiveSessionStatuses>
+  readonly refreshAgents: () => Promise<unknown>
+  readonly session: RuntimeRefreshSession
+}) {
+  let inflight: Promise<void> | undefined
+
+  const run = async () => {
+    const rendererNonIdle = Object.entries(input.session.data.session_status)
+      .filter(([, status]) => status.type !== "idle")
+      .map(([sessionID]) => sessionID)
+    const visible = input.session.reconnectCandidates()
+    const refreshes = await Promise.allSettled([
+      Promise.resolve().then(input.refreshConfig),
+      Promise.resolve().then(input.refreshProviders),
+      Promise.resolve().then(input.refreshActiveSessions),
+      Promise.resolve().then(input.refreshAgents),
+    ])
+    const activeRefresh = refreshes[2]
+    const reconciliation =
+      activeRefresh.status === "fulfilled"
+        ? reconcileActiveSessionStatuses(input.session, activeRefresh.value)
+        : (() => {
+            rendererNonIdle.forEach((sessionID) => replaceSessionStatus(input.session, sessionID, { type: "idle" }))
+            return { active: [], idle: rendererNonIdle }
+          })()
+    const sessionIDs = [...new Set([...visible, ...rendererNonIdle, ...reconciliation.active, ...reconciliation.idle])]
+    const resolutions = await Promise.allSettled(
+      sessionIDs.map((sessionID) => {
+        if (
+          input.session.data.message[sessionID] !== undefined ||
+          input.session.data.session_message[sessionID] !== undefined
+        )
+          return input.session.sync(sessionID, { force: true })
+        return input.session.resolve(sessionID, { force: true })
+      }),
+    )
+    const backendActive = new Set(reconciliation.active)
+    resolutions.forEach((result, index) => {
+      if (result.status === "fulfilled") return
+      const sessionID = sessionIDs[index]
+      if (!sessionID || backendActive.has(sessionID)) return
+      if (input.session.data.session_status[sessionID]?.type === "idle") return
+      replaceSessionStatus(input.session, sessionID, { type: "idle" })
+    })
+    const failedRefresh = refreshes.find((result) => result.status === "rejected")
+    if (failedRefresh?.status === "rejected") throw failedRefresh.reason
+    const failedResolution = resolutions.find((result) => result.status === "rejected")
+    if (failedResolution?.status === "rejected") throw failedResolution.reason
+  }
+
+  return {
+    refreshRuntime() {
+      if (inflight) return inflight
+      const request = run().finally(() => {
+        if (inflight === request) inflight = undefined
+      })
+      inflight = request
+      return request
+    },
   }
 }
 
@@ -307,27 +395,21 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const activeSessionsQuery = useQuery(() =>
     loadActiveSessionsQuery(serverSDK.scope, {
       active: async () => {
-        if ((await serverSDK.protocol) === "v1") {
-          const statuses = (await serverSDK.client.session.status()).data ?? {}
-          seedActiveSessionStatuses(session, statuses)
-          for (const sessionID of Object.keys(statuses)) {
-            void session.resolve(sessionID).catch(() => undefined)
-          }
-          return Object.fromEntries(
-            Object.entries(statuses).flatMap(([sessionID, status]) =>
-              status.type === "idle" ? [] : [[sessionID, { type: "running" as const }]],
-            ),
-          )
-        }
-        const active = await serverSDK.api.session.active()
-        seedActiveSessionStatuses(session, active)
-        for (const sessionID of Object.keys(active)) {
-          void session.resolve(sessionID).catch(() => undefined)
-        }
-        return active
+        if ((await serverSDK.protocol) === "v1") return (await serverSDK.client.session.status()).data ?? {}
+        return serverSDK.api.session.active()
       },
     }),
   )
+  let initialActiveSessionsReconciled = false
+  createEffect(() => {
+    const active = activeSessionsQuery.data
+    if (!active || initialActiveSessionsReconciled) return
+    initialActiveSessionsReconciled = true
+    const result = reconcileActiveSessionStatuses(session, active)
+    for (const sessionID of [...result.active, ...result.idle]) {
+      void session.resolve(sessionID, { force: true }).catch(() => undefined)
+    }
+  })
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     get ready() {
@@ -465,6 +547,30 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       provider: globalStore.provider,
     },
   })
+  const runtimeRefresh = createRuntimeRefreshController({
+    refreshConfig: () =>
+      queryClient.refetchQueries(
+        { queryKey: [serverSDK.scope, "config"], exact: true },
+        { throwOnError: true },
+      ),
+    refreshProviders: () => refetchProviderQueries(queryClient, serverSDK.scope, { throwOnError: true }),
+    refreshActiveSessions: async () => {
+      const result = await activeSessionsQuery.refetch({ throwOnError: true })
+      if (result.error) throw result.error
+      if (!result.data) throw new Error("Active sessions are unavailable")
+      return result.data
+    },
+    refreshAgents: () =>
+      Promise.all(
+        Object.keys(children.children).map(async (directory) => {
+          const options = queryOptionsApi.agents(directoryKey(directory))
+          await queryClient.invalidateQueries({ queryKey: options.queryKey, exact: true, refetchType: "none" })
+          await queryClient.fetchQuery(options)
+        }),
+      ),
+    session,
+  })
+  const refreshRuntime = runtimeRefresh.refreshRuntime
 
   async function loadSessions(
     directory: string,
@@ -634,8 +740,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     if (eventType === "integration.connection.updated") void refreshProviders()
 
     if (directory === "global") {
-      if (eventType === "server.connected" && activeSessionsQuery.data === undefined && !activeSessionsQuery.isFetching)
-        void activeSessionsQuery.refetch()
+      if (eventType === "server.connected") void refreshRuntime().catch(() => undefined)
       applyGlobalEvent({
         event,
         project: globalStore.project,
@@ -799,6 +904,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     disableMcp: children.disableMcp,
     queryOptions: queryOptionsApi,
     refreshProviders,
+    refreshRuntime,
     // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
