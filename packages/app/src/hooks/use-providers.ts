@@ -39,6 +39,11 @@ export function useProviders(directory: Accessor<string | undefined>) {
   }
 
   return {
+    ready: () => {
+      const value = dir()
+      if (!value) return serverSync().ready
+      return serverSync().child(value)[0].provider_ready
+    },
     all: () => providers().all,
     default: () => providers().default,
     popular: () =>

@@ -1,10 +1,11 @@
-import { type Accessor, createMemo, createResource } from "solid-js"
+import { type Accessor, createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import { createRecentModelPruner } from "./model-recent-pruning"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -128,9 +129,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     const push = (model: ModelKey) => {
-      const uniq = uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`)
-      if (uniq.length > RECENT_LIMIT) uniq.pop()
-      setStore("recent", uniq)
+      setStore(
+        "recent",
+        uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`).slice(0, RECENT_LIMIT),
+      )
     }
 
     const variantKey = (model: ModelKey) => `${model.providerID}/${model.modelID}`
@@ -145,15 +147,23 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setStore("variant", key, value)
     }
 
-    const [recentModels] = createResource(
-      async () => {
-        const recent = store.recent
-        await ready.promise
-        return recent
-      },
-      (p) => p,
-      { initialValue: [] },
+    createEffect(
+      createRecentModelPruner({
+        persistedReady: ready,
+        catalogReady: providers.ready,
+        recent: () => store.recent,
+        available: () =>
+          available().map((model) => ({
+            providerID: model.provider.id,
+            modelID: model.id,
+          })),
+        limit: RECENT_LIMIT,
+        setRecent(models) {
+          setStore("recent", models)
+        },
+      }),
     )
+
     return {
       ready,
       list,
@@ -161,7 +171,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       visible,
       setVisibility,
       recent: {
-        list: () => recentModels()!,
+        list: () => (ready() ? store.recent : []),
         push,
       },
       variant: {

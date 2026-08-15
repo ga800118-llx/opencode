@@ -342,43 +342,47 @@ git commit -m "fix(app): reconcile sessions after reconnect"
 ### Task 5: Repair Stale Model Selection
 
 **Files:**
+- Create: `packages/app/src/context/model-selection.ts`
+- Create: `packages/app/src/context/model-selection.test.ts`
+- Create: `packages/app/src/context/model-recent-pruning.ts`
+- Modify: `packages/app/src/context/models.tsx`
 - Modify: `packages/app/src/context/local.tsx`
-- Modify: `packages/app/src/context/local-agent.test.ts`
-- Modify: `packages/app/src/context/settings.test.ts`
+- Modify: `packages/app/src/hooks/use-providers.ts`
+- Modify: `packages/app/src/pages/session/composer/prompt-model-selection.ts`
 
-- [ ] **Step 1: Add stale selection tests**
+- [x] **Step 1: Add stale selection tests**
 
-Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert the next new prompt resolves the configured valid default and removes the orphan recent entry. Add a no-model case that resolves `undefined` and leaves the existing setup-required state visible.
+Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert shared selection helpers resolve the configured valid default and remove the orphan recent entry. Add a no-model case that resolves `undefined`, plus a configured model ID containing `/` so provider/model parsing remains correct.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 Run from `packages/app`:
 
 ```bash
-bun test ./src/context/local-agent.test.ts ./src/context/settings.test.ts
+bun test ./src/context/model-selection.test.ts
 ```
 
-Expected: at least the persisted orphan-pruning assertion fails.
+Expected: the shared model-selection module and persisted orphan-pruning behavior do not exist yet.
 
-- [ ] **Step 3: Prune invalid persisted model references**
+- [x] **Step 3: Prune invalid persisted model references**
 
-Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. For a new prompt, prefer the valid generated config default over invalid recent/session references. Remove invalid entries from recent-model storage during provider refresh, not during render. Preserve the explicit no-model result when there is no connected model.
+Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. Share the parsing and first-valid-candidate rules between the local/session and new-composer selectors. For a new prompt, prefer the valid generated config default over invalid recent/session references. Remove invalid entries from recent-model storage only after persisted state and the relevant provider catalog are ready, and repeat pruning when that catalog refreshes. Preserve the explicit no-model result when there is no connected model.
 
-- [ ] **Step 4: Verify model fallback behavior**
+- [x] **Step 4: Verify model fallback behavior**
 
 Run from `packages/app`:
 
 ```bash
-bun test ./src/context/local-agent.test.ts ./src/context/settings.test.ts ./src/context/model-variant.test.ts
+bun test ./src/context/model-selection.test.ts ./src/context/model-variant.test.ts
 bun typecheck
 ```
 
 Expected: all tests pass and invalid provider IDs do not become the selected model.
 
-- [ ] **Step 5: Commit model selection recovery**
+- [x] **Step 5: Commit model selection recovery**
 
 ```bash
-git add packages/app/src/context/local.tsx packages/app/src/context/local-agent.test.ts packages/app/src/context/settings.test.ts
+git add docs/superpowers/plans/2026-08-15-runtime-isolation-recovery.md packages/app/src/context/model-selection.ts packages/app/src/context/model-selection.test.ts packages/app/src/context/model-recent-pruning.ts packages/app/src/context/models.tsx packages/app/src/context/local.tsx packages/app/src/hooks/use-providers.ts packages/app/src/pages/session/composer/prompt-model-selection.ts
 git commit -m "fix(app): recover stale model selections"
 ```
 

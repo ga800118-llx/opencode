@@ -1,6 +1,7 @@
 import { batch, createMemo, startTransition } from "solid-js"
 import { useModels } from "@/context/models"
 import type { ModelKey, ModelSelection } from "@/context/local"
+import { firstValidModel, parseConfigModel } from "@/context/model-selection"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "@/context/model-variant"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
@@ -13,33 +14,29 @@ export function createPromptModelSelection(input: { agent: () => { model?: Model
   const models = useModels()
   const prompt = usePrompt()
   const providers = useProviders(() => sdk().directory)
-  const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
+  const valid = (model: ModelKey) => !!models.find(model)
 
-  const valid = (model: ModelKey) => {
-    const provider = providers.all().get(model.providerID)
-    return !!provider?.models[model.modelID] && connected().has(model.providerID)
-  }
-
-  const configured = () => {
-    const value = sync().data.config.model
-    if (!value) return
-    const [providerID, modelID] = value.split("/")
-    const model = { providerID, modelID }
-    if (valid(model)) return model
-  }
-
-  const recent = () => models.recent.list().find(valid)
   const fallback = () => {
     const defaults = providers.default()
-    return providers.connected().flatMap((provider) => {
-      const modelID = defaults[provider.id] ?? Object.values(provider.models)[0]?.id
-      return modelID ? [{ providerID: provider.id, modelID }] : []
-    })[0]
+    return providers
+      .connected()
+      .flatMap((provider) =>
+        [defaults[provider.id], Object.values(provider.models)[0]?.id]
+          .filter((modelID): modelID is string => !!modelID)
+          .map((modelID) => ({ providerID: provider.id, modelID })),
+      )
   }
 
   const current = () => {
-    const key = [prompt.model.current(), input.agent()?.model, configured(), recent(), fallback()].find(
-      (item): item is ModelKey => !!item && valid(item),
+    const key = firstValidModel(
+      [
+        prompt.model.current(),
+        input.agent()?.model,
+        parseConfigModel(sync().data.config.model),
+        ...models.recent.list(),
+        ...fallback(),
+      ],
+      valid,
     )
     if (!key) return
     return models.find(key)

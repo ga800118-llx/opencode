@@ -8,6 +8,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { hasCustomAgent, resolveAgent } from "./local-agent"
+import { firstValidModel, parseConfigModel } from "./model-selection"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
@@ -69,7 +70,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const id = createMemo(() => params.id || undefined)
     const list = createMemo(() => sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
     const agentsVisible = createMemo(() => settings.visibility.customAgents() || hasCustomAgent(list()))
-    const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
     const [saved, setSaved, , savedReady] = persisted(
       {
@@ -97,18 +97,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       last: undefined,
     })
 
-    const validModel = (model: ModelKey) => {
-      const provider = providers.all().get(model.providerID)
-      return !!provider?.models[model.modelID] && connected().has(model.providerID)
-    }
-
-    const firstModel = (...items: Array<() => ModelKey | undefined>) => {
-      for (const item of items) {
-        const model = item()
-        if (!model) continue
-        if (validModel(model)) return model
-      }
-    }
+    const validModel = (model: ModelKey) => !!models.find(model)
 
     const pickAgent = (name: string | undefined) => {
       return resolveAgent(list(), name)
@@ -148,37 +137,23 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       setStore("promoting", undefined)
     })
 
-    const configuredModel = () => {
-      const configured = sync().data.config.model
-      if (!configured) return
-      const [providerID, modelID] = configured.split("/")
-      const model = { providerID, modelID }
-      if (validModel(model)) return model
-    }
-
-    const recentModel = () => {
-      for (const item of models.recent.list()) {
-        if (validModel(item)) return item
-      }
-    }
-
-    const defaultModel = () => {
+    const defaultModels = () => {
       const defaults = providers.default()
-      for (const provider of providers.connected()) {
+      return providers.connected().flatMap((provider) => {
         const configured = defaults[provider.id]
-        if (configured) {
-          const model = { providerID: provider.id, modelID: configured }
-          if (validModel(model)) return model
-        }
-
-        const first = Object.values(provider.models)[0]
-        if (!first) continue
-        const model = { providerID: provider.id, modelID: first.id }
-        if (validModel(model)) return model
-      }
+        const first = Object.values(provider.models)[0]?.id
+        return [configured, first]
+          .filter((modelID): modelID is string => !!modelID)
+          .map((modelID) => ({ providerID: provider.id, modelID }))
+      })
     }
 
-    const fallback = createMemo<ModelKey | undefined>(() => configuredModel() ?? recentModel() ?? defaultModel())
+    const fallback = createMemo<ModelKey | undefined>(() =>
+      firstValidModel(
+        [parseConfigModel(sync().data.config.model), ...models.recent.list(), ...defaultModels()],
+        validModel,
+      ),
+    )
 
     const agent = {
       list,
@@ -232,11 +207,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const current = () => {
-      const item = firstModel(
-        () => scope()?.model,
-        () => agent.current()?.model,
-        fallback,
-      )
+      const item = firstValidModel([scope()?.model, agent.current()?.model, fallback()], validModel)
       if (!item) return
       return models.find(item)
     }
