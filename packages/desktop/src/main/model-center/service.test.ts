@@ -25,11 +25,7 @@ const draft = {
 } satisfies ProductProviderProfileInput
 
 function fixture(
-  input: {
-    failCredentialWrite?: boolean
-    classification?: ProductCapabilityReport["classification"]
-    reloadCredentials?: () => Promise<void>
-  } = {},
+  input: { failCredentialWrite?: boolean; classification?: ProductCapabilityReport["classification"] } = {},
 ) {
   const profileValues = new Map<string, unknown>()
   let uuid = 0
@@ -96,7 +92,6 @@ function fixture(
     probe,
     detector,
     reloadCredentials: async () => {
-      if (input.reloadCredentials) return input.reloadCredentials()
       reloads += 1
     },
   })
@@ -214,31 +209,6 @@ describe("createModelCenterService", () => {
     await fake.service.remove(profile.id)
     expect(await fake.service.list()).toEqual([])
     expect(fake.credentialValues.size).toBe(0)
-  })
-
-  test("awaits the complete overlay rewrite and restart callback", async () => {
-    const overlay = Promise.withResolvers<void>()
-    const calls: string[] = []
-    const fake = fixture({
-      reloadCredentials: async () => {
-        calls.push("overlay")
-        await overlay.promise
-        calls.push("restart")
-      },
-    })
-    let completed = false
-
-    const reload = fake.service.reloadCredentials().then(() => {
-      completed = true
-    })
-    await Promise.resolve()
-
-    expect(calls).toEqual(["overlay"])
-    expect(completed).toBe(false)
-    overlay.resolve()
-    await reload
-    expect(calls).toEqual(["overlay", "restart"])
-    expect(completed).toBe(true)
   })
 
   test("allows untested and non-agent-capable models as defaults", async () => {

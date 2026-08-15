@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { serializeProviderProfile, type ProductProviderProfile } from "@opencode-ai/app/product/model-center"
 import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
-import { createProductRuntimeConfig, writeProductRuntimeConfig } from "./runtime-config"
+import { createProductRuntimeConfig, reloadProductRuntimeConfig, writeProductRuntimeConfig } from "./runtime-config"
 
 const temporaryDirectories: string[] = []
 
@@ -98,17 +98,63 @@ describe("product runtime config", () => {
     )
   })
 
-  test("a failed overlay rename preserves the prior overlay and removes its temporary file", async () => {
+  test("completes the overlay and manifest before restarting and returns the safe write result", async () => {
+    const paths = await runtimePaths()
+    const current = profile("reloaded", ["coder", "reviewer"])
+    const expected = createProductRuntimeConfig({
+      profiles: [current],
+      defaultSelection: { profileID: current.id, modelID: "reviewer" },
+      presentProfile: presentation(),
+    })
+    const expectedResult = {
+      profileCount: 1,
+      providerCount: 1,
+      modelCount: 2,
+      selectedModel: `${current.providerID}/reviewer`,
+    }
+    let restarts = 0
+
+    const result = await reloadProductRuntimeConfig({
+      paths,
+      profiles: [current],
+      defaultSelection: { profileID: current.id, modelID: "reviewer" },
+      presentProfile: presentation(),
+      now: () => new Date("2026-08-15T10:11:12.000Z"),
+      restart: async (written) => {
+        restarts += 1
+        expect(written).toEqual(expectedResult)
+        expect(JSON.parse(await readFile(paths.modelConfig, "utf8"))).toEqual(expected)
+        expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
+          generatedAt: "2026-08-15T10:11:12.000Z",
+          counts: { profiles: 1, providers: 1, models: 2 },
+          selectedModel: `${current.providerID}/reviewer`,
+        })
+        expect(JSON.parse(await readFile(paths.migrationMarker, "utf8"))).toEqual({
+          schemaVersion: 1,
+          isolatedAt: "2026-08-15T10:11:12.000Z",
+        })
+      },
+    })
+
+    expect(restarts).toBe(1)
+    expect(result).toEqual(expectedResult)
+  })
+
+  test("a failed overlay rename preserves the prior overlay, cleans its temporary file, and skips restart", async () => {
     const paths = await runtimePaths()
     const previous = { provider: { stable: { name: "Stable" } }, disabled_providers: [], model: "stable/coder" }
     await writeFile(paths.modelConfig, JSON.stringify(previous))
+    let restarts = 0
 
     expect(
-      writeProductRuntimeConfig({
+      reloadProductRuntimeConfig({
         paths,
         profiles: [profile("replacement", ["coder"])],
         defaultSelection: undefined,
         presentProfile: (item) => item,
+        restart: async () => {
+          restarts += 1
+        },
         randomUUID: () => "failed-write",
         fileSystem: {
           rename: async (source, destination) => {
@@ -119,6 +165,7 @@ describe("product runtime config", () => {
       }),
     ).rejects.toThrow("simulated overlay rename failure")
 
+    expect(restarts).toBe(0)
     expect(JSON.parse(await readFile(paths.modelConfig, "utf8"))).toEqual(previous)
     expect(
       (await readdir(paths.config)).filter((entry) => entry.startsWith(`${basename(paths.modelConfig)}.tmp-`)),

@@ -113,6 +113,16 @@ export async function writeProductRuntimeConfig(input: {
   })
 }
 
+export async function reloadProductRuntimeConfig(
+  input: Parameters<typeof writeProductRuntimeConfig>[0] & {
+    readonly restart: (result: Awaited<ReturnType<typeof writeProductRuntimeConfig>>) => Promise<unknown>
+  },
+) {
+  const result = await writeProductRuntimeConfig(input)
+  await input.restart(result)
+  return result
+}
+
 async function writeAtomicJSON(
   path: string,
   value: unknown,

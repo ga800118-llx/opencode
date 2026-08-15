@@ -68,7 +68,7 @@ import { createModelCredentialEnvironment } from "./model-center/environment"
 import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
 import { createProfileRepository } from "./model-center/profiles"
-import { writeProductRuntimeConfig } from "./model-center/runtime-config"
+import { reloadProductRuntimeConfig, writeProductRuntimeConfig } from "./model-center/runtime-config"
 import { createModelCenterService } from "./model-center/service"
 import {
   createDesktopRuntimeEnvironment,
@@ -411,13 +411,7 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.promise(() => credentialProxy.start())
   stopModelCredentialProxy = credentialProxy.stop
-  const refreshProductRuntimeConfig = async () => {
-    const result = await writeProductRuntimeConfig({
-      paths: runtimePaths,
-      profiles: profileRepository.list(),
-      defaultSelection: profileRepository.defaultSelection(),
-      presentProfile: credentialProxy.presentProfile,
-    })
+  const logProductRuntimeConfig = (result: Awaited<ReturnType<typeof writeProductRuntimeConfig>>) => {
     logger.log("model runtime config refreshed", {
       modelConfig: runtimePaths.modelConfig,
       manifest: runtimePaths.manifest,
@@ -426,6 +420,15 @@ const main = Effect.gen(function* () {
       providers: result.providerCount,
       models: result.modelCount,
     })
+  }
+  const refreshProductRuntimeConfig = async () => {
+    const result = await writeProductRuntimeConfig({
+      paths: runtimePaths,
+      profiles: profileRepository.list(),
+      defaultSelection: profileRepository.defaultSelection(),
+      presentProfile: credentialProxy.presentProfile,
+    })
+    logProductRuntimeConfig(result)
   }
   yield* Effect.promise(refreshProductRuntimeConfig)
   const createLocalSidecarEnvironment = () =>
@@ -447,8 +450,16 @@ const main = Effect.gen(function* () {
     detector: modelDetector,
     presentProfile: credentialProxy.presentProfile,
     reloadCredentials: async () => {
-      await refreshProductRuntimeConfig()
-      await restartProductSidecar()
+      await reloadProductRuntimeConfig({
+        paths: runtimePaths,
+        profiles: profileRepository.list(),
+        defaultSelection: profileRepository.defaultSelection(),
+        presentProfile: credentialProxy.presentProfile,
+        restart: async (result) => {
+          logProductRuntimeConfig(result)
+          await restartProductSidecar()
+        },
+      })
     },
   })
   yield* Effect.promise(() => cleanupStoreFiles(app.getPath("userData"))).pipe(
