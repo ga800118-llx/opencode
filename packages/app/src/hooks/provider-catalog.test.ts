@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
-import { selectProviderCatalog } from "./provider-catalog"
+import { selectProviderCatalog, selectProviderCatalogReady } from "./provider-catalog"
 
 const catalog = (id: string): NormalizedProviderListResponse => ({
   all: new Map([[id, { id, name: id, source: "api", env: [], options: {}, models: {} }]]),
@@ -56,4 +56,12 @@ test("falls back to the global catalog for route consumers", () => {
       global,
     }),
   ).toBe(global)
+})
+
+test("selects readiness from the relevant global or workspace catalog", () => {
+  expect(selectProviderCatalogReady({ global: false })).toBe(false)
+  expect(selectProviderCatalogReady({ global: true })).toBe(true)
+  expect(selectProviderCatalogReady({ directory: "/repo", global: true })).toBe(false)
+  expect(selectProviderCatalogReady({ directory: "/repo", global: true, catalog: { ready: false } })).toBe(false)
+  expect(selectProviderCatalogReady({ directory: "/repo", global: false, catalog: { ready: true } })).toBe(true)
 })

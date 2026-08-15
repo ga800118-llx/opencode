@@ -48,6 +48,7 @@ import { ServerConnection, useServer } from "./server"
 import { retry } from "@opencode-ai/core/util/retry"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { createHomeSessionIndexCache } from "./global-sync/home-session-index"
+import { providerQueryReady } from "./global-sync/provider-readiness"
 import { persisted } from "@/utils/persist"
 import type { ServerApi } from "@/utils/server"
 import type {
@@ -63,6 +64,7 @@ import { createServerSession, type ServerSession } from "./server-session"
 
 type GlobalStore = {
   ready: boolean
+  provider_ready: boolean
   error?: InitError
   path: Path
   project: Project[]
@@ -480,6 +482,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     get ready() {
       return !bootstrap.isPending
+    },
+    get provider_ready() {
+      return providerQueryReady(providerQuery)
     },
     project: [],
     provider_auth: {},

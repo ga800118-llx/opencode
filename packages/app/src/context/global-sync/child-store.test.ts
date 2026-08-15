@@ -26,6 +26,8 @@ const provider = { all: new Map(), connected: [], default: {} } satisfies Normal
 let agents: State["agent"] = []
 let agentsFetching = false
 let agentsError = false
+let providersSuccess = true
+let providersFetching = false
 
 class DeferredStorage {
   private writes: Array<{
@@ -130,7 +132,12 @@ beforeAll(async () => {
           return options().queryKey?.[1] === "path"
         },
         get isFetching() {
+          if (options().queryKey?.[1] === "providers") return providersFetching
           return options().queryKey?.[1] === "agents" && agentsFetching
+        },
+        get isSuccess() {
+          if (options().queryKey?.[1] === "providers") return providersSuccess
+          return true
         },
         get isError() {
           return options().queryKey?.[1] === "agents" && agentsError
@@ -156,6 +163,8 @@ beforeEach(() => {
   agents = []
   agentsFetching = false
   agentsError = false
+  providersSuccess = true
+  providersFetching = false
 })
 
 describe("createChildStoreManager", () => {
@@ -403,6 +412,52 @@ describe("createChildStoreManager", () => {
 
       manager.child("/project", { bootstrap: false })
       expect(queries[0]?.().enabled).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("marks workspace providers ready only after successful settled queries", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      providersSuccess = false
+      providersFetching = true
+      const [store] = manager.child("/provider-readiness")
+      expect(store.provider_ready).toBe(false)
+
+      providersFetching = false
+      expect(store.provider_ready).toBe(false)
+
+      providersSuccess = true
+      expect(store.provider_ready).toBe(true)
+
+      providersFetching = true
+      expect(store.provider_ready).toBe(false)
+
+      providersFetching = false
+      providersSuccess = false
+      expect(store.provider_ready).toBe(false)
+
+      providersSuccess = true
+      expect(store.provider_ready).toBe(true)
     } finally {
       dispose()
     }

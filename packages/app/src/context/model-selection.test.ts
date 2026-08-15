@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createRecentModelPruner } from "./model-recent-pruning"
-import { firstValidModel, parseConfigModel, pruneModelKeys, type ModelKey } from "./model-selection"
+import { firstValidModel, parseConfigModel, pruneModelKeys, selectModelKey, type ModelKey } from "./model-selection"
 
 const stale = { providerID: "agent-profile-old", modelID: "coder" }
 const configured = { providerID: "agent-profile-current", modelID: "deepseek-v4-pro" }
@@ -36,65 +35,62 @@ describe("firstValidModel", () => {
   })
 })
 
+describe("selectModelKey", () => {
+  const explicit = { providerID: "explicit", modelID: "model" }
+  const agent = { providerID: "agent", modelID: "model" }
+  const recent = { providerID: "recent", modelID: "model" }
+  const fallback = { providerID: "fallback", modelID: "model" }
+  const candidates = [explicit, agent, configured, recent, fallback]
+  const valid = (available: ModelKey[]) => (model: ModelKey) =>
+    available.some((item) => item.providerID === model.providerID && item.modelID === model.modelID)
+
+  test("preserves explicit, agent, config, recent, and fallback precedence", () => {
+    const input = {
+      explicit,
+      agent,
+      configured: "agent-profile-current/deepseek-v4-pro",
+      recent: [stale, recent],
+      fallback: [fallback],
+    }
+
+    expect(selectModelKey({ ...input, valid: valid(candidates) })).toEqual(explicit)
+    expect(selectModelKey({ ...input, valid: valid(candidates.slice(1)) })).toEqual(agent)
+    expect(selectModelKey({ ...input, valid: valid(candidates.slice(2)) })).toEqual(configured)
+    expect(selectModelKey({ ...input, valid: valid(candidates.slice(3)) })).toEqual(recent)
+    expect(selectModelKey({ ...input, valid: valid(candidates.slice(4)) })).toEqual(fallback)
+  })
+
+  test("rejects stale explicit, agent, and recent candidates for generated config", () => {
+    expect(
+      selectModelKey({
+        explicit: stale,
+        agent: stale,
+        configured: "agent-profile-current/deepseek-v4-pro",
+        recent: [stale],
+        fallback: [],
+        valid: valid([configured]),
+      }),
+    ).toEqual(configured)
+  })
+
+  test("returns undefined without a valid connected candidate", () => {
+    expect(
+      selectModelKey({
+        explicit: stale,
+        agent: stale,
+        configured: "missing/model",
+        recent: [stale],
+        fallback: [],
+        valid: () => false,
+      }),
+    ).toBeUndefined()
+  })
+})
+
 test("pruneModelKeys removes invalid and duplicate entries while preserving valid order", () => {
   const second = { providerID: "anthropic", modelID: "claude" }
 
   expect(pruneModelKeys([configured, stale, nested, configured, second, nested], [nested, second, configured])).toEqual(
     [configured, nested, second],
   )
-})
-
-test("recent pruning waits for readiness and reruns after provider refresh", () => {
-  let persistedReady = false
-  let catalogReady = false
-  let recent: ModelKey[] = [stale, configured]
-  let available: ModelKey[] = [configured, nested]
-  const updates: ModelKey[][] = []
-
-  const prune = createRecentModelPruner({
-    persistedReady: () => persistedReady,
-    catalogReady: () => catalogReady,
-    recent: () => recent,
-    available: () => available,
-    limit: 5,
-    setRecent(value) {
-      updates.push(value)
-      recent = value
-    },
-  })
-
-  prune()
-  expect(updates).toEqual([])
-
-  persistedReady = true
-  prune()
-  expect(updates).toEqual([])
-
-  catalogReady = true
-  prune()
-  expect(updates).toEqual([[configured]])
-
-  recent = [configured, nested]
-  prune()
-  available = [nested]
-  prune()
-  expect(updates.at(-1)).toEqual([nested])
-})
-
-test("recent pruning keeps the first five valid entries", () => {
-  const recent = Array.from({ length: 6 }, (_, index) => ({ providerID: "provider", modelID: `model-${index}` }))
-  let result: ModelKey[] = []
-  const prune = createRecentModelPruner({
-    persistedReady: () => true,
-    catalogReady: () => true,
-    recent: () => recent,
-    available: () => recent,
-    limit: 5,
-    setRecent(value) {
-      result = value
-    },
-  })
-
-  prune()
-  expect(result).toEqual(recent.slice(0, 5))
 })

@@ -1,7 +1,7 @@
 import { batch, createMemo, startTransition } from "solid-js"
 import { useModels } from "@/context/models"
 import type { ModelKey, ModelSelection } from "@/context/local"
-import { firstValidModel, parseConfigModel } from "@/context/model-selection"
+import { selectModelKey } from "@/context/model-selection"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "@/context/model-variant"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
@@ -28,16 +28,14 @@ export function createPromptModelSelection(input: { agent: () => { model?: Model
   }
 
   const current = () => {
-    const key = firstValidModel(
-      [
-        prompt.model.current(),
-        input.agent()?.model,
-        parseConfigModel(sync().data.config.model),
-        ...models.recent.list(),
-        ...fallback(),
-      ],
+    const key = selectModelKey({
+      explicit: prompt.model.current(),
+      agent: input.agent()?.model,
+      configured: sync().data.config.model,
+      recent: models.recent.list(),
+      fallback: fallback(),
       valid,
-    )
+    })
     if (!key) return
     return models.find(key)
   }

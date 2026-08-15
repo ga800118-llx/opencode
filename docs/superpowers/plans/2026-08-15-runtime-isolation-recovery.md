@@ -345,14 +345,25 @@ git commit -m "fix(app): reconcile sessions after reconnect"
 - Create: `packages/app/src/context/model-selection.ts`
 - Create: `packages/app/src/context/model-selection.test.ts`
 - Create: `packages/app/src/context/model-recent-pruning.ts`
+- Create: `packages/app/src/context/model-recent-pruning.test.ts`
+- Create: `packages/app/src/context/global-sync/provider-readiness.ts`
+- Create: `packages/app/src/context/global-sync/provider-readiness.test.ts`
 - Modify: `packages/app/src/context/models.tsx`
 - Modify: `packages/app/src/context/local.tsx`
+- Modify: `packages/app/src/context/server-sync.tsx`
+- Modify: `packages/app/src/context/global-sync/bootstrap.ts`
+- Modify: `packages/app/src/context/global-sync/child-store.ts`
+- Modify: `packages/app/src/context/global-sync/child-store.test.ts`
 - Modify: `packages/app/src/hooks/use-providers.ts`
+- Modify: `packages/app/src/hooks/provider-catalog.ts`
+- Modify: `packages/app/src/hooks/provider-catalog.test.ts`
 - Modify: `packages/app/src/pages/session/composer/prompt-model-selection.ts`
+- Modify: `packages/app/src/pages/new-session/new-session-view.tsx`
+- Modify: `packages/app/src/product/workflow/use-model-readiness.ts`
 
 - [x] **Step 1: Add stale selection tests**
 
-Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert shared selection helpers resolve the configured valid default and remove the orphan recent entry. Add a no-model case that resolves `undefined`, plus a configured model ID containing `/` so provider/model parsing remains correct.
+Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert the shared production candidate builder resolves the configured valid default and preserves explicit, agent, config, recent, and fallback precedence. Add a no-model case that resolves `undefined`, plus a configured model ID containing `/` so provider/model parsing remains correct. Add browser-reactive pruning coverage for pending, failed, successful, and refreshed provider catalogs.
 
 - [x] **Step 2: Run the focused tests**
 
@@ -360,20 +371,22 @@ Run from `packages/app`:
 
 ```bash
 bun test ./src/context/model-selection.test.ts
+bun test --conditions=browser --preload ./happydom.ts ./src/context/model-recent-pruning.test.ts
 ```
 
 Expected: the shared model-selection module and persisted orphan-pruning behavior do not exist yet.
 
 - [x] **Step 3: Prune invalid persisted model references**
 
-Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. Share the parsing and first-valid-candidate rules between the local/session and new-composer selectors. For a new prompt, prefer the valid generated config default over invalid recent/session references. Remove invalid entries from recent-model storage only after persisted state and the relevant provider catalog are ready, and repeat pruning when that catalog refreshes. Preserve the explicit no-model result when there is no connected model.
+Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. Share the parsing and production candidate construction between the local/session and new-composer selectors. For a new prompt, prefer the valid generated config default over invalid recent/session references. Mark global and workspace provider catalogs ready only after a successful settled provider query; pending and failed initial requests or refreshes must not prune persisted recents. Repeat pruning after each later successful catalog refresh. Preserve the explicit no-model result when there is no connected model.
 
 - [x] **Step 4: Verify model fallback behavior**
 
 Run from `packages/app`:
 
 ```bash
-bun test ./src/context/model-selection.test.ts ./src/context/model-variant.test.ts
+bun test --conditions=solid --preload ./happydom.ts ./src/context/model-selection.test.ts ./src/context/model-variant.test.ts ./src/context/local-agent.test.ts ./src/context/global-sync/provider-readiness.test.ts ./src/context/global-sync/child-store.test.ts ./src/hooks/provider-catalog.test.ts ./src/product/workflow/model-readiness.test.ts ./src/product/workflow/use-model-readiness.test.ts ./src/pages/session/session-model-helpers.test.ts
+bun test --conditions=browser --preload ./happydom.ts ./src/context/model-recent-pruning.test.ts
 bun typecheck
 ```
 
@@ -384,6 +397,15 @@ Expected: all tests pass and invalid provider IDs do not become the selected mod
 ```bash
 git add docs/superpowers/plans/2026-08-15-runtime-isolation-recovery.md packages/app/src/context/model-selection.ts packages/app/src/context/model-selection.test.ts packages/app/src/context/model-recent-pruning.ts packages/app/src/context/models.tsx packages/app/src/context/local.tsx packages/app/src/hooks/use-providers.ts packages/app/src/pages/session/composer/prompt-model-selection.ts
 git commit -m "fix(app): recover stale model selections"
+```
+
+- [x] **Step 6: Correct provider readiness after spec review**
+
+Require successful, settled provider queries for both global and workspace readiness. Exercise the production pruning effect through pending, failed, successful, and refreshed states; audit existing readiness consumers; and commit the corrections without touching protected untracked files.
+
+```bash
+git add docs/superpowers/plans/2026-08-15-runtime-isolation-recovery.md packages/app/src/context/global-sync/bootstrap.ts packages/app/src/context/global-sync/child-store.ts packages/app/src/context/global-sync/child-store.test.ts packages/app/src/context/global-sync/provider-readiness.ts packages/app/src/context/global-sync/provider-readiness.test.ts packages/app/src/context/server-sync.tsx packages/app/src/context/model-selection.ts packages/app/src/context/model-selection.test.ts packages/app/src/context/model-recent-pruning.ts packages/app/src/context/model-recent-pruning.test.ts packages/app/src/context/models.tsx packages/app/src/context/local.tsx packages/app/src/hooks/provider-catalog.ts packages/app/src/hooks/provider-catalog.test.ts packages/app/src/hooks/use-providers.ts packages/app/src/pages/new-session/new-session-view.tsx packages/app/src/pages/session/composer/prompt-model-selection.ts packages/app/src/product/workflow/use-model-readiness.ts
+git commit -m "fix(app): require successful provider catalogs"
 ```
 
 ### Task 6: Stamp an Identifiable Alpha 3 Build

@@ -25,3 +25,12 @@ export function selectProviderCatalog(input: ProviderCatalogInput) {
   if (input.explicit) return emptyProviderCatalog
   return input.global
 }
+
+export function selectProviderCatalogReady(input: {
+  directory?: string
+  global: boolean
+  catalog?: { ready: boolean }
+}) {
+  if (!input.directory) return input.global
+  return input.catalog?.ready === true
+}

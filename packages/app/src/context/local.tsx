@@ -8,7 +8,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { hasCustomAgent, resolveAgent } from "./local-agent"
-import { firstValidModel, parseConfigModel } from "./model-selection"
+import { selectModelKey } from "./model-selection"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
@@ -148,13 +148,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       })
     }
 
-    const fallback = createMemo<ModelKey | undefined>(() =>
-      firstValidModel(
-        [parseConfigModel(sync().data.config.model), ...models.recent.list(), ...defaultModels()],
-        validModel,
-      ),
-    )
-
     const agent = {
       list,
       visible: agentsVisible,
@@ -207,7 +200,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const current = () => {
-      const item = firstValidModel([scope()?.model, agent.current()?.model, fallback()], validModel)
+      const item = selectModelKey({
+        explicit: scope()?.model,
+        agent: agent.current()?.model,
+        configured: sync().data.config.model,
+        recent: models.recent.list(),
+        fallback: defaultModels(),
+        valid: validModel,
+      })
       if (!item) return
       return models.find(item)
     }

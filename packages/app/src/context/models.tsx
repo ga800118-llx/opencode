@@ -1,4 +1,4 @@
-import { type Accessor, createEffect, createMemo } from "solid-js"
+import { type Accessor, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
@@ -147,22 +147,20 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setStore("variant", key, value)
     }
 
-    createEffect(
-      createRecentModelPruner({
-        persistedReady: ready,
-        catalogReady: providers.ready,
-        recent: () => store.recent,
-        available: () =>
-          available().map((model) => ({
-            providerID: model.provider.id,
-            modelID: model.id,
-          })),
-        limit: RECENT_LIMIT,
-        setRecent(models) {
-          setStore("recent", models)
-        },
-      }),
-    )
+    createRecentModelPruner({
+      persistedReady: ready,
+      catalogReady: providers.ready,
+      recent: () => store.recent,
+      available: () =>
+        available().map((model) => ({
+          providerID: model.provider.id,
+          modelID: model.id,
+        })),
+      limit: RECENT_LIMIT,
+      setRecent(models) {
+        setStore("recent", models)
+      },
+    })
 
     return {
       ready,

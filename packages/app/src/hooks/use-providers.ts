@@ -2,8 +2,8 @@ import { useServerSync } from "@/context/server-sync"
 import { decode64 } from "@/utils/base64"
 import { useParams } from "@solidjs/router"
 import { Iterable, pipe } from "effect"
-import { createEffect, createMemo, type Accessor } from "solid-js"
-import { selectProviderCatalog } from "./provider-catalog"
+import type { Accessor } from "solid-js"
+import { selectProviderCatalog, selectProviderCatalogReady } from "./provider-catalog"
 
 export const popularProviders = [
   "opencode",
@@ -41,8 +41,12 @@ export function useProviders(directory: Accessor<string | undefined>) {
   return {
     ready: () => {
       const value = dir()
-      if (!value) return serverSync().ready
-      return serverSync().child(value)[0].provider_ready
+      const projectStore = value ? serverSync().child(value)[0] : undefined
+      return selectProviderCatalogReady({
+        directory: value,
+        global: serverSync().data.provider_ready,
+        catalog: projectStore && { ready: projectStore.provider_ready },
+      })
     },
     all: () => providers().all,
     default: () => providers().default,

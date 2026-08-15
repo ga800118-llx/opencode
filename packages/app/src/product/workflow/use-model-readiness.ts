@@ -1,6 +1,5 @@
 import { createSignal, onCleanup, type Accessor } from "solid-js"
 import { useModels } from "@/context/models"
-import { useServerSync } from "@/context/server-sync"
 import { useProviders } from "@/hooks/use-providers"
 import { useProductRuntime } from "@/product/context"
 import { modelReadiness } from "./model-readiness"
@@ -61,16 +60,11 @@ export function useModelReadiness(input: {
   }
 } = {}) {
   const runtime = useProductRuntime()
-  const serverSync = useServerSync()
   const providers = useProviders(() => input.directory?.())
   const models = useModels()
 
   return createModelReadinessController({
-    providersReady: () => {
-      const directory = input.directory?.()
-      if (directory) return serverSync().child(directory)[0].provider_ready
-      return serverSync().data.ready
-    },
+    providersReady: providers.ready,
     modelsReady: input.model?.ready ?? models.ready,
     selectedModel: () => {
       const current = input.model?.current()

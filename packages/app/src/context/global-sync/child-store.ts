@@ -19,6 +19,7 @@ import { QueryOptionsApi } from "../server-sync"
 import { directoryKey, type DirectoryKey } from "./utils"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import type { ServerScope } from "@/utils/server-scope"
+import { providerQueryReady } from "./provider-readiness"
 
 export function createChildStoreManager(input: {
   owner: Owner
@@ -212,7 +213,7 @@ export function createChildStoreManager(input: {
             projectMeta: initialMeta,
             icon: initialIcon,
             get provider_ready() {
-              return instanceQueriesEnabled() && !providerQuery.isLoading
+              return instanceQueriesEnabled() && providerQueryReady(providerQuery)
             },
             get provider() {
               const EMPTY = { all: new Map(), connected: [], default: {} }

@@ -16,6 +16,20 @@ export function firstValidModel(candidates: readonly (ModelKey | undefined)[], v
   return candidates.find((model): model is ModelKey => !!model && valid(model))
 }
 
+export function selectModelKey(input: {
+  explicit?: ModelKey
+  agent?: ModelKey
+  configured?: string
+  recent: readonly ModelKey[]
+  fallback: readonly ModelKey[]
+  valid: (model: ModelKey) => boolean
+}) {
+  return firstValidModel(
+    [input.explicit, input.agent, parseConfigModel(input.configured), ...input.recent, ...input.fallback],
+    input.valid,
+  )
+}
+
 export function pruneModelKeys(models: readonly ModelKey[], available: readonly ModelKey[]) {
   const connected = new Set(available.map(key))
   const seen = new Set<string>()

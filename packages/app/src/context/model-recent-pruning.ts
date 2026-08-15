@@ -1,3 +1,4 @@
+import { createEffect } from "solid-js"
 import { pruneModelKeys, type ModelKey } from "./model-selection"
 
 export function createRecentModelPruner(input: {
@@ -8,7 +9,7 @@ export function createRecentModelPruner(input: {
   limit: number
   setRecent: (models: ModelKey[]) => void
 }) {
-  return () => {
+  createEffect(() => {
     if (!input.persistedReady() || !input.catalogReady()) return
 
     const recent = input.recent()
@@ -21,5 +22,5 @@ export function createRecentModelPruner(input: {
     )
       return
     input.setRecent(next)
-  }
+  })
 }

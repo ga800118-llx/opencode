@@ -49,6 +49,7 @@ import type { ServerApi } from "@/utils/server"
 
 type GlobalStore = {
   ready: boolean
+  provider_ready: boolean
   path: Path
   project: Project[]
   provider: NormalizedProviderListResponse
