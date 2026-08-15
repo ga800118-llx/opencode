@@ -235,6 +235,8 @@ expect(calls).toEqual([
 
 Add equivalent exact-order assertions for remove and default selection. Assert a host failure skips refresh, while a refresh failure returns a normalized actionable error without attempting a renderer config rollback.
 
+Default selection is the exception to the explicit reload call: the desktop host already performs the generated-config write, sidecar restart, and rollback as one transaction inside `selectDefault`. Its exact order is `selectDefault`, then `refreshRuntime`, with no second `reloadCredentials` call.
+
 - [ ] **Step 2: Run the controller test and confirm the old contract fails**
 
 Run: `bun test ./src/product/model-center/controller.test.ts` from `packages/app`.
@@ -252,7 +254,7 @@ type ProductModelCenterControllerOptions = {
 }
 ```
 
-`save`, `remove`, and `selectDefault` call their product-host operation, then `modelCenter.reloadCredentials()`, then `refreshRuntime()`. Remove `enableProviderPatch`, `disableProviderPatch`, `defaultModelPatch`, compensating global config updates, and local observed/configured model tracking from this controller. The desktop host/profile repository is authoritative; the generated overlay performs exact replacement.
+`save` and `remove` call their product-host operation, then `modelCenter.reloadCredentials()`, then `refreshRuntime()`. `selectDefault` calls the transactional product-host operation and then `refreshRuntime()`; it must not trigger a second sidecar restart. Remove `enableProviderPatch`, `disableProviderPatch`, `defaultModelPatch`, compensating global config updates, and local observed/configured model tracking from this controller. The desktop host/profile repository is authoritative; the generated overlay performs exact replacement.
 
 - [ ] **Step 4: Update the settings integration**
 

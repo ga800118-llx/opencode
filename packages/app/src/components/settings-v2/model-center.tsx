@@ -1,4 +1,3 @@
-import type { Config } from "@opencode-ai/sdk/v2/client"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
 import { DividerV2 } from "@opencode-ai/ui/v2/divider-v2"
@@ -12,7 +11,6 @@ import { useServerSync } from "@/context/server-sync"
 import { useProductRuntime } from "@/product/context"
 import {
   createModelCenterController,
-  type ProductModelCenterConfigPatch,
   type ProductProviderKind,
   type ProductProviderProfile,
 } from "@/product/model-center"
@@ -35,12 +33,7 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
   const serverSync = useServerSync()
   const controller = createModelCenterController({
     modelCenter: runtime.host.modelCenter,
-    disabledProviders: () => serverSync().data.config.disabled_providers ?? [],
-    currentModel: () => serverSync().data.config.model,
-    updateConfig: async (patch) => {
-      await serverSync().updateConfig(openCodeConfigPatch(patch))
-    },
-    refreshProviders: () => serverSync().refreshProviders(),
+    refreshRuntime: () => serverSync().refreshProviders(),
   })
   const [capabilities] = createResource(() => controller.capabilities())
   const [profiles, { mutate }] = createResource(() => controller.list())
@@ -239,40 +232,6 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
       </section>
     </div>
   )
-}
-
-function openCodeConfigPatch(patch: ProductModelCenterConfigPatch): Config {
-  if ("model" in patch) return { model: patch.model }
-  if (!("provider" in patch)) return { disabled_providers: [...patch.disabled_providers] }
-  return {
-    disabled_providers: [...patch.disabled_providers],
-    provider: Object.fromEntries(
-      Object.entries(patch.provider).map(([id, provider]) => [
-        id,
-        {
-          npm: provider.npm,
-          name: provider.name,
-          env: [...provider.env],
-          options: {
-            baseURL: provider.options.baseURL,
-            timeout: provider.options.timeout,
-            headerTimeout: provider.options.headerTimeout,
-            ...(provider.options.headers ? { headers: { ...provider.options.headers } } : {}),
-          },
-          models: Object.fromEntries(
-            Object.entries(provider.models).map(([modelID, model]) => [
-              modelID,
-              {
-                name: model.name,
-                ...(model.tool_call ? { tool_call: true } : {}),
-                limit: { ...model.limit },
-              },
-            ]),
-          ),
-        },
-      ]),
-    ),
-  }
 }
 
 const DialogDeleteModelProfile: Component<{
