@@ -2,12 +2,12 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
+import { applyPreferredAppEnv } from "./app-environment"
 import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
 import { createSidecarEnv } from "./sidecar-environment"
-import { isForbiddenDesktopRuntimeEnvironmentKey } from "./runtime-environment"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -49,24 +49,7 @@ export function setDefaultServerUrl(url: string | null) {
 export function preferAppEnv() {
   const shell = process.platform === "win32" ? null : getUserShell()
   const shellEnv = shell ? loadShellEnv(shell, getLogger()) : null
-  Object.assign(process.env, {
-    ...Object.fromEntries(
-      Object.entries(shellEnv ?? {}).filter(
-        ([key]) =>
-          ![
-            "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME",
-            "XDG_CACHE_HOME",
-            "XDG_STATE_HOME",
-            "OPENCODE_DB",
-            "OPENCODE_CONFIG",
-          ].includes(key) && !isForbiddenDesktopRuntimeEnvironmentKey(key),
-      ),
-    ),
-    OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
-    OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
-    OPENCODE_CLIENT: "desktop",
-  })
+  applyPreferredAppEnv(process.env, shellEnv)
   return shellEnv
 }
 

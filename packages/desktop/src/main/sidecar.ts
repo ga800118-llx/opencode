@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import * as http from "node:http"
 import * as tls from "node:tls"
+import { configureCACertificates } from "./ca-certificates"
 import { prepareSidecarEnv } from "./sidecar-environment"
 
 type NodeHttpWithEnvProxy = typeof http & {
@@ -119,9 +120,11 @@ function ensureLoopbackNoProxy() {
 function useSystemCertificates() {
   try {
     const nodeTls = tls as NodeTlsWithSystemCertificates
-    nodeTls.setDefaultCACertificates([
-      ...new Set([...nodeTls.getCACertificates("default"), ...nodeTls.getCACertificates("system")]),
-    ])
+    configureCACertificates({
+      environment: process.env,
+      get: nodeTls.getCACertificates,
+      set: nodeTls.setDefaultCACertificates,
+    })
   } catch (error) {
     console.warn("failed to load system certificates", error)
   }

@@ -79,6 +79,7 @@ import {
 import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
 import { resolveDesktopUserDataPath } from "./user-data"
+import { configureCACertificates } from "./ca-certificates"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -294,7 +295,11 @@ const main = Effect.gen(function* () {
   }
 
   try {
-    setDefaultCACertificates([...new Set([...getCACertificates("default"), ...getCACertificates("system")])])
+    configureCACertificates({
+      environment: process.env,
+      get: getCACertificates,
+      set: setDefaultCACertificates,
+    })
   } catch (error) {
     logger.warn("failed to load system certificates", error)
   }

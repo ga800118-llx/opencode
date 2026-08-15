@@ -527,6 +527,7 @@ export function createInternalMacSmokeEnvironment(temporaryDirectory: string, bu
     LC_ALL: "C",
     GIT_TRACE2_EVENT: path.join(temporaryDirectory, "git-trace.json"),
     GUAI_CODE_INTERNAL_PACKAGE_GIT: bundledGitExecutable,
+    GUAI_CODE_INTERNAL_PACKAGE_SMOKE: "1",
     OPENCODE_UPDATER_ENABLED: "false",
     OPENCODE_SIDECAR_V2: "0",
   }
