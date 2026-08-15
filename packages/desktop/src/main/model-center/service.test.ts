@@ -1,14 +1,25 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, readFile, rename, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type {
   ProductCapabilityReport,
   ProductLocalProviderCandidate,
   ProductProviderProfileInput,
 } from "@opencode-ai/app/product/model-center"
+import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
 import type { ProductCredentialEnvelope, ProductCredentialService } from "./credentials"
 import type { LocalModelDetector } from "./local-detection"
 import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "./probe"
 import { createProfileRepository } from "./profiles"
+import { createProductRuntimeConfigCoordinator } from "./runtime-config"
 import { createModelCenterService } from "./service"
+
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
 
 const draft = {
   name: "Private Gateway",
@@ -25,7 +36,11 @@ const draft = {
 } satisfies ProductProviderProfileInput
 
 function fixture(
-  input: { failCredentialWrite?: boolean; classification?: ProductCapabilityReport["classification"] } = {},
+  input: {
+    failCredentialWrite?: boolean
+    classification?: ProductCapabilityReport["classification"]
+    reloadCredentials?: () => Promise<void>
+  } = {},
 ) {
   const profileValues = new Map<string, unknown>()
   let uuid = 0
@@ -93,6 +108,7 @@ function fixture(
     detector,
     reloadCredentials: async () => {
       reloads += 1
+      await input.reloadCredentials?.()
     },
   })
   return { service, profiles, credentialValues, targets, candidates, reloads: () => reloads }
@@ -226,6 +242,125 @@ describe("createModelCenterService", () => {
     expect(fake.reloads()).toBe(1)
   })
 
+  test("restores the previous default and overlay when the runtime write fails", async () => {
+    const paths = await serviceRuntimePaths()
+    let reloadRuntime: () => Promise<void> = async () => undefined
+    const fake = fixture({ reloadCredentials: () => reloadRuntime() })
+    const profile = await fake.service.save({
+      ...draft,
+      models: [...draft.models, { id: "reviewer", name: "Reviewer", source: "manual" }],
+    })
+    fake.profiles.selectDefault({ profileID: profile.id, modelID: "coder" })
+    let failWrite = false
+    let restarts = 0
+    const coordinator = createProductRuntimeConfigCoordinator({
+      paths,
+      profiles: fake.profiles.list,
+      defaultSelection: fake.profiles.defaultSelection,
+      presentProfile: (item) => item,
+      fileSystem: {
+        rename: async (source, destination) => {
+          if (destination === paths.modelConfig && failWrite) {
+            failWrite = false
+            throw new Error("runtime config write failed")
+          }
+          await rename(source, destination)
+        },
+      },
+    })
+    await coordinator.write()
+    reloadRuntime = async () => {
+      await coordinator.reload(async () => {
+        restarts += 1
+      })
+    }
+    failWrite = true
+
+    await expect(fake.service.selectDefault({ profileID: profile.id, modelID: "reviewer" })).rejects.toThrow(
+      "runtime config write failed",
+    )
+
+    expect(fake.reloads()).toBe(2)
+    expect(restarts).toBe(1)
+    expect(fake.profiles.defaultSelection()).toEqual({ profileID: profile.id, modelID: "coder" })
+    expect(fake.profiles.get(profile.id)?.defaultModelID).toBe("coder")
+    expect(JSON.parse(await readFile(paths.modelConfig, "utf8")).model).toBe(`${profile.providerID}/coder`)
+    expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBe(`${profile.providerID}/coder`)
+  })
+
+  test("restores an absent default and old overlay when primary and compensating restarts fail", async () => {
+    const paths = await serviceRuntimePaths()
+    let reloadRuntime: () => Promise<void> = async () => undefined
+    const fake = fixture({ reloadCredentials: () => reloadRuntime() })
+    const profile = await fake.service.save({
+      ...draft,
+      models: [...draft.models, { id: "reviewer", name: "Reviewer", source: "manual" }],
+    })
+    const coordinator = createProductRuntimeConfigCoordinator({
+      paths,
+      profiles: fake.profiles.list,
+      defaultSelection: fake.profiles.defaultSelection,
+      presentProfile: (item) => item,
+    })
+    await coordinator.write()
+    const observedModels: string[] = []
+    reloadRuntime = async () => {
+      await coordinator.reload(async () => {
+        observedModels.push(JSON.parse(await readFile(paths.modelConfig, "utf8")).model)
+        throw new Error(observedModels.length === 1 ? "primary restart failed" : "compensating restart failed")
+      })
+    }
+
+    await expect(fake.service.selectDefault({ profileID: profile.id, modelID: "reviewer" })).rejects.toThrow(
+      "primary restart failed",
+    )
+
+    expect(fake.reloads()).toBe(2)
+    expect(observedModels).toEqual([`${profile.providerID}/reviewer`, `${profile.providerID}/coder`])
+    expect(fake.profiles.defaultSelection()).toBeUndefined()
+    expect(fake.profiles.get(profile.id)?.defaultModelID).toBe("coder")
+    expect(JSON.parse(await readFile(paths.modelConfig, "utf8")).model).toBe(`${profile.providerID}/coder`)
+    expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBe(`${profile.providerID}/coder`)
+  })
+
+  test("serializes concurrent default transactions so a rollback cannot clobber a newer selection", async () => {
+    const firstReloadStarted = Promise.withResolvers<void>()
+    const allowFirstFailure = Promise.withResolvers<void>()
+    let reloadCalls = 0
+    const fake = fixture({
+      reloadCredentials: async () => {
+        reloadCalls += 1
+        if (reloadCalls !== 1) return
+        firstReloadStarted.resolve()
+        await allowFirstFailure.promise
+        throw new Error("first selection failed")
+      },
+    })
+    const profile = await fake.service.save({
+      ...draft,
+      models: [
+        ...draft.models,
+        { id: "reviewer", name: "Reviewer", source: "manual" },
+        { id: "analyst", name: "Analyst", source: "manual" },
+      ],
+    })
+    fake.profiles.selectDefault({ profileID: profile.id, modelID: "coder" })
+
+    const first = fake.service.selectDefault({ profileID: profile.id, modelID: "reviewer" })
+    await firstReloadStarted.promise
+    const second = fake.service.selectDefault({ profileID: profile.id, modelID: "analyst" })
+    await Promise.resolve()
+    expect(fake.profiles.defaultSelection()).toEqual({ profileID: profile.id, modelID: "reviewer" })
+
+    allowFirstFailure.resolve()
+    await expect(first).rejects.toThrow("first selection failed")
+    const selected = await second
+
+    expect(selected.defaultModelID).toBe("analyst")
+    expect(fake.reloads()).toBe(3)
+    expect(fake.profiles.defaultSelection()).toEqual({ profileID: profile.id, modelID: "analyst" })
+  })
+
   test("allows untested and non-agent-capable models as defaults", async () => {
     const untested = fixture()
     const untestedProfile = await untested.service.save(draft)
@@ -257,3 +392,11 @@ describe("createModelCenterService", () => {
     })
   })
 })
+
+async function serviceRuntimePaths() {
+  const directory = await mkdtemp(join(tmpdir(), "guai-code-service-runtime-"))
+  temporaryDirectories.push(directory)
+  const paths = createDesktopRuntimePaths(join(directory, "user-data"))
+  await ensureDesktopRuntime(paths)
+  return paths
+}

@@ -379,6 +379,7 @@ function repository(current: ProductProviderProfile): ProfileRepository {
     remove: () => undefined,
     recordTest: () => current,
     selectDefault: () => current,
+    selectDefaultTransaction: () => ({ profile: current, rollback: () => undefined }),
     defaultSelection: () => undefined,
   }
 }

@@ -23,6 +23,15 @@ type ModelCenterServiceOptions = {
 
 export function createModelCenterService(options: ModelCenterServiceOptions): ProductModelCenterAPI {
   const present = options.presentProfile ?? ((profile: ProductProviderProfile) => profile)
+  let defaultSelectionQueue = Promise.resolve()
+  const serializeDefaultSelection = <T>(operation: () => Promise<T>) => {
+    const result = defaultSelectionQueue.then(operation)
+    defaultSelectionQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
   return Object.freeze({
     async capabilities() {
       const credentials = options.credentials.capabilities()
@@ -109,11 +118,19 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       return options.detector.detect()
     },
     async selectDefault(input) {
-      const profile = options.profiles.get(input.profileID)
-      if (!profile) throw new Error("The model profile does not exist.")
-      const selected = options.profiles.selectDefault(input)
-      await options.reloadCredentials()
-      return present(selected)
+      return serializeDefaultSelection(async () => {
+        const profile = options.profiles.get(input.profileID)
+        if (!profile) throw new Error("The model profile does not exist.")
+        const transaction = options.profiles.selectDefaultTransaction(input)
+        return options.reloadCredentials().then(
+          () => present(transaction.profile),
+          async (error: unknown) => {
+            transaction.rollback()
+            await options.reloadCredentials().catch(() => undefined)
+            throw error
+          },
+        )
+      })
     },
     async reloadCredentials() {
       await options.reloadCredentials()

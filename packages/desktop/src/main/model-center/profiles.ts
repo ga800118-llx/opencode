@@ -19,6 +19,11 @@ export type ProfileSecretState = {
   readonly preserveTest?: boolean
 }
 
+export type ProfileDefaultSelectionTransaction = {
+  readonly profile: ProductProviderProfile
+  readonly rollback: () => void
+}
+
 export type ProfileRepository = {
   readonly list: () => readonly ProductProviderProfile[]
   readonly get: (profileID: string) => ProductProviderProfile | undefined
@@ -26,6 +31,7 @@ export type ProfileRepository = {
   readonly remove: (profileID: string) => ProductProviderProfile | undefined
   readonly recordTest: (profileID: string, report: ProductCapabilityReport) => ProductProviderProfile
   readonly selectDefault: (input: ProductDefaultModelInput) => ProductProviderProfile
+  readonly selectDefaultTransaction: (input: ProductDefaultModelInput) => ProfileDefaultSelectionTransaction
   readonly defaultSelection: () => ProductDefaultModelInput | undefined
 }
 
@@ -67,6 +73,16 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
         : selected
     persist({ version: 1, profiles, ...(validDefault ? { default: validDefault } : {}) })
     return profile
+  }
+
+  const selectDefault = (input: ProductDefaultModelInput) => {
+    const existing = find(input.profileID)
+    if (!existing) throw new Error("The model profile does not exist.")
+    if (!existing.models.some((model) => model.id === input.modelID)) {
+      throw new Error("The selected model does not belong to this profile.")
+    }
+    const profile = sanitizeProviderProfile({ ...existing, defaultModelID: input.modelID, updatedAt: now() })
+    return replace(profile, Object.freeze({ profileID: profile.id, modelID: input.modelID }))
   }
 
   return Object.freeze({
@@ -133,14 +149,18 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
       const profile = sanitizeProviderProfile({ ...existing, test: report, updatedAt: now() })
       return replace(profile)
     },
-    selectDefault(input) {
-      const existing = find(input.profileID)
-      if (!existing) throw new Error("The model profile does not exist.")
-      if (!existing.models.some((model) => model.id === input.modelID)) {
-        throw new Error("The selected model does not belong to this profile.")
-      }
-      const profile = sanitizeProviderProfile({ ...existing, defaultModelID: input.modelID, updatedAt: now() })
-      return replace(profile, Object.freeze({ profileID: profile.id, modelID: input.modelID }))
+    selectDefault,
+    selectDefaultTransaction(input) {
+      const previous = state.value
+      const profile = selectDefault(input)
+      const selected = state.value
+      return Object.freeze({
+        profile,
+        rollback() {
+          if (state.value !== selected) throw new Error("The model profile state changed during default selection.")
+          persist(previous)
+        },
+      })
     },
     defaultSelection: () =>
       state.value.default ? Object.freeze({ ...state.value.default }) : undefined,
