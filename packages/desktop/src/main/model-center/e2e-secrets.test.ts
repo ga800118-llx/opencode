@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   enableProviderPatch,
   profileCredentialEnvironment,
@@ -7,15 +10,18 @@ import {
   type ProductProviderProfileInput,
 } from "@opencode-ai/app/product/model-center"
 import { createDesktopProductHost, createUnmanagedSidecarStatus } from "../../product/host"
+import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
 import { createCredentialService } from "./credentials"
 import { createSensitiveHeaderCredentialProxy } from "./credential-proxy"
 import { createModelCredentialEnvironment } from "./environment"
 import { createModelProbe } from "./probe"
 import { createProfileRepository } from "./profiles"
+import { writeProductRuntimeConfig } from "./runtime-config"
 import { createModelCenterService } from "./service"
 
 const API_CANARY = "phase2-api-key-canary"
 const HEADER_CANARY = "phase2-header-canary"
+const PROXY_CANARY = "phase2-sidecar-token"
 
 const draft = {
   name: "Canary Private Gateway",
@@ -37,11 +43,17 @@ describe("model-center secret boundary", () => {
     const warnings: unknown[] = []
     const proxyValues = new Map<string, unknown>()
     const transportCredentials: Array<{ authorization: string | null; privateHeader: string | null }> = []
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "guai-code-secrets-"))
+    const runtimePaths = createDesktopRuntimePaths(join(temporaryDirectory, "user-data"))
+    await ensureDesktopRuntime(runtimePaths)
 
     const safeStorage = {
       isEncryptionAvailable: () => true,
       encryptString: (plainText: string) => Buffer.from(plainText).map((byte) => byte ^ 0xa5),
-      decryptString: (encrypted: Buffer) => Buffer.from(encrypted).map((byte) => byte ^ 0xa5).toString(),
+      decryptString: (encrypted: Buffer) =>
+        Buffer.from(encrypted)
+          .map((byte) => byte ^ 0xa5)
+          .toString(),
     }
     const credentials = createCredentialService({
       namespace: "dev.agent.desktop.credentials",
@@ -80,7 +92,7 @@ describe("model-center secret boundary", () => {
       profiles,
       credentials,
       store: { get: (key) => proxyValues.get(key), set: (key, value) => proxyValues.set(key, value) },
-      token: () => "phase2-sidecar-token",
+      token: () => PROXY_CANARY,
     })
     await credentialProxy.start()
     const service = createModelCenterService({
@@ -112,6 +124,14 @@ describe("model-center secret boundary", () => {
       warn: (warning) => warnings.push(warning),
       credentialProxy: credentialProxy.runtimeEnvironment,
     })
+    await writeProductRuntimeConfig({
+      paths: runtimePaths,
+      profiles: profiles.list(),
+      defaultSelection: profiles.defaultSelection(),
+      presentProfile: credentialProxy.presentProfile,
+    })
+    const overlay = JSON.parse(await readFile(runtimePaths.modelConfig, "utf8"))
+    const manifest = JSON.parse(await readFile(runtimePaths.manifest, "utf8"))
 
     expect(transportCredentials).toHaveLength(2)
     expect(
@@ -119,7 +139,7 @@ describe("model-center secret boundary", () => {
         (item) => item.authorization === `Bearer ${API_CANARY}` && item.privateHeader === HEADER_CANARY,
       ),
     ).toBe(true)
-    expect(environment[profileCredentialEnvironment(saved.id)]).toBe("phase2-sidecar-token")
+    expect(environment[profileCredentialEnvironment(saved.id)]).toBe(PROXY_CANARY)
     expect(environment[profileCredentialProxyBaseURLEnvironment(saved.id)]).toBe(saved.runtime?.baseURL)
     expect(environment[profileSensitiveHeaderEnvironment(saved.id, "X-Private-Token")]).toBeUndefined()
     expect(process.env[profileCredentialEnvironment(saved.id)]).toBeUndefined()
@@ -131,13 +151,17 @@ describe("model-center secret boundary", () => {
       ipc: { saved, listed, discovery, report },
       logs: warnings,
       config: patch,
+      overlay,
+      manifest,
     }
     const serialized = JSON.stringify(surfaces)
     expect(serialized).not.toContain(API_CANARY)
     expect(serialized).not.toContain(HEADER_CANARY)
+    expect(serialized).not.toContain(PROXY_CANARY)
     expect(serialized).not.toContain("provider rejected")
     expect(serialized).toContain('"credentialProxy":true')
     expect(JSON.stringify(patch)).not.toContain("X-Private-Token")
+    expect(JSON.stringify({ overlay, manifest })).not.toContain(saved.credentialRef ?? "missing-credential-reference")
     expect(profileValues.get("state")).toBeDefined()
     expect(credentialValues.get("credentials")).toBeDefined()
 
@@ -145,5 +169,6 @@ describe("model-center secret boundary", () => {
     expect(await host.modelCenter.list()).toEqual([])
     expect(credentialValues.has("credentials")).toBe(false)
     await credentialProxy.stop()
+    await rm(temporaryDirectory, { recursive: true, force: true })
   })
 })

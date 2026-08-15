@@ -68,6 +68,7 @@ import { createModelCredentialEnvironment } from "./model-center/environment"
 import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
 import { createProfileRepository } from "./model-center/profiles"
+import { writeProductRuntimeConfig } from "./model-center/runtime-config"
 import { createModelCenterService } from "./model-center/service"
 import {
   createDesktopRuntimeEnvironment,
@@ -410,6 +411,23 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.promise(() => credentialProxy.start())
   stopModelCredentialProxy = credentialProxy.stop
+  const refreshProductRuntimeConfig = async () => {
+    const result = await writeProductRuntimeConfig({
+      paths: runtimePaths,
+      profiles: profileRepository.list(),
+      defaultSelection: profileRepository.defaultSelection(),
+      presentProfile: credentialProxy.presentProfile,
+    })
+    logger.log("model runtime config refreshed", {
+      modelConfig: runtimePaths.modelConfig,
+      manifest: runtimePaths.manifest,
+      migrationMarker: runtimePaths.migrationMarker,
+      profiles: result.profileCount,
+      providers: result.providerCount,
+      models: result.modelCount,
+    })
+  }
+  yield* Effect.promise(refreshProductRuntimeConfig)
   const createLocalSidecarEnvironment = () =>
     createDesktopRuntimeEnvironment(runtimePaths, {
       ...process.env,
@@ -429,6 +447,7 @@ const main = Effect.gen(function* () {
     detector: modelDetector,
     presentProfile: credentialProxy.presentProfile,
     reloadCredentials: async () => {
+      await refreshProductRuntimeConfig()
       await restartProductSidecar()
     },
   })
