@@ -346,6 +346,8 @@ git commit -m "fix(app): reconcile sessions after reconnect"
 - Create: `packages/app/src/context/model-selection.test.ts`
 - Create: `packages/app/src/context/model-recent-pruning.ts`
 - Create: `packages/app/src/context/model-recent-pruning.test.ts`
+- Create: `packages/app/src/context/model-recent-storage.ts`
+- Create: `packages/app/src/context/model-recent-storage.test.ts`
 - Create: `packages/app/src/context/global-sync/provider-readiness.ts`
 - Create: `packages/app/src/context/global-sync/provider-readiness.test.ts`
 - Modify: `packages/app/src/context/models.tsx`
@@ -363,7 +365,7 @@ git commit -m "fix(app): reconcile sessions after reconnect"
 
 - [x] **Step 1: Add stale selection tests**
 
-Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert the shared production candidate builder resolves the configured valid default and preserves explicit, agent, config, recent, and fallback precedence. Add a no-model case that resolves `undefined`, plus a configured model ID containing `/` so provider/model parsing remains correct. Add browser-reactive pruning coverage for pending, failed, successful, and refreshed provider catalogs.
+Construct connected provider data where recent storage and an existing session reference `agent-profile-old/coder`, while global config selects `agent-profile-current/deepseek-v4-pro`. Assert the shared production candidate builder resolves the configured valid default and preserves explicit, agent, config, recent, and fallback precedence. Add a no-model case that resolves `undefined`, plus a configured model ID containing `/` so provider/model parsing remains correct. Add browser-reactive pruning coverage for pending, failed, paused, successful, and refreshed provider catalogs, plus cross-server and cross-directory recent isolation.
 
 - [x] **Step 2: Run the focused tests**
 
@@ -378,14 +380,14 @@ Expected: the shared model-selection module and persisted orphan-pruning behavio
 
 - [x] **Step 3: Prune invalid persisted model references**
 
-Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. Share the parsing and production candidate construction between the local/session and new-composer selectors. For a new prompt, prefer the valid generated config default over invalid recent/session references. Mark global and workspace provider catalogs ready only after a successful settled provider query; pending and failed initial requests or refreshes must not prune persisted recents. Repeat pruning after each later successful catalog refresh. Preserve the explicit no-model result when there is no connected model.
+Keep the established selection order for valid current-session models, but validate every candidate against the refreshed connected provider map. Share the parsing and production candidate construction between the local/session and new-composer selectors. For a new prompt, prefer the valid generated config default over invalid recent/session references. Mark global and workspace provider catalogs ready only after a successful idle provider query; pending, failed, fetching, and paused initial requests or refreshes must not prune persisted recents. Persist recents separately with `Persist.serverGlobal` and `Persist.serverWorkspace`, adopt legacy global recents once per scope, and repeat pruning after each later authoritative catalog refresh. Preserve the explicit no-model result when there is no connected model.
 
 - [x] **Step 4: Verify model fallback behavior**
 
 Run from `packages/app`:
 
 ```bash
-bun test --conditions=solid --preload ./happydom.ts ./src/context/model-selection.test.ts ./src/context/model-variant.test.ts ./src/context/local-agent.test.ts ./src/context/global-sync/provider-readiness.test.ts ./src/context/global-sync/child-store.test.ts ./src/hooks/provider-catalog.test.ts ./src/product/workflow/model-readiness.test.ts ./src/product/workflow/use-model-readiness.test.ts ./src/pages/session/session-model-helpers.test.ts
+bun test --conditions=solid --preload ./happydom.ts ./src/context/model-selection.test.ts ./src/context/model-variant.test.ts ./src/context/local-agent.test.ts ./src/context/model-recent-storage.test.ts ./src/context/global-sync/provider-readiness.test.ts ./src/context/global-sync/child-store.test.ts ./src/hooks/provider-catalog.test.ts ./src/product/workflow/model-readiness.test.ts ./src/product/workflow/use-model-readiness.test.ts ./src/pages/session/session-model-helpers.test.ts
 bun test --conditions=browser --preload ./happydom.ts ./src/context/model-recent-pruning.test.ts
 bun typecheck
 ```
@@ -406,6 +408,15 @@ Require successful, settled provider queries for both global and workspace readi
 ```bash
 git add docs/superpowers/plans/2026-08-15-runtime-isolation-recovery.md packages/app/src/context/global-sync/bootstrap.ts packages/app/src/context/global-sync/child-store.ts packages/app/src/context/global-sync/child-store.test.ts packages/app/src/context/global-sync/provider-readiness.ts packages/app/src/context/global-sync/provider-readiness.test.ts packages/app/src/context/server-sync.tsx packages/app/src/context/model-selection.ts packages/app/src/context/model-selection.test.ts packages/app/src/context/model-recent-pruning.ts packages/app/src/context/model-recent-pruning.test.ts packages/app/src/context/models.tsx packages/app/src/context/local.tsx packages/app/src/hooks/provider-catalog.ts packages/app/src/hooks/provider-catalog.test.ts packages/app/src/hooks/use-providers.ts packages/app/src/pages/new-session/new-session-view.tsx packages/app/src/pages/session/composer/prompt-model-selection.ts packages/app/src/product/workflow/use-model-readiness.ts
 git commit -m "fix(app): require successful provider catalogs"
+```
+
+- [x] **Step 7: Scope pruning ownership after code-quality review**
+
+Require successful idle queries including `fetchStatus`, resolve directory/global fallback readiness from the actual returned catalog, and persist only recents by server/workspace scope. Adopt legacy recents once after both stores hydrate, and verify multiple providers cannot prune another scope.
+
+```bash
+git add docs/superpowers/plans/2026-08-15-runtime-isolation-recovery.md packages/app/src/context/global-sync/child-store.ts packages/app/src/context/global-sync/child-store.test.ts packages/app/src/context/global-sync/provider-readiness.ts packages/app/src/context/global-sync/provider-readiness.test.ts packages/app/src/context/model-recent-pruning.test.ts packages/app/src/context/model-recent-storage.ts packages/app/src/context/model-recent-storage.test.ts packages/app/src/context/models.tsx packages/app/src/context/server-sync.tsx
+git commit -m "fix(app): scope recent model pruning"
 ```
 
 ### Task 6: Stamp an Identifiable Alpha 3 Build

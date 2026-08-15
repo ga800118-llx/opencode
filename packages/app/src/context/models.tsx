@@ -1,18 +1,22 @@
-import { type Accessor, createMemo } from "solid-js"
+import { batch, type Accessor, createMemo, getOwner, runWithOwner } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import type { ServerScope } from "@/utils/server-scope"
 import { createRecentModelPruner } from "./model-recent-pruning"
+import { useServerSDK } from "./server-sdk"
+import { createRecentModelMigration, recentModelTarget, type RecentModelStore } from "./model-recent-storage"
 
 export type ModelKey = { providerID: string; modelID: string }
 
 type Visibility = "show" | "hide"
 type User = ModelKey & { visibility: Visibility; favorite?: boolean }
-type Store = {
+type PreferenceStore = {
   user: User[]
+  // Legacy app-global recents seed each scoped recent store once.
   recent: ModelKey[]
   variant?: Record<string, string | undefined>
 }
@@ -28,15 +32,59 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   gate: false,
   init: (props: { directory?: Accessor<string | undefined> } = {}) => {
     const providers = useProviders(() => props.directory?.())
+    const serverSDK = useServerSDK()
+    const owner = getOwner()
+    if (!owner) throw new Error("Models must be created within an owner")
 
-    const [store, setStore, _, ready] = persisted(
+    const [store, setStore, _, preferencesReady] = persisted(
       Persist.global("model", ["model.v1"]),
-      createStore<Store>({
+      createStore<PreferenceStore>({
         user: [],
         recent: [],
         variant: {},
       }),
     )
+
+    function createRecentStore(scope: ServerScope, directory: string | undefined) {
+      const result = runWithOwner(owner, () =>
+        persisted(recentModelTarget(scope, directory), createStore<RecentModelStore>({ recent: [], migrated: false })),
+      )
+      if (!result) throw new Error("Recent models must be created within an owner")
+      return result
+    }
+
+    const recentStores = new Map<string, ReturnType<typeof createRecentStore>>()
+    const recentState = createMemo(() => {
+      const scope = serverSDK().scope
+      const directory = props.directory?.()
+      const key = `${scope}\0${directory ?? "\0global"}`
+      const cached = recentStores.get(key)
+      if (cached) return cached
+      const created = createRecentStore(scope, directory)
+      recentStores.set(key, created)
+      return created
+    })
+
+    createRecentModelMigration({
+      preferencesReady,
+      recentReady: () => recentState()[3](),
+      migrated: () => recentState()[0].migrated,
+      scoped: () => recentState()[0].recent,
+      legacy: () => store.recent,
+      limit: RECENT_LIMIT,
+      set(models) {
+        const [, setRecent] = recentState()
+        batch(() => {
+          setRecent("recent", models)
+          setRecent("migrated", true)
+        })
+      },
+    })
+
+    const ready = () => {
+      const [recent, , , recentReady] = recentState()
+      return preferencesReady() && recentReady() && recent.migrated
+    }
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>
@@ -129,9 +177,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     const push = (model: ModelKey) => {
-      setStore(
+      const [recent, setRecent] = recentState()
+      setRecent(
         "recent",
-        uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`).slice(0, RECENT_LIMIT),
+        uniqueBy([model, ...recent.recent], (x) => `${x.providerID}:${x.modelID}`).slice(0, RECENT_LIMIT),
       )
     }
 
@@ -150,7 +199,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     createRecentModelPruner({
       persistedReady: ready,
       catalogReady: providers.ready,
-      recent: () => store.recent,
+      recent: () => recentState()[0].recent,
       available: () =>
         available().map((model) => ({
           providerID: model.provider.id,
@@ -158,7 +207,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         })),
       limit: RECENT_LIMIT,
       setRecent(models) {
-        setStore("recent", models)
+        recentState()[1]("recent", models)
       },
     })
 
@@ -169,7 +218,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       visible,
       setVisibility,
       recent: {
-        list: () => (ready() ? store.recent : []),
+        list: () => (ready() ? recentState()[0].recent : []),
         push,
       },
       variant: {

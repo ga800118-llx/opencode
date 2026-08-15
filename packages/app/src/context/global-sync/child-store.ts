@@ -17,9 +17,9 @@ import { canDisposeDirectory, pickDirectoriesToEvict } from "./eviction"
 import { useQuery } from "@tanstack/solid-query"
 import { QueryOptionsApi } from "../server-sync"
 import { directoryKey, type DirectoryKey } from "./utils"
-import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
+import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import type { ServerScope } from "@/utils/server-scope"
-import { providerQueryReady } from "./provider-readiness"
+import { providerQueryReady, resolveProviderCatalog } from "./provider-readiness"
 
 export function createChildStoreManager(input: {
   owner: Owner
@@ -33,7 +33,8 @@ export function createChildStoreManager(input: {
   translate: (key: string, vars?: Record<string, string | number>) => string
   queryOptions: QueryOptionsApi
   global: {
-    provider: NormalizedProviderListResponse
+    provider: () => NormalizedProviderListResponse
+    ready: () => boolean
   }
 }) {
   const children: Record<string, [Store<State>, SetStoreFunction<State>]> = {}
@@ -208,18 +209,23 @@ export function createChildStoreManager(input: {
             enabled: instanceQueriesEnabled(),
           }))
 
+          const providerCatalog = () =>
+            resolveProviderCatalog({
+              directoryReady: instanceQueriesEnabled() && providerQueryReady(providerQuery),
+              directory: providerQuery.data,
+              globalReady: input.global.ready(),
+              global: input.global.provider(),
+            })
+
           const child = createStore<State>({
             project: "",
             projectMeta: initialMeta,
             icon: initialIcon,
             get provider_ready() {
-              return instanceQueriesEnabled() && providerQueryReady(providerQuery)
+              return providerCatalog().ready
             },
             get provider() {
-              const EMPTY = { all: new Map(), connected: [], default: {} }
-              if (providerQuery.isLoading) return EMPTY
-              if (providerQuery.data?.all.size === 0 && input.global.provider.all.size > 0) return input.global.provider
-              return providerQuery.data ?? EMPTY
+              return providerCatalog().providers
             },
             config: {},
             get path() {

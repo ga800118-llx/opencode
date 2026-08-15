@@ -22,12 +22,24 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
 ]
 
 const child = () => createStore({} as State)
-const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
+const provider: NormalizedProviderListResponse = { all: new Map(), connected: [], default: {} }
+const providerCatalog = (id: string): NormalizedProviderListResponse => ({
+  all: new Map([[id, { id, name: id, source: "api", env: [], options: {}, models: {} }]]),
+  connected: [id],
+  default: { [id]: `${id}-model` },
+})
+let directoryProvider = provider
+let globalProvider = provider
+let globalProviderReady = true
+const globalCatalog = {
+  provider: () => globalProvider,
+  ready: () => globalProviderReady,
+}
 let agents: State["agent"] = []
 let agentsFetching = false
 let agentsError = false
 let providersSuccess = true
-let providersFetching = false
+let providersFetchStatus: "fetching" | "paused" | "idle" = "idle"
 
 class DeferredStorage {
   private writes: Array<{
@@ -132,8 +144,11 @@ beforeAll(async () => {
           return options().queryKey?.[1] === "path"
         },
         get isFetching() {
-          if (options().queryKey?.[1] === "providers") return providersFetching
           return options().queryKey?.[1] === "agents" && agentsFetching
+        },
+        get fetchStatus() {
+          if (options().queryKey?.[1] === "providers") return providersFetchStatus
+          return "idle"
         },
         get isSuccess() {
           if (options().queryKey?.[1] === "providers") return providersSuccess
@@ -146,7 +161,7 @@ beforeAll(async () => {
           if (options().queryKey?.[1] === "path") throw new Error("pending path data read")
           if (options().queryKey?.[1] === "mcp") return options().enabled ? { demo: { status: "disabled" } } : undefined
           if (options().queryKey?.[1] === "lsp") return []
-          if (options().queryKey?.[1] === "providers") return provider
+          if (options().queryKey?.[1] === "providers") return directoryProvider
           if (options().queryKey?.[1] === "agents") return agents
           return undefined
         },
@@ -163,8 +178,11 @@ beforeEach(() => {
   agents = []
   agentsFetching = false
   agentsError = false
+  directoryProvider = provider
+  globalProvider = provider
+  globalProviderReady = true
   providersSuccess = true
-  providersFetching = false
+  providersFetchStatus = "idle"
 })
 
 describe("createChildStoreManager", () => {
@@ -187,7 +205,7 @@ describe("createChildStoreManager", () => {
       onDispose() {},
       translate: (key) => key,
       queryOptions: queryOptionsApi,
-      global: { provider },
+      global: globalCatalog,
     })
 
     Array.from({ length: 30 }, (_, index) => `/pinned-${index}`).forEach((directory) => {
@@ -220,7 +238,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -252,7 +270,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -287,7 +305,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -339,7 +357,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -383,7 +401,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -432,32 +450,89 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
     try {
       if (!manager) throw new Error("manager required")
       providersSuccess = false
-      providersFetching = true
+      providersFetchStatus = "fetching"
       const [store] = manager.child("/provider-readiness")
       expect(store.provider_ready).toBe(false)
 
-      providersFetching = false
+      providersFetchStatus = "idle"
       expect(store.provider_ready).toBe(false)
 
       providersSuccess = true
       expect(store.provider_ready).toBe(true)
 
-      providersFetching = true
+      providersFetchStatus = "fetching"
       expect(store.provider_ready).toBe(false)
 
-      providersFetching = false
+      providersFetchStatus = "paused"
+      expect(store.provider_ready).toBe(false)
+
+      providersFetchStatus = "idle"
       providersSuccess = false
       expect(store.provider_ready).toBe(false)
 
       providersSuccess = true
       expect(store.provider_ready).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("selects reactive global fallback only when its catalog is authoritative", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: globalCatalog,
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      directoryProvider = providerCatalog("directory")
+      globalProvider = providerCatalog("global")
+      globalProviderReady = false
+      const [store] = manager.child("/provider-fallback")
+      expect(store.provider_ready).toBe(true)
+      expect(store.provider).toBe(directoryProvider)
+
+      directoryProvider = provider
+      expect(store.provider_ready).toBe(false)
+      expect(store.provider.all.size).toBe(0)
+
+      globalProviderReady = true
+      expect(store.provider_ready).toBe(true)
+      expect(store.provider).toBe(globalProvider)
+
+      globalProvider = providerCatalog("next")
+      expect(store.provider).toBe(globalProvider)
+
+      providersFetchStatus = "paused"
+      expect(store.provider_ready).toBe(false)
+      expect(store.provider.all.size).toBe(0)
+
+      providersFetchStatus = "idle"
+      providersSuccess = false
+      expect(store.provider_ready).toBe(false)
+
+      providersSuccess = true
+      expect(store.provider_ready).toBe(true)
+      expect(store.provider).toBe(globalProvider)
     } finally {
       dispose()
     }
@@ -478,7 +553,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -520,7 +595,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -583,7 +658,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -637,7 +712,7 @@ describe("createChildStoreManager", () => {
           onDispose() {},
           translate: (key) => key,
           queryOptions: queryOptionsApi,
-          global: { provider },
+          global: globalCatalog,
         })
       })
       return ""
@@ -684,7 +759,7 @@ describe("createChildStoreManager", () => {
           onDispose() {},
           translate: (key) => key,
           queryOptions: queryOptionsApi,
-          global: { provider },
+          global: globalCatalog,
         })
       })
       return ""
@@ -750,7 +825,7 @@ describe("createChildStoreManager", () => {
           onDispose() {},
           translate: (key) => key,
           queryOptions: queryOptionsApi,
-          global: { provider },
+          global: globalCatalog,
         })
       })
       return ""
@@ -807,7 +882,7 @@ describe("createChildStoreManager", () => {
           onDispose() {},
           translate: (key) => key,
           queryOptions: queryOptionsApi,
-          global: { provider },
+          global: globalCatalog,
         })
       })
       return ""
@@ -865,7 +940,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -908,7 +983,7 @@ describe("createChildStoreManager", () => {
         onDispose() {},
         translate: (key) => key,
         queryOptions: queryOptionsApi,
-        global: { provider },
+        global: globalCatalog,
       })
     })
 
@@ -946,7 +1021,7 @@ describe("createChildStoreManager", () => {
           onDispose() {},
           translate: (key) => key,
           queryOptions: queryOptionsApi,
-          global: { provider },
+          global: globalCatalog,
         })
       })
       return ""
