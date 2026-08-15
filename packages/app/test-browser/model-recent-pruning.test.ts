@@ -2,10 +2,10 @@ import { expect, test } from "bun:test"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import { batch, createMemo, createRoot, createSignal } from "solid-js"
 import { ServerScope } from "@/utils/server-scope"
-import { providerQueryReady, resolveProviderCatalog } from "./global-sync/provider-readiness"
-import { createRecentModelPruner } from "./model-recent-pruning"
-import { createRecentModelMigration, recentModelTarget } from "./model-recent-storage"
-import type { ModelKey } from "./model-selection"
+import { providerQueryReady, resolveProviderCatalog } from "@/context/global-sync/provider-readiness"
+import { createRecentModelPruner } from "@/context/model-recent-pruning"
+import { createRecentModelMigration, recentModelTarget } from "@/context/model-recent-storage"
+import type { ModelKey } from "@/context/model-selection"
 
 const stale = { providerID: "agent-profile-old", modelID: "coder" }
 const configured = { providerID: "agent-profile-current", modelID: "deepseek-v4-pro" }
