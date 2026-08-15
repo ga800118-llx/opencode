@@ -177,6 +177,21 @@ describe("server session", () => {
     expect(ctx.store.reconnectCandidates()).toEqual(["pinned"])
   })
 
+  test("bounds status revision tombstones while retaining recent entries", () => {
+    const ctx = setup({})
+
+    for (let index = 0; index < 2_048; index++) {
+      ctx.store.set("session_status", `session-${index}`, { type: "idle" })
+    }
+    const firstVersion = ctx.store.statusVersion("session-0")
+    ctx.store.set("session_status", "session-0", { type: "busy" })
+    ctx.store.set("session_status", "overflow", { type: "idle" })
+
+    expect(ctx.store.statusVersion("session-0")).toBeGreaterThan(firstVersion)
+    expect(ctx.store.statusVersion("session-1")).toBe(0)
+    expect(ctx.store.statusVersion("overflow")).toBeGreaterThan(0)
+  })
+
   test("projects only current permission mode switch events into session info", async () => {
     const current = {
       ...session("child"),

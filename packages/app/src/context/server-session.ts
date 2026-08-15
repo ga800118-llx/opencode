@@ -255,7 +255,11 @@ export function createServerSession(
   const statusRevisions = new Map<string, number>()
   const markStatus = (sessionID: string) => {
     statusRevision++
+    statusRevisions.delete(sessionID)
     statusRevisions.set(sessionID, statusRevision)
+    if (statusRevisions.size <= sessionInfoLimit) return
+    const oldest = statusRevisions.keys().next().value
+    if (oldest !== undefined) statusRevisions.delete(oldest)
   }
   const set = ((...input: unknown[]) => {
     if (input[0] !== "session_status") return (setData as (...args: unknown[]) => unknown)(...input)

@@ -309,32 +309,43 @@ export function createRuntimeRefreshController(input: {
       .filter(([, status]) => status.type !== "idle")
       .map(([sessionID]) => sessionID)
     const visible = input.session.reconnectCandidates()
-    const startedAt = input.session.statusVersion()
+    let activeStartedAt: number | undefined
     const refreshes = [
       settle(input.refreshConfig),
       settle(input.refreshProviders),
-      settle(input.refreshActiveSessions),
+      settle(async () => {
+        const startedAt = input.session.statusVersion()
+        activeStartedAt = startedAt
+        return { snapshot: await input.refreshActiveSessions(), startedAt }
+      }),
       settle(input.refreshAgents),
     ] as const
     const activeRefresh = await refreshes[2]
+    const startedAt = activeRefresh.status === "fulfilled" ? activeRefresh.value.startedAt : activeStartedAt
     const reconciliation =
-      activeRefresh.status === "fulfilled" && activeRefresh.value !== null
-        ? reconcileActiveSessionStatuses(input.session, activeRefresh.value, startedAt)
+      activeRefresh.status === "fulfilled" && activeRefresh.value.snapshot !== null
+        ? reconcileActiveSessionStatuses(input.session, activeRefresh.value.snapshot, activeRefresh.value.startedAt)
         : (() => {
             if (activeRefresh.status === "fulfilled") return { active: [], idle: [] }
-            const idle = rendererNonIdle.filter((sessionID) => input.session.statusVersion(sessionID) <= startedAt)
+            const idle = rendererNonIdle.filter(
+              (sessionID) => startedAt !== undefined && input.session.statusVersion(sessionID) <= startedAt,
+            )
             idle.forEach((sessionID) => replaceSessionStatus(input.session, sessionID, { type: "idle" }))
             return { active: [], idle }
           })()
     const visibleSet = new Set(visible)
     const sessionIDs =
-      activeRefresh.status === "fulfilled" && activeRefresh.value !== null
+      activeRefresh.status === "fulfilled" && activeRefresh.value.snapshot !== null
         ? [...new Set([...visible, ...rendererNonIdle, ...reconciliation.active, ...reconciliation.idle])]
         : visible.filter(
             (sessionID) =>
-              !rendererNonIdle.includes(sessionID) && input.session.statusVersion(sessionID) <= startedAt,
+              !rendererNonIdle.includes(sessionID) &&
+              startedAt !== undefined &&
+              input.session.statusVersion(sessionID) <= startedAt,
           )
-    const resolutionVersions = new Map(sessionIDs.map((sessionID) => [sessionID, input.session.statusVersion(sessionID)]))
+    const resolutionVersions = new Map(
+      sessionIDs.map((sessionID) => [sessionID, input.session.statusVersion(sessionID)]),
+    )
     const resolutions = await Promise.allSettled(
       sessionIDs.map((sessionID) => {
         if (
@@ -346,7 +357,11 @@ export function createRuntimeRefreshController(input: {
         return input.session.resolve(sessionID, { force: true })
       }),
     )
-    const backendActive = new Set(reconciliation.active)
+    const backendActive = new Set(
+      activeRefresh.status === "fulfilled" && activeRefresh.value.snapshot !== null
+        ? Object.keys(activeRefresh.value.snapshot)
+        : [],
+    )
     resolutions.forEach((result, index) => {
       if (result.status === "fulfilled") return
       const sessionID = sessionIDs[index]
@@ -371,6 +386,7 @@ export function createRuntimeRefreshController(input: {
       inflight = request
       return request
     },
+    isRefreshing: () => inflight !== undefined,
   }
 }
 
@@ -385,10 +401,17 @@ function settle<T>(request: () => Promise<T>) {
 
 export function dispatchServerEventRuntimeRefresh(
   event: { readonly name: string; readonly details: { readonly type: string } },
-  input: { readonly refreshRuntime: () => Promise<unknown>; readonly reportError: (error: unknown) => void },
+  input: {
+    readonly refreshRuntime: () => Promise<unknown>
+    readonly isRefreshing: () => boolean
+    readonly reportError: (error: unknown) => void
+  },
 ) {
   if (event.name !== "global" || event.details.type !== "server.connected") return
-  return input.refreshRuntime().catch(input.reportError)
+  const ownsRefresh = !input.isRefreshing()
+  const refresh = input.refreshRuntime()
+  if (!ownsRefresh) return refresh.catch(() => undefined)
+  return refresh.catch(input.reportError)
 }
 
 function makeQueryOptionsApi(
@@ -794,6 +817,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
     void dispatchServerEventRuntimeRefresh(e, {
       refreshRuntime,
+      isRefreshing: runtimeRefresh.isRefreshing,
       reportError(error) {
         showToast({
           variant: "error",

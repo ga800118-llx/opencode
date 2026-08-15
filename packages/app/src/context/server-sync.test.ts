@@ -483,7 +483,7 @@ describe("active session query", () => {
     const dispatch = (name: string, type: string) =>
       dispatchServerEventRuntimeRefresh(
         { name, details: { type } },
-        { refreshRuntime: controller.refreshRuntime, reportError() {} },
+        { refreshRuntime: controller.refreshRuntime, isRefreshing: controller.isRefreshing, reportError() {} },
       )
 
     await dispatch("/repo", "server.connected")
@@ -565,6 +565,26 @@ describe("active session query", () => {
     await refresh
 
     expect(runtime.session.data.session_status.changed).toEqual({ type: "busy" })
+  })
+
+  test("reconciles a synchronous status event that precedes active request invocation", async () => {
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "changed", { type: "idle" })
+    let requested = false
+    const controller = runtimeController(runtime.session, async () => {
+      requested = true
+      return {}
+    })
+
+    const refresh = controller.refreshRuntime()
+    runtime.session.apply({
+      type: "session.status",
+      properties: { sessionID: "changed", status: { type: "busy" } },
+    })
+    expect(requested).toBe(false)
+
+    await refresh
+    expect(runtime.session.data.session_status.changed).toEqual({ type: "idle" })
   })
 
   test("keeps a newer idle event over an older active snapshot", async () => {
@@ -696,22 +716,89 @@ describe("active session query", () => {
     expect(runtime.session.data.message.failed).toEqual([failedMessage])
   })
 
-  test("reports background reconnect refresh failures", async () => {
-    const errors: unknown[] = []
+  test("keeps a newer retry status when backend activity is confirmed and forced sync fails", async () => {
+    const active = deferred<ActiveSessionStatuses>()
+    const runtime = runtimeSession(new Set(["running"]))
+    runtime.session.set("session_status", "running", { type: "busy" })
+    runtime.session.set("message", "running", [runtimeErrorMessage("running")])
+    runtime.session.pin("running")
+    const controller = runtimeController(runtime.session, () => active.promise)
 
-    await dispatchServerEventRuntimeRefresh(
+    const refresh = controller.refreshRuntime()
+    await Promise.resolve()
+    runtime.session.apply({
+      type: "session.status",
+      properties: { sessionID: "running", status: { type: "retry", attempt: 2, message: "retry", next: 10 } },
+    })
+    active.resolve({ running: { type: "running" } })
+
+    await expect(refresh).rejects.toThrow("resolve failed")
+    expect(runtime.session.data.session_status.running).toEqual({
+      type: "retry",
+      attempt: 2,
+      message: "retry",
+      next: 10,
+    })
+  })
+
+  test("reports once for coalesced background failures and again for a later refresh", async () => {
+    const errors: unknown[] = []
+    const requests = [deferred<ActiveSessionStatuses>(), deferred<ActiveSessionStatuses>()]
+    let calls = 0
+    const controller = runtimeController(runtimeSession().session, () => requests[calls++]!.promise)
+    const dispatch = () =>
+      dispatchServerEventRuntimeRefresh(
+        { name: "global", details: { type: "server.connected" } },
+        {
+          refreshRuntime: controller.refreshRuntime,
+          isRefreshing: controller.isRefreshing,
+          reportError: (error) => errors.push(error),
+        },
+      )
+
+    const first = dispatch()
+    const second = dispatch()
+    requests[0]!.reject(new Error("first failure"))
+    await Promise.all([first, second])
+    expect(errors.map((error) => (error as Error).message)).toEqual(["first failure"])
+
+    const later = dispatch()
+    requests[1]!.reject(new Error("later failure"))
+    await later
+
+    expect(errors.map((error) => (error as Error).message)).toEqual(["first failure", "later failure"])
+  })
+
+  test("does not report a background error when joining a foreground refresh", async () => {
+    const errors: unknown[] = []
+    const active = deferred<ActiveSessionStatuses>()
+    const controller = runtimeController(runtimeSession().session, () => active.promise)
+    const foreground = controller.refreshRuntime()
+    const background = dispatchServerEventRuntimeRefresh(
       { name: "global", details: { type: "server.connected" } },
       {
-        refreshRuntime: async () => {
-          throw new Error("active refresh failed")
-        },
+        refreshRuntime: controller.refreshRuntime,
+        isRefreshing: controller.isRefreshing,
         reportError: (error) => errors.push(error),
       },
     )
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toBeInstanceOf(Error)
-    expect((errors[0] as Error).message).toBe("active refresh failed")
+    active.reject(new Error("foreground failure"))
+
+    await expect(foreground).rejects.toThrow("foreground failure")
+    await background
+    expect(errors).toEqual([])
+  })
+
+  test("does not resurrect a recently evicted session from an older active snapshot", () => {
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "evicted", { type: "busy" })
+    const startedAt = runtime.session.statusVersion()
+
+    runtime.session.apply({ type: "session.deleted", properties: { sessionID: "evicted" } })
+    reconcileActiveSessionStatuses(runtime.session, { evicted: { type: "running" } }, startedAt)
+
+    expect(runtime.session.data.session_status.evicted).toBeUndefined()
   })
 })
 
