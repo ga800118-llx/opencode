@@ -39,14 +39,18 @@ const guidePath = path.join(
 
 describe("internal Windows package", () => {
   test("uses the Windows internal Beta package metadata", () => {
-    expect(pkg.version).toBe("0.1.0-alpha.2")
+    expect(pkg.version).toBe("0.1.0-alpha.3")
     expect(pkg.description).toBeTruthy()
     expect(pkg.scripts["package:win:internal"]).toBe("bun ./scripts/package-internal-windows.ts")
   })
 
-  test("states the Windows tester target, validated environment, and conditional SmartScreen flow", async () => {
+  test("identifies Alpha 3 artifacts and states the Windows testing and SmartScreen constraints", async () => {
     const guide = await Bun.file(guidePath).text()
 
+    expect(guide).toContain("版本：`0.1.0-alpha.3`")
+    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.3-win-x64.exe")
+    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.3-win-x64-portable.zip")
+    expect(guide).not.toContain("alpha.2")
     expect(guide).not.toContain("Windows SmartScreen 会显示风险提示")
     expect(guide).not.toContain("SmartScreen 显示“Windows 已保护你的电脑”时")
     expect(guide).not.toContain("再点击“仍要运行”")
@@ -72,18 +76,18 @@ describe("internal Windows package", () => {
 
   test("plans versioned Windows x64 artifacts", () => {
     const packageDir = path.join(path.parse(process.cwd()).root, "repo", "packages", "desktop")
-    const plan = createInternalWindowsArtifactPlan(packageDir, "0.1.0-alpha.2")
+    const plan = createInternalWindowsArtifactPlan(packageDir, "0.1.0-alpha.3")
 
     expect(plan.builderInstaller).toBe(
-      path.join(packageDir, "dist", "guai-code-desktop-beta-0.1.0-alpha.2-win-x64.exe"),
+      path.join(packageDir, "dist", "guai-code-desktop-beta-0.1.0-alpha.3-win-x64.exe"),
     )
     expect(plan.unpacked).toBe(path.join(packageDir, "dist", "win-unpacked"))
     expect(plan.staging).toBe(path.join(packageDir, "dist", "internal-resources", "mingit"))
     expect(plan.directory).toBe(
-      path.join(packageDir, "dist", "internal-beta", "0.1.0-alpha.2", "windows-x64"),
+      path.join(packageDir, "dist", "internal-beta", "0.1.0-alpha.3", "windows-x64"),
     )
-    expect(path.basename(plan.installer)).toBe("Guai-Code-Beta-0.1.0-alpha.2-win-x64.exe")
-    expect(path.basename(plan.portableZip)).toBe("Guai-Code-Beta-0.1.0-alpha.2-win-x64-portable.zip")
+    expect(path.basename(plan.installer)).toBe("Guai-Code-Beta-0.1.0-alpha.3-win-x64.exe")
+    expect(path.basename(plan.portableZip)).toBe("Guai-Code-Beta-0.1.0-alpha.3-win-x64-portable.zip")
     expect(path.basename(plan.checksums)).toBe("SHA256SUMS.txt")
     expect(path.basename(plan.guide)).toBe("Guai-Code-Beta-Windows-试用说明.md")
     expect(path.basename(plan.openCodeLicense)).toBe("OpenCode-MIT-License.txt")

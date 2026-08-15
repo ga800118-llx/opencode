@@ -57,7 +57,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $packagePath = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\package.json"
           $version = [string]((Get-Content -LiteralPath $packagePath -Raw -Encoding utf8 | ConvertFrom-Json).version)
-          if ($version -cne "0.1.0-alpha.2") {
+          if ($version -cne "0.1.0-alpha.3") {
             throw "Unexpected Desktop internal beta version: $version"
           }
           $deliveryDirectory = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\$version\windows-x64"
@@ -312,7 +312,9 @@ jobs:
         if: ${{ !inputs.safe_storage_diagnostic }}
         working-directory: packages/desktop
         shell: pwsh
-        run: bun run package:win:internal
+        run: |
+          $env:GUAI_CODE_BUILD_COMMIT = $env:GITHUB_SHA
+          bun run package:win:internal
 
       - name: Verify native safeStorage across processes
         id: safe_storage

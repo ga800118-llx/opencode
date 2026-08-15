@@ -178,6 +178,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     platform: "desktop",
     os,
     version: pkg.version,
+    buildRevision: import.meta.env.GUAI_CODE_BUILD_COMMIT || undefined,
     windowID: windowState.id,
 
     async openDirectoryPickerDialog(opts) {

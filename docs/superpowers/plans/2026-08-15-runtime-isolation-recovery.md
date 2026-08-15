@@ -432,13 +432,16 @@ git commit -m "fix(app): scope recent model pruning"
 - Modify: `packages/desktop/scripts/package-internal-mac.ts`
 - Modify: `packages/desktop/scripts/package-internal-mac.test.ts`
 - Modify: `packages/desktop/scripts/package-internal-windows.test.ts`
+- Modify: `packages/desktop/scripts/mac-runtime-soak.test.ts`
+- Modify: `packages/desktop/scripts/windows-internal-evidence.test.ts`
 - Modify: `packages/desktop/scripts/windows-internal-beta-ci.test.ts`
+- Modify: `docs/product/internal-beta-testing-windows.md`
 
-- [ ] **Step 1: Add build identity assertions**
+- [x] **Step 1: Add build identity assertions**
 
 Update package tests to expect `0.1.0-alpha.3`. Add assertions that the Mac isolated build receives `GUAI_CODE_BUILD_COMMIT` equal to its captured clean source commit and that the Windows workflow maps `GUAI_CODE_BUILD_COMMIT` from `GITHUB_SHA` before `bun run package:win:internal`.
 
-- [ ] **Step 2: Run build metadata tests and confirm failure**
+- [x] **Step 2: Run build metadata tests and confirm failure**
 
 Run from `packages/desktop`:
 
@@ -448,7 +451,7 @@ bun test ./scripts/package-internal-mac.test.ts ./scripts/package-internal-windo
 
 Expected: FAIL on version and missing build-revision environment assertions.
 
-- [ ] **Step 3: Bump and compile the revision**
+- [x] **Step 3: Bump and compile the revision**
 
 Set the desktop package version and workflow guard to `0.1.0-alpha.3`. In `electron.vite.config.ts`, add this renderer define:
 
@@ -465,11 +468,11 @@ Type it in `env.d.ts`, add optional `buildRevision?: string` to `PlatformBase`, 
 </span>
 ```
 
-- [ ] **Step 4: Pass one source revision through both builders**
+- [x] **Step 4: Pass one source revision through both builders**
 
 In the isolated Mac packaging environment, assign `GUAI_CODE_BUILD_COMMIT` from the already captured `sourceBeforeBuild.commit`. In the Windows workflow, set the environment variable from `GITHUB_SHA` for the build and package steps. Keep `BUILD-INFO.json` source commit validation unchanged.
 
-- [ ] **Step 5: Verify build identity tests and both package typechecks**
+- [x] **Step 5: Verify build identity tests and both package typechecks**
 
 Run:
 
@@ -480,7 +483,7 @@ cd ../app && bun typecheck
 
 Expected: all commands exit 0.
 
-- [ ] **Step 6: Commit build identity**
+- [x] **Step 6: Commit build identity**
 
 ```bash
 git add packages/desktop/package.json packages/desktop/electron.vite.config.ts packages/desktop/src/main/env.d.ts packages/desktop/src/renderer/index.tsx packages/app/src/context/platform.tsx packages/app/src/components/settings-v2/dialog-settings-v2.tsx .github/workflows/windows-internal-beta.yml packages/desktop/scripts/package-internal-mac.ts packages/desktop/scripts/package-internal-mac.test.ts packages/desktop/scripts/package-internal-windows.test.ts packages/desktop/scripts/windows-internal-beta-ci.test.ts

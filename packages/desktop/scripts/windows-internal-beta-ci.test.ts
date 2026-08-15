@@ -20,6 +20,22 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(section(source, "start\nbody", "\nend")).toBe("start\nbody")
   })
 
+  test("stamps the Alpha 3 package build with the workflow source commit", async () => {
+    const workflow = await Bun.file(workflowPath).text()
+    const version = section(workflow, "      - name: Resolve internal beta version", "      - name: Setup Bun")
+    const packageStep = section(
+      workflow,
+      "      - name: Package Windows internal beta",
+      "      - name: Verify native safeStorage across processes",
+    )
+    const revisionAssignment = "$env:GUAI_CODE_BUILD_COMMIT = $env:GITHUB_SHA"
+    const packageCommand = "bun run package:win:internal"
+
+    expect(version).toContain('$version -cne "0.1.0-alpha.3"')
+    expect(packageStep).toContain(revisionAssignment)
+    expect(packageStep.indexOf(revisionAssignment)).toBeLessThan(packageStep.indexOf(packageCommand))
+  })
+
   test("validates exact delivery contents without dereferencing an empty directory collection", async () => {
     const verifier = await Bun.file(verifierPath).text()
     const exactDelivery = section(

@@ -1,4 +1,5 @@
 interface ImportMetaEnv {
+  readonly GUAI_CODE_BUILD_COMMIT: string
   readonly OPENCODE_CHANNEL: string
   readonly OPENCODE_UPDATER_ENABLED: string
 }

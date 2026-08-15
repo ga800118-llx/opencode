@@ -124,7 +124,10 @@ export const DialogSettings: Component<{
             </div>
             <div class="settings-v2-nav-footer">
               <span>{language.t("app.name.desktop")}</span>
-              <span>v{platform.version}</span>
+              <span>
+                v{platform.version}
+                {platform.buildRevision ? ` (${platform.buildRevision.slice(0, 7)})` : ""}
+              </span>
             </div>
           </div>
         </TabsV2.List>

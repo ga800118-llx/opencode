@@ -1068,6 +1068,7 @@ export function createInternalMacBuildEnvironment(
     bundledGitDirectory: string
     home: string
     sourceDateEpoch: number
+    sourceCommit: string
     dmgbuildExecutable: string
     bunExecutable?: string
   },
@@ -1094,6 +1095,7 @@ export function createInternalMacBuildEnvironment(
     OPENCODE_VERSION: opencodePkg.version,
     OPENCODE_UPDATER_ENABLED: "false",
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
+    GUAI_CODE_BUILD_COMMIT: input.sourceCommit,
     MODELS_DEV_API_JSON: input.modelsSnapshot,
     GUAI_CODE_BUNDLED_GIT_DIR: input.bundledGitDirectory,
     CUSTOM_DMGBUILD_PATH: input.dmgbuildExecutable,
@@ -1345,6 +1347,7 @@ async function packageInternalMac() {
         bundledGitDirectory,
         home: buildHome,
         sourceDateEpoch: Math.floor(Date.parse(sourceBeforeBuild.commitTimestamp) / 1000),
+        sourceCommit: sourceBeforeBuild.commit,
         dmgbuildExecutable: dmgbuild.executable,
         bunExecutable: buildBunExecutable,
       })

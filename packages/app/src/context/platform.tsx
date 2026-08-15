@@ -31,6 +31,9 @@ type PlatformBase = {
   /** App version */
   version?: string
 
+  /** Source revision embedded in the app build */
+  buildRevision?: string
+
   /** Open a URL in the default browser */
   openLink(url: string): void
 

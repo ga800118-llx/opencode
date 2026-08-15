@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { projectEvidenceFile, writeUploadableEvidence } from "./windows-internal-evidence"
 
-const version = "0.1.0-alpha.2"
+const version = "0.1.0-alpha.3"
 const coreVersion = "0.1.0"
 const windowsVersion = "0.1.0.0"
 const installerName = `Guai-Code-Beta-${version}-win-x64.exe`

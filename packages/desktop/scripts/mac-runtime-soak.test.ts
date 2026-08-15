@@ -60,7 +60,7 @@ describe("Mac runtime soak evidence", () => {
         sourcePath: artifacts.sourcePath,
         manifestPath: artifacts.manifestPath,
         packagePath: artifacts.packagePath,
-        packageVersion: "0.1.0-alpha.2",
+        packageVersion: "0.1.0-alpha.3",
         packageFormat: "zip",
       })
       expect(evidence.packagedClientAcknowledgment.sourceSha256).toMatch(/^[a-f0-9]{64}$/)
@@ -766,7 +766,7 @@ async function createEvidenceArtifacts(
   directory: string,
   sessionResponse: unknown = [assistantMessage(`response\n${valid().terminalMarker}`)],
 ) {
-  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.zip")
+  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.3-mac-arm64.zip")
   const sourcePath = path.join(directory, "packaged-client-session.json")
   const manifestPath = path.join(directory, "SHA256SUMS.txt")
   const contents = path.join(directory, "Guai Code Beta.app", "Contents")
@@ -781,7 +781,7 @@ async function createEvidenceArtifacts(
   <key>CFBundleIdentifier</key><string>com.guaicode.desktop.beta</string>
   <key>CFBundleName</key><string>Guai Code Beta</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0-alpha.2</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0-alpha.3</string>
   <key>CFBundleVersion</key><string>1</string>
 </dict>
 </plist>
@@ -962,7 +962,7 @@ async function createEmptyDmgArtifacts(
   },
 ) {
   const empty = path.join(directory, "empty")
-  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.2-mac-arm64.dmg")
+  const packagePath = path.join(directory, "Guai-Code-Beta-0.1.0-alpha.3-mac-arm64.dmg")
   const sourcePath = path.join(directory, "packaged-client-session.json")
   const manifestPath = path.join(directory, "SHA256SUMS.txt")
   await mkdir(empty, { recursive: true })
