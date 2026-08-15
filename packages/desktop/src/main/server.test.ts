@@ -24,6 +24,8 @@ test("createSidecarEnv keeps the explicit desktop runtime authoritative", () => 
     PATH: "/bundled-git:/shell/bin",
     GIT_EXEC_PATH: "/bundled-git/libexec",
     AGENT_PROFILE_ONE_API_KEY: "test-secret",
+    OPENCODE_CONFIG_DIR: "/shared/explicit-config",
+    OPENCODE_CONFIG_CONTENT: '{"provider":{"explicit":{}}}',
     DEBUG: "private-debug",
     LD_PRELOAD: "linux-only",
   })
@@ -35,6 +37,8 @@ test("createSidecarEnv keeps the explicit desktop runtime authoritative", () => 
     XDG_STATE_HOME: "/shared/state",
     OPENCODE_DB: "/shared/opencode.db",
     OPENCODE_CONFIG: "/shared/opencode.json",
+    OPENCODE_CONFIG_DIR: "/shared/parent-config",
+    OPENCODE_CONFIG_CONTENT: '{"provider":{"parent":{}}}',
   }
   const child = createSidecarEnv(environment, parent, "linux")
 
@@ -51,6 +55,8 @@ test("createSidecarEnv keeps the explicit desktop runtime authoritative", () => 
   })
   expect(child.DEBUG).toBeUndefined()
   expect(child.LD_PRELOAD).toBeUndefined()
+  expect(child.OPENCODE_CONFIG_DIR).toBeUndefined()
+  expect(child.OPENCODE_CONFIG_CONTENT).toBeUndefined()
   expect(parent.XDG_CONFIG_HOME).toBe("/shared/config")
 })
 
@@ -73,7 +79,11 @@ test("prepareSidecarEnv requires the complete desktop runtime", () => {
 
 test("prepareSidecarEnv only adds server credentials to a valid runtime", () => {
   const environment = createDesktopRuntimeEnvironment(createDesktopRuntimePaths(join("tmp", "desktop")))
+  environment.OPENCODE_CONFIG_DIR = "/shared/config"
+  environment.OPENCODE_CONFIG_CONTENT = '{"provider":{"shared":{}}}'
   const before = { ...environment }
+  delete before.OPENCODE_CONFIG_DIR
+  delete before.OPENCODE_CONFIG_CONTENT
 
   prepareSidecarEnv("test-password", environment)
 

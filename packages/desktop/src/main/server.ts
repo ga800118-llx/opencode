@@ -7,6 +7,7 @@ import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
 import { createSidecarEnv } from "./sidecar-environment"
+import { isForbiddenDesktopRuntimeEnvironmentKey } from "./runtime-environment"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -59,7 +60,7 @@ export function preferAppEnv() {
             "XDG_STATE_HOME",
             "OPENCODE_DB",
             "OPENCODE_CONFIG",
-          ].includes(key),
+          ].includes(key) && !isForbiddenDesktopRuntimeEnvironmentKey(key),
       ),
     ),
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",

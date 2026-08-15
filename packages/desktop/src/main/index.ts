@@ -49,6 +49,7 @@ import {
   setBackgroundColor,
   setDockIcon,
   restoreMainWindows,
+  setQuerySessionEndHandler,
   setSessionEndHandler,
 } from "./windows"
 import { createWslServersController } from "./wsl/servers"
@@ -58,6 +59,7 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import type { BackgroundCliController } from "./background-cli-lifecycle"
+import { createBackgroundCliOwnership } from "./background-cli-ownership"
 import { createQuitCoordinator } from "./quit-coordinator"
 import { createCredentialService } from "./model-center/credentials"
 import { createSensitiveHeaderCredentialProxy } from "./model-center/credential-proxy"
@@ -70,6 +72,7 @@ import {
   createDesktopRuntimeEnvironment,
   createDesktopRuntimePaths,
   ensureDesktopRuntime,
+  installDesktopRuntimeEnvironment,
 } from "./runtime-environment"
 import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
@@ -81,7 +84,7 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarSupervisor | null = null
-let backgroundCli: BackgroundCliController | null = null
+const backgroundCli = createBackgroundCliOwnership<BackgroundCliController>()
 let productSidecarStatus = createUnavailableSidecarStatus()
 let detachProductSidecarStatus: (() => void) | undefined
 const productSidecarSubscribers = new Set<(status: ProductSidecarStatus) => void>()
@@ -106,22 +109,20 @@ function emitDeepLinks(urls: string[]) {
 
 async function killSidecar() {
   const current = server
-  const background = backgroundCli
   server = null
-  backgroundCli = null
   if (current) await current.stop()
-  if (!background) return
+  if (!backgroundCli.hasStartup()) return
 
   const startedAt = productSidecarStatus.startedAt
   publishV2SidecarStatus("stopping", startedAt === undefined ? {} : { startedAt })
-  await background.stop().catch((error) => {
+  const stopped = await backgroundCli.stop().catch((error) => {
     publishV2SidecarStatus("failed", {
       ...(startedAt === undefined ? {} : { startedAt }),
       error: { kind: "exit" },
     })
     throw error
   })
-  publishV2SidecarStatus("stopped", { stoppedAt: Date.now() })
+  if (stopped) publishV2SidecarStatus("stopped", { stoppedAt: Date.now() })
 }
 
 function publishProductSidecarStatus(status: ProductSidecarStatus) {
@@ -156,7 +157,7 @@ async function restartProductSidecar() {
     return productSidecarStatus
   }
 
-  const background = backgroundCli
+  const background = backgroundCli.current()
   if (!background) return productSidecarStatus
   const startedAt = productSidecarStatus.startedAt
   publishV2SidecarStatus("restarting", startedAt === undefined ? {} : { startedAt })
@@ -233,7 +234,7 @@ const main = Effect.gen(function* () {
     }),
   )
   const runtimePaths = createDesktopRuntimePaths(app.getPath("userData"))
-  Object.assign(process.env, createDesktopRuntimeEnvironment(runtimePaths))
+  installDesktopRuntimeEnvironment(runtimePaths)
   yield* Effect.promise(() => ensureDesktopRuntime(runtimePaths))
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
@@ -273,6 +274,7 @@ const main = Effect.gen(function* () {
     quit: () => app.quit(),
     onCleanupError: (error) => logger.warn("sidecar shutdown failed", error),
   })
+  setQuerySessionEndHandler(quitCoordinator.querySessionEnd)
   setSessionEndHandler(quitCoordinator.sessionEnd)
   const relaunch = () => {
     setAppQuitting()
@@ -519,16 +521,18 @@ const main = Effect.gen(function* () {
       logger.log("starting desktop-managed v2 sidecar", { managed: true })
       const startedAt = Date.now()
       publishV2SidecarStatus("starting", { startedAt })
-      const sidecar = yield* Effect.promise(() =>
+      const startup = backgroundCli.start(() =>
         startBackgroundCli(logger, {
           environment: createLocalSidecarEnvironment,
           runtimeStateHome: runtimePaths.state,
-        }).catch((error) => {
+        }),
+      )
+      const sidecar = yield* Effect.promise(() =>
+        startup.catch((error) => {
           publishV2SidecarStatus("failed", { startedAt, error: { kind: "start" } })
           throw error
         }),
       )
-      backgroundCli = sidecar
       const readyAt = Date.now()
       publishV2SidecarStatus("ready", { startedAt, readyAt })
       yield* Deferred.succeed(serverReady, {

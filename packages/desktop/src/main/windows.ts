@@ -53,6 +53,7 @@ let relaunchHandler = () => {
   app.relaunch()
   app.exit(0)
 }
+let querySessionEndHandler = (_event: { preventDefault(): void }) => setAppQuitting()
 let sessionEndHandler = () => setAppQuitting()
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const pinchZoomEnabled = new WeakMap<BrowserWindow, boolean>()
@@ -75,6 +76,10 @@ export function setRelaunchHandler(handler: () => void) {
 
 export function setSessionEndHandler(handler: () => void) {
   sessionEndHandler = handler
+}
+
+export function setQuerySessionEndHandler(handler: (event: { preventDefault(): void }) => void) {
+  querySessionEndHandler = handler
 }
 
 export function setAppQuitting(quitting = true) {
@@ -247,8 +252,9 @@ function registerWindow(win: BrowserWindow, id: string) {
   registry.register(id, win)
 
   win.on("focus", () => registry.focused(id))
-  // Windows never emits before-quit on OS shutdown/logoff, but each window
-  // gets session-end before it closes; trigger the shared best-effort cleanup.
+  // Windows never emits before-quit on OS shutdown/logoff. Hold termination
+  // while shared cleanup runs, with session-end as a best-effort fallback.
+  win.on("query-session-end", (event) => querySessionEndHandler(event))
   win.on("session-end", () => sessionEndHandler())
   win.on("closed", () => registry.closed(id))
 }

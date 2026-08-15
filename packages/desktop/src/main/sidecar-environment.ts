@@ -1,3 +1,5 @@
+import { clearForbiddenDesktopRuntimeEnvironment } from "./runtime-environment"
+
 export function createSidecarEnv(
   environment: Readonly<Record<string, string>> = {},
   parent: Readonly<Record<string, string | undefined>> = process.env,
@@ -7,6 +9,7 @@ export function createSidecarEnv(
     Object.entries(parent).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
   )
   Object.assign(result, environment)
+  clearForbiddenDesktopRuntimeEnvironment(result)
   delete result.DEBUG
   if (platform === "linux") delete result.LD_PRELOAD
   return result
@@ -16,6 +19,7 @@ export function prepareSidecarEnv(
   password: string,
   environment: Record<string, string | undefined> = process.env,
 ) {
+  clearForbiddenDesktopRuntimeEnvironment(environment)
   const missing = [
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",

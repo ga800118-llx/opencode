@@ -6,6 +6,7 @@ import {
   createDesktopRuntimeEnvironment,
   createDesktopRuntimePaths,
   ensureDesktopRuntime,
+  installDesktopRuntimeEnvironment,
 } from "./runtime-environment"
 
 const temporaryDirectories: string[] = []
@@ -26,6 +27,8 @@ test("desktop runtime replaces inherited persistence paths", () => {
     XDG_STATE_HOME: join("~", ".local", "state"),
     OPENCODE_DB: join("~", ".local", "share", "opencode", "opencode.db"),
     OPENCODE_CONFIG: join("~", ".config", "opencode", "opencode.json"),
+    OPENCODE_CONFIG_DIR: join("~", ".config", "opencode"),
+    OPENCODE_CONFIG_CONTENT: '{"provider":{"shared":{}}}',
   })
 
   expect(paths).toEqual({
@@ -49,6 +52,31 @@ test("desktop runtime replaces inherited persistence paths", () => {
     OPENCODE_CONFIG: paths.modelConfig,
   })
   expect("UNDEFINED_VALUE" in environment).toBe(false)
+  expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)
+  expect("OPENCODE_CONFIG_CONTENT" in environment).toBe(false)
+})
+
+test("installing desktop runtime deletes inherited config overrides", () => {
+  const paths = createDesktopRuntimePaths(join(tmpdir(), "guai-code-user-data"))
+  const environment: Record<string, string | undefined> = {
+    PATH: "/shell/bin",
+    OPENCODE_CONFIG_DIR: join("shared", "config"),
+    OPENCODE_CONFIG_CONTENT: '{"provider":{"shared":{}}}',
+  }
+
+  installDesktopRuntimeEnvironment(paths, environment)
+
+  expect(environment).toMatchObject({
+    PATH: "/shell/bin",
+    XDG_CONFIG_HOME: paths.config,
+    XDG_DATA_HOME: paths.data,
+    XDG_CACHE_HOME: paths.cache,
+    XDG_STATE_HOME: paths.state,
+    OPENCODE_DB: paths.database,
+    OPENCODE_CONFIG: paths.modelConfig,
+  })
+  expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)
+  expect("OPENCODE_CONFIG_CONTENT" in environment).toBe(false)
 })
 
 test("onboarding runtime stays under its isolated user data root", () => {

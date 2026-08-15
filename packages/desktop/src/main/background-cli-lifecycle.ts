@@ -33,6 +33,18 @@ export async function startBackgroundCliLifecycle(
       await options.run(["service", "stop"], environment).catch(() => undefined)
       throw error
     })
+  let operation = Promise.resolve()
+  let stopRequested = false
+  let stopPromise: Promise<void> | undefined
+
+  const serialize = <T>(run: () => Promise<T>) => {
+    const next = operation.then(run, run)
+    operation = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
 
   return {
     url,
@@ -40,22 +52,30 @@ export async function startBackgroundCliLifecycle(
     get password() {
       return password
     },
-    async restart() {
-      const environment = createBackgroundCliEnvironment(options.runtimeStateHome, options.environment())
-      const replacementURL = await options.run(["service", "restart"], environment)
-      if (replacementURL !== url) {
-        await options.run(["service", "stop"], environment)
-        throw new Error(
-          `V2 sidecar restart changed endpoint from ${url} to ${replacementURL}; replacement was stopped.`,
-        )
-      }
-      password = await options.run(["service", "get", "password"], environment, { redact: true })
+    restart() {
+      if (stopRequested) return Promise.reject(new Error("V2 sidecar is stopping or stopped"))
+      return serialize(async () => {
+        const environment = createBackgroundCliEnvironment(options.runtimeStateHome, options.environment())
+        const replacementURL = await options.run(["service", "restart"], environment)
+        if (replacementURL !== url) {
+          await options.run(["service", "stop"], environment)
+          throw new Error(
+            `V2 sidecar restart changed endpoint from ${url} to ${replacementURL}; replacement was stopped.`,
+          )
+        }
+        password = await options.run(["service", "get", "password"], environment, { redact: true })
+      })
     },
-    async stop() {
-      await options.run(
-        ["service", "stop"],
-        createBackgroundCliEnvironment(options.runtimeStateHome, options.environment()),
-      )
+    stop() {
+      stopRequested = true
+      if (stopPromise) return stopPromise
+      stopPromise = serialize(async () => {
+        await options.run(
+          ["service", "stop"],
+          createBackgroundCliEnvironment(options.runtimeStateHome, options.environment()),
+        )
+      })
+      return stopPromise
     },
   }
 }

@@ -24,6 +24,8 @@ describe("background CLI state plan", () => {
       XDG_STATE_HOME: join("shell", "shared-state"),
       OPENCODE_DB: join(runtimeRoot, "data", "opencode.db"),
       OPENCODE_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
+      OPENCODE_CONFIG_DIR: join("shared", "config"),
+      OPENCODE_CONFIG_CONTENT: '{"provider":{"shared":{}}}',
       AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
       UNDEFINED_VALUE: undefined,
     }
@@ -41,6 +43,8 @@ describe("background CLI state plan", () => {
       AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
     })
     expect("UNDEFINED_VALUE" in environment).toBe(false)
+    expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)
+    expect("OPENCODE_CONFIG_CONTENT" in environment).toBe(false)
     expect(inherited.XDG_STATE_HOME).toBe(join("shell", "shared-state"))
   })
 

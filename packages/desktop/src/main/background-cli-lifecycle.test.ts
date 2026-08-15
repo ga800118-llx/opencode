@@ -88,6 +88,55 @@ describe("background CLI lifecycle", () => {
     await expect(startup).rejects.toBe(passwordFailure)
     expect(commands).toEqual(["service restart", "service get password", "service stop"])
   })
+
+  test("serializes restart and stop and rejects restart once stop is requested", async () => {
+    const restart = Promise.withResolvers<string>()
+    const password = Promise.withResolvers<string>()
+    const commands: string[] = []
+    let restarts = 0
+    let passwords = 0
+    const url = "http://127.0.0.1:4096"
+    const controller = await startBackgroundCliLifecycle({
+      runtimeStateHome: join("user-data", "runtime", "state"),
+      environment: () => runtimeEnvironment("token-one"),
+      run: async (args) => {
+        commands.push(args.join(" "))
+        if (args[1] === "restart") {
+          restarts += 1
+          return restarts === 1 ? url : restart.promise
+        }
+        if (args[1] === "get") {
+          passwords += 1
+          return passwords === 1 ? "initial-password" : password.promise
+        }
+        return ""
+      },
+    })
+
+    const reloading = controller.restart()
+    await eventually(() => commands.length === 3)
+    const stopping = controller.stop()
+    const repeatedStop = controller.stop()
+
+    await expect(controller.restart()).rejects.toThrow("V2 sidecar is stopping or stopped")
+    expect(commands).toEqual(["service restart", "service get password", "service restart"])
+
+    restart.resolve(url)
+    await eventually(() => commands.length === 4)
+    expect(commands.at(-1)).toBe("service get password")
+
+    password.resolve("refreshed-password")
+    await reloading
+    await Promise.all([stopping, repeatedStop])
+
+    expect(commands).toEqual([
+      "service restart",
+      "service get password",
+      "service restart",
+      "service get password",
+      "service stop",
+    ])
+  })
 })
 
 function runtimeEnvironment(token: string) {
@@ -101,4 +150,12 @@ function runtimeEnvironment(token: string) {
     OPENCODE_CONFIG: join(root, "config", "model-profiles.json"),
     AGENT_PROFILE_PROFILE_ONE_API_KEY: token,
   }
+}
+
+async function eventually(predicate: () => boolean) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return
+    await Promise.resolve()
+  }
+  throw new Error("Condition was not reached")
 }

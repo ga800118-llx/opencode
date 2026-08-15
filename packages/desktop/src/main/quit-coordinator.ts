@@ -29,22 +29,25 @@ export function createQuitCoordinator(options: QuitCoordinatorOptions) {
     options.onCleanupError?.(error)
   }
 
+  const deferQuit = (event: QuitEvent) => {
+    options.markQuitting()
+    if (released || cleanupSettled) return
+    event.preventDefault()
+    if (resumePending) return
+    resumePending = true
+    void cleanup()
+      .catch(reportCleanupError)
+      .finally(() => {
+        released = true
+        options.quit()
+      })
+      .catch(() => undefined)
+  }
+
   return {
     cleanup,
-    beforeQuit(event: QuitEvent) {
-      options.markQuitting()
-      if (released || cleanupSettled) return
-      event.preventDefault()
-      if (resumePending) return
-      resumePending = true
-      void cleanup()
-        .catch(reportCleanupError)
-        .finally(() => {
-          released = true
-          options.quit()
-        })
-        .catch(() => undefined)
-    },
+    beforeQuit: deferQuit,
+    querySessionEnd: deferQuit,
     sessionEnd() {
       options.markQuitting()
       void cleanup()

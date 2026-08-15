@@ -1,3 +1,5 @@
+import { clearForbiddenDesktopRuntimeEnvironment } from "./runtime-environment"
+
 export type BackgroundCliStatePlan = {
   readonly stateHome: string
 }
@@ -16,6 +18,7 @@ export function createBackgroundCliEnvironment(
     ),
     XDG_STATE_HOME: runtimeStateHome,
   }
+  clearForbiddenDesktopRuntimeEnvironment(environment)
   const missing = [
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",

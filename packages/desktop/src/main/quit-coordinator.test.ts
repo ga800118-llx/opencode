@@ -60,6 +60,38 @@ describe("quit coordinator", () => {
     expect(calls.filter((call) => call === "cleanup")).toHaveLength(1)
   })
 
+  test("query-session-end prevents termination and releases once after cleanup", async () => {
+    const cleanup = Promise.withResolvers<void>()
+    const calls: string[] = []
+    const coordinator = createQuitCoordinator({
+      markQuitting: () => calls.push("mark"),
+      cleanup: async () => {
+        calls.push("cleanup")
+        await cleanup.promise
+      },
+      quit: () => calls.push("quit"),
+    })
+    const first = quitEvent()
+    const repeated = quitEvent()
+
+    coordinator.querySessionEnd(first)
+    coordinator.querySessionEnd(repeated)
+    await flush()
+
+    expect(first.prevented()).toBe(1)
+    expect(repeated.prevented()).toBe(1)
+    expect(calls).toEqual(["mark", "mark", "cleanup"])
+
+    cleanup.resolve()
+    await eventually(() => calls.includes("quit"))
+
+    const recursive = quitEvent()
+    coordinator.beforeQuit(recursive)
+    expect(recursive.prevented()).toBe(0)
+    expect(calls.filter((call) => call === "cleanup")).toHaveLength(1)
+    expect(calls.filter((call) => call === "quit")).toHaveLength(1)
+  })
+
   test("allows updater quit to proceed after cleanup already completed", async () => {
     const calls: string[] = []
     const coordinator = createQuitCoordinator({

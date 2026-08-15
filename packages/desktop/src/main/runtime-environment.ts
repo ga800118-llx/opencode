@@ -1,6 +1,8 @@
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 
+const forbiddenEnvironmentKeys = ["OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT"] as const
+
 export type DesktopRuntimePaths = {
   readonly root: string
   readonly config: string
@@ -37,7 +39,9 @@ export function createDesktopRuntimeEnvironment(
 ): Record<string, string> {
   return {
     ...Object.fromEntries(
-      Object.entries(inherited).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
+      Object.entries(inherited).flatMap(([key, value]) =>
+        value === undefined || isForbiddenDesktopRuntimeEnvironmentKey(key) ? [] : [[key, value]],
+      ),
     ),
     XDG_CONFIG_HOME: paths.config,
     XDG_DATA_HOME: paths.data,
@@ -46,6 +50,22 @@ export function createDesktopRuntimeEnvironment(
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
   }
+}
+
+export function installDesktopRuntimeEnvironment(
+  paths: DesktopRuntimePaths,
+  environment: Record<string, string | undefined> = process.env,
+) {
+  clearForbiddenDesktopRuntimeEnvironment(environment)
+  Object.assign(environment, createDesktopRuntimeEnvironment(paths, environment))
+}
+
+export function clearForbiddenDesktopRuntimeEnvironment(environment: Record<string, string | undefined>) {
+  forbiddenEnvironmentKeys.forEach((key) => delete environment[key])
+}
+
+export function isForbiddenDesktopRuntimeEnvironmentKey(key: string) {
+  return forbiddenEnvironmentKeys.some((forbidden) => forbidden === key)
 }
 
 export async function ensureDesktopRuntime(paths: DesktopRuntimePaths): Promise<void> {
