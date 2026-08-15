@@ -5,54 +5,42 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
-import type { ProductIdentity } from "../product/identity"
-import { createBackgroundCliStatePlan } from "./background-cli-state"
+import { createBackgroundCliEnvironment, createBackgroundCliStatePlan } from "./background-cli-state"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
-const stateHome = process.env.XDG_STATE_HOME
 
 type Logger = {
   log(message: string, meta?: Record<string, unknown>): void
   error(message: string, meta?: Record<string, unknown>): void
 }
 
-export async function startBackgroundCli(logger: Logger, identity: ProductIdentity, shellStateHome?: string) {
+export async function startBackgroundCli(
+  logger: Logger,
+  options: {
+    readonly environment: Readonly<Record<string, string>>
+    readonly runtimeStateHome: string
+  },
+) {
+  const statePlan = createBackgroundCliStatePlan(options.runtimeStateHome)
+  const environment = createBackgroundCliEnvironment(statePlan.stateHome, options.environment)
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
   logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
-  const version = await run(bundled, ["--version"], logger)
+  const version = await run(bundled, ["--version"], logger, environment)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
-  const statePlan = createBackgroundCliStatePlan({
-    identity,
-    environmentStateHome: stateHome,
-    shellStateHome,
-    appDataPath: app.getPath("appData"),
-    userDataPath: app.getPath("userData"),
-    exists: existsSync,
-  })
-  const discovered = await Promise.all(
-    statePlan.discoveryCandidates.map(async (candidate) => ({
-      stateHome: candidate,
-      url: serviceUrl(await run(binary, ["service", "status"], logger, { stateHome: candidate })),
-    })),
-  )
-  const found = discovered.find((candidate) => candidate.url !== undefined)
+  const existing = serviceUrl(await run(binary, ["service", "status"], logger, environment))
   logger.log("v2 CLI background instance checked", {
-    detected: Boolean(found),
-    ...endpoint(found?.url),
+    detected: Boolean(existing),
+    ...endpoint(existing),
   })
 
-  const daemonStateHome = found?.stateHome ?? statePlan.fallbackDaemonStateHome
-  const url = await run(binary, ["service", "start"], logger, { stateHome: daemonStateHome })
-  const password = await run(binary, ["service", "get", "password"], logger, {
-    redact: true,
-    stateHome: daemonStateHome,
-  })
+  const url = await run(binary, ["service", "start"], logger, environment)
+  const password = await run(binary, ["service", "get", "password"], logger, environment, { redact: true })
   logger.log("v2 CLI background service ready", {
-    existing: Boolean(found),
+    existing: Boolean(existing),
     username: "opencode",
     ...endpoint(url),
   })
@@ -87,13 +75,11 @@ async function run(
   binary: string,
   args: string[],
   logger: Logger,
-  options: { redact?: boolean; stateHome?: string } = {},
+  environment: Readonly<Record<string, string>>,
+  options: { redact?: boolean } = {},
 ) {
   logger.log("v2 CLI command started", { binary, args })
-  const env = { ...process.env }
-  if (options.stateHome === undefined) delete env.XDG_STATE_HOME
-  else env.XDG_STATE_HOME = options.stateHome
-  return execFileAsync(binary, args, { env, windowsHide: true }).then(
+  return execFileAsync(binary, args, { env: environment, windowsHide: true }).then(
     (result) => {
       const stdout = result.stdout.trim()
       const stderr = result.stderr.trim()

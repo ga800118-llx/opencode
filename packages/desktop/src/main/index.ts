@@ -259,7 +259,7 @@ const main = Effect.gen(function* () {
     return
   }
 
-  const shellEnv = preferAppEnv()
+  preferAppEnv()
   const bundledGit = createBundledGitEnvironment({
     platform: process.platform,
     packaged: app.isPackaged,
@@ -360,6 +360,16 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.promise(() => credentialProxy.start())
   stopModelCredentialProxy = credentialProxy.stop
+  const createLocalSidecarEnvironment = () =>
+    createDesktopRuntimeEnvironment(runtimePaths, {
+      ...process.env,
+      ...createModelCredentialEnvironment({
+        profiles: profileRepository.list(),
+        credentials: credentialService,
+        credentialProxy: credentialProxy.runtimeEnvironment,
+        warn: (warning) => logger.warn("model credential unavailable", warning),
+      }),
+    })
   const modelProbe = createModelProbe()
   const modelDetector = createLocalModelDetector({ discover: modelProbe.discover })
   const modelCenter = createModelCenterService({
@@ -469,7 +479,12 @@ const main = Effect.gen(function* () {
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar without lifecycle supervision", { supervised: false })
       publishProductSidecarStatus(createUnmanagedSidecarStatus())
-      const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, identity, shellEnv?.XDG_STATE_HOME))
+      const sidecar = yield* Effect.promise(() =>
+        startBackgroundCli(logger, {
+          environment: createLocalSidecarEnvironment(),
+          runtimeStateHome: runtimePaths.state,
+        }),
+      )
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
         username: sidecar.username,
@@ -517,15 +532,7 @@ const main = Effect.gen(function* () {
       spawn: async () => {
         logger.log("spawning supervised sidecar", { url })
         const instance = await spawnLocalServer(hostname, port, password, {
-          environment: createDesktopRuntimeEnvironment(runtimePaths, {
-            ...process.env,
-            ...createModelCredentialEnvironment({
-              profiles: profileRepository.list(),
-              credentials: credentialService,
-              credentialProxy: credentialProxy.runtimeEnvironment,
-              warn: (warning) => logger.warn("model credential unavailable", warning),
-            }),
-          }),
+          environment: createLocalSidecarEnvironment(),
           onStdout: (message) => writeLog("server", "stdout", { message }),
           onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
           onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),

@@ -1,76 +1,56 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
-import { getProductIdentity } from "../product/identity"
-import { createBackgroundCliStatePlan } from "./background-cli-state"
+import { createBackgroundCliEnvironment, createBackgroundCliStatePlan } from "./background-cli-state"
 
 describe("background CLI state plan", () => {
-  test("isolates development discovery and fallback to userData", () => {
-    const userDataPath = join("root", "dev.agent.desktop")
-    const plan = createBackgroundCliStatePlan({
-      identity: getProductIdentity("dev"),
-      environmentStateHome: join("root", "environment"),
-      shellStateHome: join("root", "shell"),
-      appDataPath: join("root", "app-data"),
-      userDataPath,
-      exists: () => {
-        throw new Error("development planning must not scan other state homes")
-      },
-    })
+  test("selects only the desktop runtime state root", () => {
+    const runtimeStateHome = join("user-data", "runtime", "state")
 
-    expect(plan.discoveryCandidates).toEqual([userDataPath])
-    expect(plan.fallbackDaemonStateHome).toBe(userDataPath)
-    expect(plan.discoveryCandidates.some((candidate) => candidate?.includes("ai.opencode.desktop"))).toBe(false)
+    const plan = createBackgroundCliStatePlan(runtimeStateHome)
+
+    expect(plan).toEqual({ stateHome: runtimeStateHome })
+    expect(Object.values(plan)).not.toContain(join("shared", "state"))
+    expect(Object.values(plan)).not.toContain(join("shell", "state"))
   })
 
-  test("uses onboarding userData for development isolation", () => {
-    const userDataPath = join("tmp", "onboarding", "desktop")
-    const plan = createBackgroundCliStatePlan({
-      identity: getProductIdentity("dev"),
-      environmentStateHome: join("tmp", "onboarding", "state"),
-      shellStateHome: join("root", "shell"),
-      appDataPath: join("root", "app-data"),
-      userDataPath,
-      exists: () => false,
-    })
+  test("builds every V2 child environment from the complete desktop runtime", () => {
+    const runtimeRoot = join("user-data", "runtime")
+    const runtimeStateHome = join(runtimeRoot, "state")
+    const inherited = {
+      PATH: "/bundled-git:/shell/bin",
+      XDG_CONFIG_HOME: join(runtimeRoot, "config"),
+      XDG_DATA_HOME: join(runtimeRoot, "data"),
+      XDG_CACHE_HOME: join(runtimeRoot, "cache"),
+      XDG_STATE_HOME: join("shell", "shared-state"),
+      OPENCODE_DB: join(runtimeRoot, "data", "opencode.db"),
+      OPENCODE_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
+      AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
+      UNDEFINED_VALUE: undefined,
+    }
 
-    expect(plan.discoveryCandidates).toEqual([userDataPath])
-    expect(plan.fallbackDaemonStateHome).toBe(userDataPath)
+    const environment = createBackgroundCliEnvironment(runtimeStateHome, inherited)
+
+    expect(environment).toMatchObject({
+      PATH: "/bundled-git:/shell/bin",
+      XDG_CONFIG_HOME: join(runtimeRoot, "config"),
+      XDG_DATA_HOME: join(runtimeRoot, "data"),
+      XDG_CACHE_HOME: join(runtimeRoot, "cache"),
+      XDG_STATE_HOME: runtimeStateHome,
+      OPENCODE_DB: join(runtimeRoot, "data", "opencode.db"),
+      OPENCODE_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
+      AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
+    })
+    expect("UNDEFINED_VALUE" in environment).toBe(false)
+    expect(inherited.XDG_STATE_HOME).toBe(join("shell", "shared-state"))
   })
 
-  test("keeps beta state isolated from development and upstream products", () => {
-    const identity = getProductIdentity("beta")
-    const environmentStateHome = join("root", "beta-state")
-    const shellStateHome = join("root", "shell")
-    const plan = createBackgroundCliStatePlan({
-      identity,
-      environmentStateHome,
-      shellStateHome,
-      appDataPath: join("root", "app-data"),
-      userDataPath: join("root", "app-data", identity.dataNamespace),
-      exists: () => true,
-    })
-
-    expect(plan.discoveryCandidates).toEqual([environmentStateHome, shellStateHome])
-    expect(plan.fallbackDaemonStateHome).toBe(environmentStateHome)
-  })
-
-  test("preserves production migration order, deduplication, and filtering", () => {
-    const identity = getProductIdentity("prod")
-    const appDataPath = join("root", "app-data")
-    const compatible = identity.compatibleDataNamespaces.map((namespace) => join(appDataPath, namespace))
-    const environmentStateHome = compatible[0]
-    const shellStateHome = join("root", "shell")
-    const existing = new Set([environmentStateHome, shellStateHome, compatible[1]])
-    const plan = createBackgroundCliStatePlan({
-      identity,
-      environmentStateHome,
-      shellStateHome,
-      appDataPath,
-      userDataPath: join(appDataPath, identity.dataNamespace),
-      exists: (path) => existing.has(path),
-    })
-
-    expect(plan.discoveryCandidates).toEqual([environmentStateHome, shellStateHome, compatible[1]])
-    expect(plan.fallbackDaemonStateHome).toBe(environmentStateHome)
+  test("rejects an incomplete V2 runtime environment", () => {
+    expect(() =>
+      createBackgroundCliEnvironment(join("user-data", "runtime", "state"), {
+        XDG_CONFIG_HOME: join("user-data", "runtime", "config"),
+      }),
+    ).toThrow(
+      "Missing required V2 sidecar environment: XDG_DATA_HOME, XDG_CACHE_HOME, OPENCODE_DB, OPENCODE_CONFIG",
+    )
   })
 })
