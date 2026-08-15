@@ -27,7 +27,12 @@ export async function startBackgroundCliLifecycle(
 ): Promise<BackgroundCliController> {
   const environment = createBackgroundCliEnvironment(options.runtimeStateHome, options.environment())
   const url = await options.run(["service", "restart"], environment)
-  let password = await options.run(["service", "get", "password"], environment, { redact: true })
+  let password = await options
+    .run(["service", "get", "password"], environment, { redact: true })
+    .catch(async (error) => {
+      await options.run(["service", "stop"], environment).catch(() => undefined)
+      throw error
+    })
 
   return {
     url,

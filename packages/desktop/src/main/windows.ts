@@ -53,6 +53,7 @@ let relaunchHandler = () => {
   app.relaunch()
   app.exit(0)
 }
+let sessionEndHandler = () => setAppQuitting()
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const pinchZoomEnabled = new WeakMap<BrowserWindow, boolean>()
 const windowIDs = new WeakMap<BrowserWindow, string>()
@@ -70,6 +71,10 @@ const minZoomLevel = 0.2
 
 export function setRelaunchHandler(handler: () => void) {
   relaunchHandler = handler
+}
+
+export function setSessionEndHandler(handler: () => void) {
+  sessionEndHandler = handler
 }
 
 export function setAppQuitting(quitting = true) {
@@ -243,8 +248,8 @@ function registerWindow(win: BrowserWindow, id: string) {
 
   win.on("focus", () => registry.focused(id))
   // Windows never emits before-quit on OS shutdown/logoff, but each window
-  // gets session-end before it closes; flag the quit so ids stay persisted.
-  win.on("session-end", () => registry.setQuitting())
+  // gets session-end before it closes; trigger the shared best-effort cleanup.
+  win.on("session-end", () => sessionEndHandler())
   win.on("closed", () => registry.closed(id))
 }
 

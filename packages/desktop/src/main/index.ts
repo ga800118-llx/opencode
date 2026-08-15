@@ -49,6 +49,7 @@ import {
   setBackgroundColor,
   setDockIcon,
   restoreMainWindows,
+  setSessionEndHandler,
 } from "./windows"
 import { createWslServersController } from "./wsl/servers"
 import { registerWslIpcHandlers } from "./wsl/ipc"
@@ -57,6 +58,7 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import type { BackgroundCliController } from "./background-cli-lifecycle"
+import { createQuitCoordinator } from "./quit-coordinator"
 import { createCredentialService } from "./model-center/credentials"
 import { createSensitiveHeaderCredentialProxy } from "./model-center/credential-proxy"
 import { createModelCredentialEnvironment } from "./model-center/environment"
@@ -265,9 +267,16 @@ const main = Effect.gen(function* () {
     await stopModelCredentialProxy()
     wslServers.stopAll()
   }
+  const quitCoordinator = createQuitCoordinator({
+    markQuitting: setAppQuitting,
+    cleanup: stopSidecars,
+    quit: () => app.quit(),
+    onCleanupError: (error) => logger.warn("sidecar shutdown failed", error),
+  })
+  setSessionEndHandler(quitCoordinator.sessionEnd)
   const relaunch = () => {
     setAppQuitting()
-    void stopSidecars().finally(() => {
+    void quitCoordinator.cleanup().finally(() => {
       app.relaunch()
       app.exit(0)
     })
@@ -335,15 +344,7 @@ const main = Effect.gen(function* () {
     }
   })
 
-  app.on("before-quit", () => {
-    setAppQuitting()
-    void stopSidecars()
-  })
-
-  app.on("will-quit", () => {
-    setAppQuitting()
-    void stopSidecars()
-  })
+  app.on("before-quit", quitCoordinator.beforeQuit)
 
   app.on("child-process-gone", (_event, details) => {
     writeLog("utility", "child process gone", { details }, "error")
@@ -360,7 +361,7 @@ const main = Effect.gen(function* () {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       setAppQuitting()
-      void stopSidecars().finally(() => app.exit(0))
+      void quitCoordinator.cleanup().finally(() => app.exit(0))
     })
   }
 
@@ -436,7 +437,7 @@ const main = Effect.gen(function* () {
   app.setAsDefaultProtocolClient(identity.protocolScheme)
   registerRendererProtocol()
   setDockIcon()
-  const updater = setupAutoUpdater(stopSidecars)
+  const updater = setupAutoUpdater(quitCoordinator.cleanup)
   const installContextMenu = createContextMenuInstaller({
     createLabels: createContextMenuLabels,
     register: (labels) => contextMenu(createContextMenuOptions(labels)),

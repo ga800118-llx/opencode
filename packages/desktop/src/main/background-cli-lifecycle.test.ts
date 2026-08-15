@@ -69,6 +69,25 @@ describe("background CLI lifecycle", () => {
       "service stop",
     ])
   })
+
+  test("stops the startup daemon when password retrieval fails", async () => {
+    const passwordFailure = new Error("password unavailable")
+    const commands: string[] = []
+    const startup = startBackgroundCliLifecycle({
+      runtimeStateHome: join("user-data", "runtime", "state"),
+      environment: () => runtimeEnvironment("token-one"),
+      run: async (args) => {
+        commands.push(args.join(" "))
+        if (args[1] === "restart") return "http://127.0.0.1:4096"
+        if (args[1] === "get") throw passwordFailure
+        if (args[1] === "stop") throw new Error("stop failed")
+        return ""
+      },
+    })
+
+    await expect(startup).rejects.toBe(passwordFailure)
+    expect(commands).toEqual(["service restart", "service get password", "service stop"])
+  })
 })
 
 function runtimeEnvironment(token: string) {
