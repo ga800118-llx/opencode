@@ -25,7 +25,6 @@ const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
 
 type SpawnLocalServerOptions = {
-  userDataPath: string
   environment?: Readonly<Record<string, string>>
   onStdout?: (message: string) => void
   onStderr?: (message: string) => void
@@ -46,15 +45,26 @@ export function setDefaultServerUrl(url: string | null) {
   getStore().delete(DEFAULT_SERVER_URL_KEY)
 }
 
-export function preferAppEnv(userDataPath: string) {
+export function preferAppEnv() {
   const shell = process.platform === "win32" ? null : getUserShell()
   const shellEnv = shell ? loadShellEnv(shell, getLogger()) : null
   Object.assign(process.env, {
-    ...shellEnv,
+    ...Object.fromEntries(
+      Object.entries(shellEnv ?? {}).filter(
+        ([key]) =>
+          ![
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_STATE_HOME",
+            "OPENCODE_DB",
+            "OPENCODE_CONFIG",
+          ].includes(key),
+      ),
+    ),
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
-    XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
   })
   return shellEnv
 }
@@ -139,7 +149,6 @@ export async function spawnLocalServer(
       hostname,
       port,
       password,
-      userDataPath: options.userDataPath,
     })
   }).catch((error) => {
     if (!exited) child.kill()

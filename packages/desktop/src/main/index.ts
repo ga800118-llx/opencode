@@ -64,6 +64,11 @@ import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
 import { createProfileRepository } from "./model-center/profiles"
 import { createModelCenterService } from "./model-center/service"
+import {
+  createDesktopRuntimeEnvironment,
+  createDesktopRuntimePaths,
+  ensureDesktopRuntime,
+} from "./runtime-environment"
 import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
 import { resolveDesktopUserDataPath } from "./user-data"
@@ -187,6 +192,9 @@ const main = Effect.gen(function* () {
       onboardingRoot: onboardingTestRoot,
     }),
   )
+  const runtimePaths = createDesktopRuntimePaths(app.getPath("userData"))
+  Object.assign(process.env, createDesktopRuntimeEnvironment(runtimePaths))
+  yield* Effect.promise(() => ensureDesktopRuntime(runtimePaths))
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
   initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
@@ -251,7 +259,7 @@ const main = Effect.gen(function* () {
     return
   }
 
-  const shellEnv = preferAppEnv(app.getPath("userData"))
+  const shellEnv = preferAppEnv()
   const bundledGit = createBundledGitEnvironment({
     platform: process.platform,
     packaged: app.isPackaged,
@@ -509,12 +517,14 @@ const main = Effect.gen(function* () {
       spawn: async () => {
         logger.log("spawning supervised sidecar", { url })
         const instance = await spawnLocalServer(hostname, port, password, {
-          userDataPath: app.getPath("userData"),
-          environment: createModelCredentialEnvironment({
-            profiles: profileRepository.list(),
-            credentials: credentialService,
-            credentialProxy: credentialProxy.runtimeEnvironment,
-            warn: (warning) => logger.warn("model credential unavailable", warning),
+          environment: createDesktopRuntimeEnvironment(runtimePaths, {
+            ...process.env,
+            ...createModelCredentialEnvironment({
+              profiles: profileRepository.list(),
+              credentials: credentialService,
+              credentialProxy: credentialProxy.runtimeEnvironment,
+              warn: (warning) => logger.warn("model credential unavailable", warning),
+            }),
           }),
           onStdout: (message) => writeLog("server", "stdout", { message }),
           onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
