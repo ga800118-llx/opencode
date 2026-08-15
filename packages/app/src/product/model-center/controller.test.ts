@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import type {
-  ProductCapabilityReport,
-  ProductModelCenterAPI,
-  ProductProviderProfile,
-  ProductProviderProfileInput,
+import {
+  MODEL_RUNTIME_UNRECONCILED,
+  type ProductCapabilityReport,
+  type ProductModelCenterAPI,
+  type ProductProviderProfile,
+  type ProductProviderProfileInput,
 } from "./contracts"
 import { createModelCenterController } from "./controller"
 
@@ -243,6 +244,35 @@ describe("createModelCenterController", () => {
       { model: `${profile.providerID}/coder` },
     ])
     expect(fake.stored()[0]?.defaultModelID).toBe("coder")
+    expect(fake.configuredModel()).toBe(`${profile.providerID}/coder`)
+  })
+
+  test("surfaces restart guidance for an Electron-serialized unreconciled runtime", async () => {
+    const previous = {
+      ...profile,
+      models: [...profile.models, { id: "reasoner", name: "Reasoner", source: "manual" as const }],
+    } satisfies ProductProviderProfile
+    const fake = fixture({
+      selectFailure: new Error(
+        `Error invoking remote method 'model-center-select-default': ${MODEL_RUNTIME_UNRECONCILED}: internal provider response`,
+      ),
+    })
+    fake.setStored([previous])
+
+    const failure = await fake.controller.selectDefault({ profileID: profile.id, modelID: "reasoner" }).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    if (!(failure instanceof Error)) throw new Error("error required")
+    expect(failure.message).toBe(
+      "The model runtime could not be restored. Restart the application before using models.",
+    )
+    expect(failure.message).not.toContain("unexpected")
+    expect(failure.message).not.toContain("Retry once")
+    expect(failure.message).not.toContain("provider response")
+    expect(fake.calls).toEqual(["list", "update-config", "select-default", "update-config"])
     expect(fake.configuredModel()).toBe(`${profile.providerID}/coder`)
   })
 

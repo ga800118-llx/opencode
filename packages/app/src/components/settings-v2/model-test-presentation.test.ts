@@ -13,6 +13,7 @@ const expected = {
   timeout: "settings.modelCenter.test.timeout",
   tls: "settings.modelCenter.test.tls",
   "server-crash": "settings.modelCenter.test.serverCrash",
+  "model-runtime-unreconciled": "settings.modelCenter.test.unexpected",
   aborted: "settings.modelCenter.test.aborted",
   unknown: "settings.modelCenter.test.unexpected",
 } as const satisfies Record<ProductErrorKind, string>

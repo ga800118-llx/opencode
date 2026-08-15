@@ -1,6 +1,8 @@
 import type { ProductError, ProductErrorDiagnostic, ProductErrorKind } from "./contracts"
+import { MODEL_RUNTIME_UNRECONCILED } from "./model-center/contracts"
 
 export type { ProductError, ProductErrorDiagnostic, ProductErrorKind } from "./contracts"
+export { MODEL_RUNTIME_UNRECONCILED }
 
 const MAX_ERROR_DEPTH = 8
 const MAX_ERROR_RECORDS = 32
@@ -38,6 +40,7 @@ const SAFE_ERROR_CODES = new Set([
   "FORBIDDEN",
   "INCOMPATIBLE_API",
   "MODEL_NOT_FOUND",
+  MODEL_RUNTIME_UNRECONCILED,
   "PROCESS_EXITED",
   "SERVER_CRASH",
   "SERVER_PROCESS_EXITED",
@@ -98,6 +101,11 @@ const ERROR_DETAILS = {
     action: "Restart the service, then retry the task.",
     retryable: true,
   },
+  "model-runtime-unreconciled": {
+    message: "The model runtime could not be restored.",
+    action: "Restart the application before using models.",
+    retryable: false,
+  },
   aborted: {
     message: "The request was stopped.",
     action: "Retry when you are ready.",
@@ -113,7 +121,10 @@ const ERROR_DETAILS = {
 export function normalizeProductError(input: unknown): ProductError {
   const records = collectErrorRecords(input)
   const kind = classifyProductError(records)
-  const diagnostic = createDiagnostic(records)
+  const diagnostic =
+    kind === "model-runtime-unreconciled"
+      ? Object.freeze({ code: MODEL_RUNTIME_UNRECONCILED })
+      : createDiagnostic(records)
 
   return Object.freeze({
     kind,
@@ -139,6 +150,13 @@ function collectErrorRecords(input: unknown) {
 }
 
 function classifyProductError(records: readonly ErrorRecord[]): ProductErrorKind {
+  const runtimeUnreconciled = records.some((record) =>
+    [record.code, record.message].some(
+      (value) => typeof value === "string" && value.slice(0, MAX_SIGNAL_LENGTH).includes(MODEL_RUNTIME_UNRECONCILED),
+    ),
+  )
+  if (runtimeUnreconciled) return "model-runtime-unreconciled"
+
   const signal = records
     .flatMap((record) => [record.name, record.code, record.message, record.body])
     .filter((value): value is string => typeof value === "string")

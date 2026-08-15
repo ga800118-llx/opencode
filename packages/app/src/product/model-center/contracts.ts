@@ -1,5 +1,7 @@
 import type { ProductErrorKind } from "../contracts"
 
+export const MODEL_RUNTIME_UNRECONCILED = "MODEL_RUNTIME_UNRECONCILED"
+
 export const PRODUCT_PROVIDER_KINDS = ["openai-compatible", "ollama", "lm-studio", "custom-local"] as const
 export type ProductProviderKind = (typeof PRODUCT_PROVIDER_KINDS)[number]
 

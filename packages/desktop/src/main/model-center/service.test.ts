@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rename, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type {
-  ProductCapabilityReport,
-  ProductLocalProviderCandidate,
-  ProductProviderProfileInput,
+import {
+  MODEL_RUNTIME_UNRECONCILED,
+  type ProductCapabilityReport,
+  type ProductLocalProviderCandidate,
+  type ProductProviderProfileInput,
 } from "@opencode-ai/app/product/model-center"
 import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
 import type { ProductCredentialEnvelope, ProductCredentialService } from "./credentials"
@@ -436,8 +437,9 @@ describe("createModelCenterService", () => {
 
     expect(failure).toBeInstanceOf(AggregateError)
     if (!(failure instanceof AggregateError)) throw new Error("aggregate error required")
+    expect(Reflect.get(failure, "code")).toBe(MODEL_RUNTIME_UNRECONCILED)
     expect(failure.message).toBe(
-      "The model selection rollback could not be reconciled with the model runtime. Restart the application before using models.",
+      `${MODEL_RUNTIME_UNRECONCILED}: The model runtime could not be restored. Restart the application before using models.`,
     )
     expect(failure.cause).toBe(primary)
     expect(failure.errors[0]).toBe(primary)

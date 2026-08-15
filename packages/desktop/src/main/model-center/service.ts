@@ -1,4 +1,5 @@
 import {
+  MODEL_RUNTIME_UNRECONCILED,
   normalizeProviderProfileInput,
   type ProductCredentialEnvelopeInput,
   type ProductModelCenterAPI,
@@ -176,11 +177,19 @@ async function reconcileDefaultSelection(
   if (attempts > 1) {
     return reconcileDefaultSelection(transaction, reloadCredentials, primary, attempts - 1, rollback.ok, causes)
   }
-  throw new AggregateError(
-    [primary, ...causes],
-    "The model selection rollback could not be reconciled with the model runtime. Restart the application before using models.",
-    { cause: primary },
-  )
+  throw new ModelRuntimeUnreconciledError(primary, causes)
+}
+
+class ModelRuntimeUnreconciledError extends AggregateError {
+  readonly code = MODEL_RUNTIME_UNRECONCILED
+
+  constructor(primary: unknown, compensation: readonly unknown[]) {
+    super(
+      [primary, ...compensation],
+      `${MODEL_RUNTIME_UNRECONCILED}: The model runtime could not be restored. Restart the application before using models.`,
+      { cause: primary },
+    )
+  }
 }
 
 function resolveProbeTarget(input: ProductProviderProbeInput, options: ModelCenterServiceOptions): ModelProbeTarget {

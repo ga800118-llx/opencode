@@ -32,6 +32,7 @@ const DIAGNOSTIC_KEYS = {
   timeout: "settings.modelCenter.discovery.timeout",
   tls: "settings.modelCenter.discovery.tls",
   "server-crash": "settings.modelCenter.discovery.unexpected",
+  "model-runtime-unreconciled": "settings.modelCenter.discovery.unexpected",
   aborted: "settings.modelCenter.discovery.aborted",
   unknown: "settings.modelCenter.discovery.unexpected",
 } satisfies Record<ProductErrorKind, ModelDiscoveryCopyKey>

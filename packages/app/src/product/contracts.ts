@@ -201,6 +201,7 @@ export type ProductErrorKind =
   | "timeout"
   | "tls"
   | "server-crash"
+  | "model-runtime-unreconciled"
   | "aborted"
   | "unknown"
 

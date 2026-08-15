@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createProductHostPreloadAPI, type ProductHostPreloadTransport } from "./product-host"
 import type { ProductSidecarStatus } from "../product/host"
+import { MODEL_RUNTIME_UNRECONCILED } from "@opencode-ai/app/product/model-center"
 
 const ready: ProductSidecarStatus = { state: "ready", attempt: 0, changedAt: 1, readyAt: 1 }
 
@@ -146,5 +147,20 @@ describe("product host preload API", () => {
       "model-center-detect",
       "model-center-reload",
     ])
+  })
+
+  test("preserves the safe runtime reconciliation tag from invoke rejections", async () => {
+    const fake = createTransport()
+    const message = `${MODEL_RUNTIME_UNRECONCILED}: The model runtime could not be restored. Restart the application before using models.`
+    const api = createProductHostPreloadAPI({
+      ...fake.transport,
+      modelCenterSelectDefault: async () => {
+        throw new Error(message)
+      },
+    })
+
+    await expect(api.modelCenter.selectDefault({ profileID: "profile-safe", modelID: "model-safe" })).rejects.toThrow(
+      message,
+    )
   })
 })

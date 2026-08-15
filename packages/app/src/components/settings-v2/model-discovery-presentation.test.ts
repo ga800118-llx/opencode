@@ -46,7 +46,7 @@ describe("model discovery presentation", () => {
     expect(modelDiscoveryPresentation(false, diagnostic(kind))).toEqual({ key, live: "assertive", tone: "error" })
   })
 
-  test.each(["streaming", "tool-calling", "server-crash", "unknown"] as const)(
+  test.each(["streaming", "tool-calling", "server-crash", "model-runtime-unreconciled", "unknown"] as const)(
     "maps %s diagnostics to unexpected copy",
     (kind) => {
       expect(modelDiscoveryPresentation(false, diagnostic(kind))).toEqual({

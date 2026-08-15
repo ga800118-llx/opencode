@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeProductError, type ProductErrorDiagnostic, type ProductErrorKind } from "./errors"
+import {
+  MODEL_RUNTIME_UNRECONCILED,
+  normalizeProductError,
+  type ProductErrorDiagnostic,
+  type ProductErrorKind,
+} from "./errors"
 
 const expectations = {
   "unreachable-endpoint": {
@@ -46,6 +51,11 @@ const expectations = {
     message: "The agent service stopped unexpectedly.",
     action: "Restart the service, then retry the task.",
     retryable: true,
+  },
+  "model-runtime-unreconciled": {
+    message: "The model runtime could not be restored.",
+    action: "Restart the application before using models.",
+    retryable: false,
   },
   aborted: {
     message: "The request was stopped.",
@@ -114,6 +124,12 @@ describe("normalizeProductError", () => {
       input: { error: { code: "SERVER_PROCESS_EXITED" } },
       kind: "server-crash",
       diagnostic: { code: "SERVER_PROCESS_EXITED" },
+    },
+    {
+      name: "unreconciled model runtime",
+      input: { code: MODEL_RUNTIME_UNRECONCILED },
+      kind: "model-runtime-unreconciled",
+      diagnostic: { code: MODEL_RUNTIME_UNRECONCILED },
     },
     { name: "aborted", input: { name: "AbortError" }, kind: "aborted", diagnostic: { name: "AbortError" } },
     {
@@ -207,6 +223,26 @@ describe("normalizeProductError", () => {
       requestID: "req_7F-2",
     })
     expect(Object.keys(result.diagnostic ?? {})).toEqual(["name", "code", "status", "requestID"])
+  })
+
+  test("classifies an Electron message-only runtime rejection without exposing nested details", () => {
+    const result = normalizeProductError({
+      message: `Error invoking remote method: ${MODEL_RUNTIME_UNRECONCILED}: private provider response`,
+      cause: {
+        code: "ETIMEDOUT",
+        status: 503,
+        requestID: "req_private-cause",
+        headers: { authorization: "Bearer renderer-secret" },
+        path: "/Users/private/runtime/model-profiles.json",
+      },
+    })
+
+    expect(result).toEqual({
+      kind: "model-runtime-unreconciled",
+      ...expectations["model-runtime-unreconciled"],
+      diagnostic: { code: MODEL_RUNTIME_UNRECONCILED },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/private|renderer-secret|ETIMEDOUT|503|req_/)
   })
 
   test.each([
