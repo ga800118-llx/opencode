@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
+import { startBackgroundCliLifecycle } from "./background-cli-lifecycle"
 import { createBackgroundCliEnvironment, createBackgroundCliStatePlan } from "./background-cli-state"
 
 const execFileAsync = promisify(execFile)
@@ -18,37 +19,33 @@ type Logger = {
 export async function startBackgroundCli(
   logger: Logger,
   options: {
-    readonly environment: Readonly<Record<string, string>>
+    readonly environment: () => Readonly<Record<string, string>>
     readonly runtimeStateHome: string
   },
 ) {
   const statePlan = createBackgroundCliStatePlan(options.runtimeStateHome)
-  const environment = createBackgroundCliEnvironment(statePlan.stateHome, options.environment)
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
   logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
-  const version = await run(bundled, ["--version"], logger, environment)
+  const version = await run(
+    bundled,
+    ["--version"],
+    logger,
+    createBackgroundCliEnvironment(statePlan.stateHome, options.environment()),
+  )
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
-  const existing = serviceUrl(await run(binary, ["service", "status"], logger, environment))
-  logger.log("v2 CLI background instance checked", {
-    detected: Boolean(existing),
-    ...endpoint(existing),
+  const controller = await startBackgroundCliLifecycle({
+    runtimeStateHome: statePlan.stateHome,
+    environment: options.environment,
+    run: (args, environment, commandOptions) => run(binary, args, logger, environment, commandOptions),
   })
-
-  const url = await run(binary, ["service", "start"], logger, environment)
-  const password = await run(binary, ["service", "get", "password"], logger, environment, { redact: true })
   logger.log("v2 CLI background service ready", {
-    existing: Boolean(existing),
-    username: "opencode",
-    ...endpoint(url),
+    username: controller.username,
+    ...endpoint(controller.url),
   })
-  return {
-    url,
-    username: "opencode",
-    password,
-  }
+  return controller
 }
 
 async function installCli(source: string, version: string, logger: Logger) {
@@ -73,7 +70,7 @@ async function installCli(source: string, version: string, logger: Logger) {
 
 async function run(
   binary: string,
-  args: string[],
+  args: readonly string[],
   logger: Logger,
   environment: Readonly<Record<string, string>>,
   options: { redact?: boolean } = {},
@@ -97,13 +94,6 @@ async function run(
       throw error
     },
   )
-}
-
-function serviceUrl(status: string) {
-  if (URL.canParse(status)) return status
-  if (!status.startsWith("running ")) return
-  const url = status.slice("running ".length).trim()
-  return URL.canParse(url) ? url : undefined
 }
 
 function endpoint(url: string | undefined) {

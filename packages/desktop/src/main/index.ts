@@ -16,7 +16,6 @@ import { createBundledGitEnvironment } from "../product/bundled-git"
 import { normalizeProductDeepLinks } from "../product/deep-link"
 import {
   createUnavailableSidecarStatus,
-  createUnmanagedSidecarStatus,
   sanitizeProductSidecarStatus,
   type ProductSidecarStatus,
 } from "../product/host"
@@ -57,6 +56,7 @@ import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
+import type { BackgroundCliController } from "./background-cli-lifecycle"
 import { createCredentialService } from "./model-center/credentials"
 import { createSensitiveHeaderCredentialProxy } from "./model-center/credential-proxy"
 import { createModelCredentialEnvironment } from "./model-center/environment"
@@ -79,6 +79,7 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarSupervisor | null = null
+let backgroundCli: BackgroundCliController | null = null
 let productSidecarStatus = createUnavailableSidecarStatus()
 let detachProductSidecarStatus: (() => void) | undefined
 const productSidecarSubscribers = new Set<(status: ProductSidecarStatus) => void>()
@@ -102,10 +103,23 @@ function emitDeepLinks(urls: string[]) {
 }
 
 async function killSidecar() {
-  if (!server) return
   const current = server
+  const background = backgroundCli
   server = null
-  await current.stop()
+  backgroundCli = null
+  if (current) await current.stop()
+  if (!background) return
+
+  const startedAt = productSidecarStatus.startedAt
+  publishV2SidecarStatus("stopping", startedAt === undefined ? {} : { startedAt })
+  await background.stop().catch((error) => {
+    publishV2SidecarStatus("failed", {
+      ...(startedAt === undefined ? {} : { startedAt }),
+      error: { kind: "exit" },
+    })
+    throw error
+  })
+  publishV2SidecarStatus("stopped", { stoppedAt: Date.now() })
 }
 
 function publishProductSidecarStatus(status: ProductSidecarStatus) {
@@ -117,6 +131,10 @@ function publishProductSidecarStatus(status: ProductSidecarStatus) {
       logger?.warn("product sidecar status subscriber failed")
     }
   }
+}
+
+function publishV2SidecarStatus(state: ProductSidecarStatus["state"], fields: Record<string, unknown> = {}) {
+  publishProductSidecarStatus(sanitizeProductSidecarStatus({ state, attempt: 0, changedAt: Date.now(), ...fields }))
 }
 
 function subscribeProductSidecarStatus(subscriber: (status: ProductSidecarStatus) => void) {
@@ -131,9 +149,29 @@ function subscribeProductSidecarStatus(subscriber: (status: ProductSidecarStatus
 
 async function restartProductSidecar() {
   const current = server
-  if (!current) return productSidecarStatus
-  await current.restart()
-  return productSidecarStatus
+  if (current) {
+    await current.restart()
+    return productSidecarStatus
+  }
+
+  const background = backgroundCli
+  if (!background) return productSidecarStatus
+  const startedAt = productSidecarStatus.startedAt
+  publishV2SidecarStatus("restarting", startedAt === undefined ? {} : { startedAt })
+  return background.restart().then(
+    () => {
+      const readyAt = Date.now()
+      publishV2SidecarStatus("ready", { startedAt: startedAt ?? readyAt, readyAt })
+      return productSidecarStatus
+    },
+    (error) => {
+      publishV2SidecarStatus("failed", {
+        ...(startedAt === undefined ? {} : { startedAt }),
+        error: { kind: "start" },
+      })
+      throw error
+    },
+  )
 }
 
 function ensureLoopbackNoProxy() {
@@ -477,14 +515,21 @@ const main = Effect.gen(function* () {
     useEnvProxy()
 
     if (SIDECAR_VERSION === "v2") {
-      logger.log("spawning v2 sidecar without lifecycle supervision", { supervised: false })
-      publishProductSidecarStatus(createUnmanagedSidecarStatus())
+      logger.log("starting desktop-managed v2 sidecar", { managed: true })
+      const startedAt = Date.now()
+      publishV2SidecarStatus("starting", { startedAt })
       const sidecar = yield* Effect.promise(() =>
         startBackgroundCli(logger, {
-          environment: createLocalSidecarEnvironment(),
+          environment: createLocalSidecarEnvironment,
           runtimeStateHome: runtimePaths.state,
+        }).catch((error) => {
+          publishV2SidecarStatus("failed", { startedAt, error: { kind: "start" } })
+          throw error
         }),
       )
+      backgroundCli = sidecar
+      const readyAt = Date.now()
+      publishV2SidecarStatus("ready", { startedAt, readyAt })
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
         username: sidecar.username,
