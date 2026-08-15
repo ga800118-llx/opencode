@@ -19,6 +19,7 @@ import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
 import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
+import { createWindowsStartupShutdownGuard } from "./startup-shutdown-guard"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -172,6 +173,21 @@ export function restoreMainWindows() {
   return (ids.length ? ids : [randomUUID()]).map((id) => createMainWindow(id))
 }
 
+export function createStartupShutdownGuard() {
+  return createWindowsStartupShutdownGuard({
+    platform: process.platform,
+    createWindow: () =>
+      new BrowserWindow({
+        width: 1,
+        height: 1,
+        show: false,
+        skipTaskbar: true,
+        focusable: false,
+      }),
+    wireWindow: wireSessionEnd,
+  })
+}
+
 export function setDockIcon() {
   if (process.platform !== "darwin") return
   const icon = nativeImage.createFromPath(join(iconsDir(), "dock.png"))
@@ -252,11 +268,15 @@ function registerWindow(win: BrowserWindow, id: string) {
   registry.register(id, win)
 
   win.on("focus", () => registry.focused(id))
+  wireSessionEnd(win)
+  win.on("closed", () => registry.closed(id))
+}
+
+function wireSessionEnd(win: BrowserWindow) {
   // Windows never emits before-quit on OS shutdown/logoff. Hold termination
   // while shared cleanup runs, with session-end as a best-effort fallback.
   win.on("query-session-end", (event) => querySessionEndHandler(event))
   win.on("session-end", () => sessionEndHandler())
-  win.on("closed", () => registry.closed(id))
 }
 
 function windowStateFile(id: string) {

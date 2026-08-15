@@ -43,6 +43,7 @@ import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import { safeWebContentsURL } from "./window-state"
 import {
   getLastFocusedWindow,
+  createStartupShutdownGuard,
   registerRendererProtocol,
   setRelaunchHandler,
   setAppQuitting,
@@ -85,11 +86,17 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 let logger: ReturnType<typeof initLogging>
 let server: SidecarSupervisor | null = null
 const backgroundCli = createBackgroundCliOwnership<BackgroundCliController>()
+let startupShutdownGuard: ReturnType<typeof createStartupShutdownGuard> | undefined
 let productSidecarStatus = createUnavailableSidecarStatus()
 let detachProductSidecarStatus: (() => void) | undefined
 const productSidecarSubscribers = new Set<(status: ProductSidecarStatus) => void>()
 
 const pendingDeepLinks: string[] = []
+
+function disposeStartupShutdownGuard() {
+  startupShutdownGuard?.dispose()
+  startupShutdownGuard = undefined
+}
 
 function useEnvProxy() {
   try {
@@ -259,6 +266,7 @@ const main = Effect.gen(function* () {
   let stopModelCredentialProxy: () => Promise<void> = async () => undefined
   let nativeUi: ReturnType<typeof createNativeUiController> | undefined
   const stopSidecars = async () => {
+    disposeStartupShutdownGuard()
     try {
       nativeUi?.dispose()
     } catch (error) {
@@ -370,6 +378,7 @@ const main = Effect.gen(function* () {
   const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
 
   yield* Effect.promise(() => app.whenReady())
+  startupShutdownGuard = createStartupShutdownGuard()
 
   if (!TEST_ONBOARDING) migrate()
   const credentialStore = getStore(MODEL_CREDENTIALS_STORE)
@@ -620,11 +629,12 @@ const main = Effect.gen(function* () {
 
   yield* Fiber.await(loadingTask)
 
-  const windows = restoreMainWindows()
+  const windows = startupShutdownGuard?.handoff(restoreMainWindows) ?? []
+  startupShutdownGuard = undefined
   if (windows.length) nativeUiController.enableApplicationMenu()
 })
 
-Effect.runFork(main)
+Effect.runFork(main.pipe(Effect.ensuring(Effect.sync(disposeStartupShutdownGuard))))
 
 function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
