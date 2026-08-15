@@ -10,7 +10,7 @@ import {
 import type { ProductCredentialEnvelope, ProductCredentialService } from "./credentials"
 import type { LocalModelDetector } from "./local-detection"
 import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "./probe"
-import type { ProfileRepository } from "./profiles"
+import type { ProfileDefaultSelectionTransaction, ProfileRepository } from "./profiles"
 
 type ModelCenterServiceOptions = {
   readonly profiles: ProfileRepository
@@ -21,12 +21,14 @@ type ModelCenterServiceOptions = {
   readonly presentProfile?: (profile: ProductProviderProfile) => ProductProviderProfile
 }
 
+const DEFAULT_SELECTION_RECONCILIATION_ATTEMPTS = 2
+
 export function createModelCenterService(options: ModelCenterServiceOptions): ProductModelCenterAPI {
   const present = options.presentProfile ?? ((profile: ProductProviderProfile) => profile)
-  let defaultSelectionQueue = Promise.resolve()
-  const serializeDefaultSelection = <T>(operation: () => Promise<T>) => {
-    const result = defaultSelectionQueue.then(operation)
-    defaultSelectionQueue = result.then(
+  let mutationQueue = Promise.resolve()
+  const serializeMutation = <T>(operation: () => T | PromiseLike<T>) => {
+    const result = mutationQueue.then(operation)
+    mutationQueue = result.then(
       () => undefined,
       () => undefined,
     )
@@ -46,56 +48,62 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       return Object.freeze(options.profiles.list().map(present))
     },
     async save(input) {
-      const normalized = normalizeProviderProfileInput(input)
-      const existing = normalized.id ? options.profiles.get(normalized.id) : undefined
-      if (normalized.id && !existing) throw new Error("The model profile does not exist.")
+      return serializeMutation(() => {
+        const normalized = normalizeProviderProfileInput(input)
+        const existing = normalized.id ? options.profiles.get(normalized.id) : undefined
+        if (normalized.id && !existing) throw new Error("The model profile does not exist.")
 
-      const provisional =
-        existing ?? options.profiles.save(withoutCredentials(normalized), { hasApiKey: false, sensitiveHeaders: [] })
-      const created = !existing
-      const reference = provisional.credentialRef ?? `model-profile:${provisional.id}`
-      let previous: ProductCredentialEnvelope | undefined
-      try {
-        previous = options.credentials.has(reference) ? options.credentials.read(reference) : undefined
-      } catch {
-        if (created) options.profiles.remove(provisional.id)
-        throw new Error("The saved model credentials are unavailable.")
-      }
-      const next = mergeCredentialEnvelope(previous, normalized.credentials, normalized.headers)
+        const provisional =
+          existing ?? options.profiles.save(withoutCredentials(normalized), { hasApiKey: false, sensitiveHeaders: [] })
+        const created = !existing
+        const reference = provisional.credentialRef ?? `model-profile:${provisional.id}`
+        let previous: ProductCredentialEnvelope | undefined
+        try {
+          previous = options.credentials.has(reference) ? options.credentials.read(reference) : undefined
+        } catch {
+          if (created) options.profiles.remove(provisional.id)
+          throw new Error("The saved model credentials are unavailable.")
+        }
+        const next = mergeCredentialEnvelope(previous, normalized.credentials, normalized.headers)
 
-      try {
-        writeCredentialEnvelope(options.credentials, reference, next)
-      } catch {
-        if (created) options.profiles.remove(provisional.id)
-        throw new Error("The model credentials could not be saved.")
-      }
+        try {
+          writeCredentialEnvelope(options.credentials, reference, next)
+        } catch {
+          if (created) options.profiles.remove(provisional.id)
+          throw new Error("The model credentials could not be saved.")
+        }
 
-      try {
-        return present(options.profiles.save(
-          { ...withoutCredentials(normalized), id: provisional.id },
-          {
-            hasApiKey: Boolean(next.apiKey),
-            sensitiveHeaders: Object.keys(next.headers ?? {}),
-            preserveTest: credentialSignature(previous) === credentialSignature(next),
-          },
-        ))
-      } catch {
-        restoreCredentialEnvelope(options.credentials, reference, previous)
-        if (created) options.profiles.remove(provisional.id)
-        throw new Error("The model profile could not be saved.")
-      }
+        try {
+          return present(
+            options.profiles.save(
+              { ...withoutCredentials(normalized), id: provisional.id },
+              {
+                hasApiKey: Boolean(next.apiKey),
+                sensitiveHeaders: Object.keys(next.headers ?? {}),
+                preserveTest: credentialSignature(previous) === credentialSignature(next),
+              },
+            ),
+          )
+        } catch {
+          restoreCredentialEnvelope(options.credentials, reference, previous)
+          if (created) options.profiles.remove(provisional.id)
+          throw new Error("The model profile could not be saved.")
+        }
+      })
     },
     async remove(profileID) {
-      const profile = options.profiles.get(profileID)
-      if (!profile) return
-      if (profile.credentialRef) {
-        try {
-          options.credentials.delete(profile.credentialRef)
-        } catch {
-          throw new Error("The model credentials could not be deleted.")
+      return serializeMutation(() => {
+        const profile = options.profiles.get(profileID)
+        if (!profile) return
+        if (profile.credentialRef) {
+          try {
+            options.credentials.delete(profile.credentialRef)
+          } catch {
+            throw new Error("The model credentials could not be deleted.")
+          }
         }
-      }
-      options.profiles.remove(profileID)
+        options.profiles.remove(profileID)
+      })
     },
     async discover(input) {
       return options.probe.discover(resolveProbeTarget(input, options))
@@ -106,11 +114,15 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
         modelID: input.modelID,
       })
       if (input.profileID) {
-        options.profiles.recordTest(input.profileID, report)
+        const profileID = input.profileID
+        await serializeMutation(() => options.profiles.recordTest(profileID, report))
       } else if (input.draft?.id) {
-        const profile = options.profiles.get(input.draft.id)
+        const profileID = input.draft.id
         const draft = normalizeProviderProfileInput(input.draft)
-        if (profile && probeDraftMatchesProfile(profile, draft)) options.profiles.recordTest(profile.id, report)
+        await serializeMutation(() => {
+          const profile = options.profiles.get(profileID)
+          if (profile && probeDraftMatchesProfile(profile, draft)) options.profiles.recordTest(profile.id, report)
+        })
       }
       return report
     },
@@ -118,24 +130,57 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
       return options.detector.detect()
     },
     async selectDefault(input) {
-      return serializeDefaultSelection(async () => {
+      return serializeMutation(async () => {
         const profile = options.profiles.get(input.profileID)
         if (!profile) throw new Error("The model profile does not exist.")
         const transaction = options.profiles.selectDefaultTransaction(input)
         return options.reloadCredentials().then(
           () => present(transaction.profile),
-          async (error: unknown) => {
-            transaction.rollback()
-            await options.reloadCredentials().catch(() => undefined)
-            throw error
-          },
+          (error: unknown) => reconcileDefaultSelection(transaction, options.reloadCredentials, error),
         )
       })
     },
     async reloadCredentials() {
-      await options.reloadCredentials()
+      await serializeMutation(options.reloadCredentials)
     },
   })
+}
+
+async function reconcileDefaultSelection(
+  transaction: ProfileDefaultSelectionTransaction,
+  reloadCredentials: () => Promise<void>,
+  primary: unknown,
+  attempts = DEFAULT_SELECTION_RECONCILIATION_ATTEMPTS,
+  rolledBack = false,
+  failures: readonly unknown[] = [],
+): Promise<never> {
+  const rollback = rolledBack
+    ? ({ ok: true } as const)
+    : await Promise.resolve()
+        .then(transaction.rollback)
+        .then(
+          () => ({ ok: true }) as const,
+          (error: unknown) => ({ ok: false, error }) as const,
+        )
+  const compensation = await reloadCredentials().then(
+    () => ({ ok: true }) as const,
+    (error: unknown) => ({ ok: false, error }) as const,
+  )
+  if (rollback.ok && compensation.ok) throw primary
+
+  const causes = [
+    ...failures,
+    ...(!rollback.ok ? [rollback.error] : []),
+    ...(!compensation.ok ? [compensation.error] : []),
+  ]
+  if (attempts > 1) {
+    return reconcileDefaultSelection(transaction, reloadCredentials, primary, attempts - 1, rollback.ok, causes)
+  }
+  throw new AggregateError(
+    [primary, ...causes],
+    "The model selection rollback could not be reconciled with the model runtime. Restart the application before using models.",
+    { cause: primary },
+  )
 }
 
 function resolveProbeTarget(input: ProductProviderProbeInput, options: ModelCenterServiceOptions): ModelProbeTarget {
@@ -174,10 +219,7 @@ function targetFromProfile(profile: ProductProviderProfile, envelope?: ProductCr
   })
 }
 
-function targetFromDraft(
-  profile: ProductProviderProfileInput,
-  envelope: ProductCredentialEnvelope,
-): ModelProbeTarget {
+function targetFromDraft(profile: ProductProviderProfileInput, envelope: ProductCredentialEnvelope): ModelProbeTarget {
   return Object.freeze({
     kind: profile.kind,
     baseURL: profile.baseURL,
