@@ -251,6 +251,30 @@ export function createServerSession(
       return (this.session_status[id]?.type ?? "idle") !== "idle"
     },
   })
+  let statusRevision = 0
+  const statusRevisions = new Map<string, number>()
+  const markStatus = (sessionID: string) => {
+    statusRevision++
+    statusRevisions.set(sessionID, statusRevision)
+  }
+  const set = ((...input: unknown[]) => {
+    if (input[0] !== "session_status") return (setData as (...args: unknown[]) => unknown)(...input)
+    if (typeof input[1] === "string") {
+      markStatus(input[1])
+      return (setData as (...args: unknown[]) => unknown)(...input)
+    }
+
+    const before = new Map(
+      Object.entries(data.session_status).map(([sessionID, status]) => [sessionID, JSON.stringify(status)]),
+    )
+    const result = (setData as (...args: unknown[]) => unknown)(...input)
+    const sessionIDs = new Set([...before.keys(), ...Object.keys(data.session_status)])
+    for (const sessionID of sessionIDs) {
+      if (before.get(sessionID) === JSON.stringify(data.session_status[sessionID])) continue
+      markStatus(sessionID)
+    }
+    return result
+  }) as typeof setData
   const requests = new Map<string, Promise<Session>>()
   const inflight = new Map<string, Promise<void>>()
   const inflightTodo = new Map<string, Promise<void>>()
@@ -543,6 +567,7 @@ export function createServerSession(
 
   const evict = (sessionIDs: string[]) => {
     if (sessionIDs.length === 0) return
+    sessionIDs.forEach(markStatus)
     const evicted = new Set(sessionIDs)
     for (const [partID, item] of deltaBases) {
       if (evicted.has(item.sessionID)) deltaBases.delete(partID)
@@ -1056,15 +1081,15 @@ export function createServerSession(
     //   if (info) remember({ ...info, time: { ...info.time, archived: event.created, updated: event.created } })
     //   evict([sessionID])
     // }
-    if (event.type === "session.execution.started") setData("session_status", sessionID, { type: "busy" })
+    if (event.type === "session.execution.started") set("session_status", sessionID, { type: "busy" })
     if (
       event.type === "session.execution.succeeded" ||
       event.type === "session.execution.failed" ||
       event.type === "session.execution.interrupted"
     )
-      setData("session_status", sessionID, { type: "idle" })
+      set("session_status", sessionID, { type: "idle" })
     if (event.type === "session.retry.scheduled")
-      setData("session_status", sessionID, {
+      set("session_status", sessionID, {
         type: "retry",
         attempt: event.data.attempt,
         message: event.data.error.message,
@@ -1121,7 +1146,7 @@ export function createServerSession(
       }
       case "session.status": {
         const props = event.properties as { sessionID: string; status: SessionStatus }
-        setData("session_status", props.sessionID, reconcile(props.status))
+        set("session_status", props.sessionID, reconcile(props.status))
         return
       }
       case "message.updated": {
@@ -1392,7 +1417,8 @@ export function createServerSession(
 
   return {
     data,
-    set: setData,
+    set,
+    statusVersion: (sessionID?: string) => (sessionID ? (statusRevisions.get(sessionID) ?? 0) : statusRevision),
     get: (sessionID: string) => data.info[sessionID],
     peek: (sessionID: string) => data.info[sessionID],
     remember,
@@ -1518,7 +1544,7 @@ export function createServerSession(
       if (count && count > 1) pinned.set(sessionID, count - 1)
     },
     reconnectCandidates() {
-      return [...new Set([...pinned.keys(), ...Object.keys(data.message), ...Object.keys(data.session_message)])]
+      return [...pinned.keys()]
     },
     apply,
     applyV2,

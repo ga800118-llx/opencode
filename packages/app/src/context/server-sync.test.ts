@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, OpencodeClient, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, OpencodeClient, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type {
   McpListInput,
   McpResourceCatalogInput,
@@ -11,9 +11,11 @@ import { QueryClient } from "@tanstack/solid-query"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"
 import {
+  type ActiveSessionStatuses,
   createWorkspaceReadinessController,
   createRuntimeRefreshController,
   dispatchServerEventRuntimeRefresh,
+  loadAuthoritativeActiveSessionStatuses,
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
@@ -21,6 +23,7 @@ import {
   refreshWorkspaceReadinessOnAgentChange,
   refreshWorkspaceReadinessOnReconnect,
   reconcileActiveSessionStatuses,
+  refreshActiveSessionsQuery,
 } from "./server-sync"
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
@@ -362,6 +365,47 @@ describe("provider refresh", () => {
 })
 
 describe("active session query", () => {
+  test("aggregates v1 statuses across loaded workspace clients", async () => {
+    const requested: string[] = []
+    const active = await loadAuthoritativeActiveSessionStatuses({
+      protocol: "v1",
+      directories: ["/repo-a", "/repo-b"],
+      status: async (directory): Promise<Record<string, SessionStatus>> => {
+        requested.push(directory)
+        if (directory === "/repo-b") return { ses_b: { type: "busy" } }
+        return {}
+      },
+      active: async () => {
+        throw new Error("v2 active should not run")
+      },
+    })
+    const session = createServerSession({} as OpencodeClient)
+    session.set("session_status", "ses_a", { type: "busy" })
+    session.set("session_status", "ses_b", { type: "busy" })
+
+    reconcileActiveSessionStatuses(session, active ?? {})
+
+    expect(requested).toEqual(["/repo-a", "/repo-b"])
+    expect(session.data.session_status.ses_a).toEqual({ type: "idle" })
+    expect(session.data.session_status.ses_b).toEqual({ type: "busy" })
+  })
+
+  test("does not manufacture an authoritative v1 snapshot without loaded workspaces", async () => {
+    let requests = 0
+    const active = await loadAuthoritativeActiveSessionStatuses({
+      protocol: "v1",
+      directories: [],
+      status: async () => {
+        requests++
+        return {}
+      },
+      active: async () => ({}),
+    })
+
+    expect(active).toBeNull()
+    expect(requests).toBe(0)
+  })
+
   test("loads active sessions immediately and once per server cache", async () => {
     let calls = 0
     const queryClient = new QueryClient()
@@ -436,33 +480,24 @@ describe("active session query", () => {
       session,
     })
 
-    await dispatchServerEventRuntimeRefresh(
-      { name: "/repo", details: { type: "server.connected" } },
-      controller.refreshRuntime,
-    )
-    await dispatchServerEventRuntimeRefresh(
-      { name: "global", details: { type: "session.updated" } },
-      controller.refreshRuntime,
-    )
+    const dispatch = (name: string, type: string) =>
+      dispatchServerEventRuntimeRefresh(
+        { name, details: { type } },
+        { refreshRuntime: controller.refreshRuntime, reportError() {} },
+      )
+
+    await dispatch("/repo", "server.connected")
+    await dispatch("global", "session.updated")
     expect(calls).toBe(1)
 
-    const first = dispatchServerEventRuntimeRefresh(
-      { name: "global", details: { type: "server.connected" } },
-      controller.refreshRuntime,
-    )
-    const second = dispatchServerEventRuntimeRefresh(
-      { name: "global", details: { type: "server.connected" } },
-      controller.refreshRuntime,
-    )
+    const first = dispatch("global", "server.connected")
+    const second = dispatch("global", "server.connected")
     await Promise.resolve()
     expect(calls).toBe(2)
 
     refresh.resolve({})
     await Promise.all([first, second])
-    await dispatchServerEventRuntimeRefresh(
-      { name: "global", details: { type: "server.connected" } },
-      controller.refreshRuntime,
-    )
+    await dispatch("global", "server.connected")
 
     expect(calls).toBe(3)
   })
@@ -494,6 +529,62 @@ describe("active session query", () => {
     expect(calls).toBe(2)
   })
 
+  test("applies active reconciliation before slower runtime refreshes settle", async () => {
+    const config = deferred<void>()
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "completed", { type: "busy" })
+    const controller = createRuntimeRefreshController({
+      refreshConfig: () => config.promise,
+      refreshProviders: async () => undefined,
+      refreshActiveSessions: async () => ({}),
+      refreshAgents: async () => undefined,
+      session: runtime.session,
+    })
+
+    const refresh = controller.refreshRuntime()
+    await Bun.sleep(0)
+    expect(runtime.session.data.session_status.completed).toEqual({ type: "idle" })
+
+    config.resolve()
+    await refresh
+  })
+
+  test("keeps a newer busy event over an older empty active snapshot", async () => {
+    const active = deferred<ActiveSessionStatuses>()
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "changed", { type: "idle" })
+    const controller = runtimeController(runtime.session, () => active.promise)
+
+    const refresh = controller.refreshRuntime()
+    await Promise.resolve()
+    runtime.session.apply({
+      type: "session.status",
+      properties: { sessionID: "changed", status: { type: "busy" } },
+    })
+    active.resolve({})
+    await refresh
+
+    expect(runtime.session.data.session_status.changed).toEqual({ type: "busy" })
+  })
+
+  test("keeps a newer idle event over an older active snapshot", async () => {
+    const active = deferred<ActiveSessionStatuses>()
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "changed", { type: "busy" })
+    const controller = runtimeController(runtime.session, () => active.promise)
+
+    const refresh = controller.refreshRuntime()
+    await Promise.resolve()
+    runtime.session.apply({
+      type: "session.status",
+      properties: { sessionID: "changed", status: { type: "idle" } },
+    })
+    active.resolve({ changed: { type: "running" } })
+    await refresh
+
+    expect(runtime.session.data.session_status.changed).toEqual({ type: "idle" })
+  })
+
   test("reconciles completed, failed, and running work and refreshes loaded content", async () => {
     const runtime = runtimeSession()
     const failedMessage = runtimeErrorMessage("failed")
@@ -503,6 +594,7 @@ describe("active session query", () => {
     runtime.session.set("message", "completed", [])
     runtime.session.set("message", "failed", [failedMessage])
     runtime.session.set("message", "visible", [])
+    runtime.session.pin("visible")
     const controller = runtimeController(runtime.session, async () => ({ running: { type: "running" } }))
 
     await controller.refreshRuntime()
@@ -512,6 +604,55 @@ describe("active session query", () => {
     expect(runtime.session.data.session_status.running).toEqual({ type: "busy" })
     expect(runtime.resolved.toSorted()).toEqual(["completed", "failed", "running", "visible"])
     expect(runtime.synced.toSorted()).toEqual(["completed", "failed", "visible"])
+  })
+
+  test("force-syncs a pinned session without cached messages", async () => {
+    const runtime = runtimeSession()
+    runtime.session.pin("visible")
+    const controller = runtimeController(runtime.session, async () => ({}))
+
+    await controller.refreshRuntime()
+
+    expect(runtime.resolved).toEqual(["visible"])
+    expect(runtime.synced).toEqual(["visible"])
+  })
+
+  test("does not sync an invisible stale cached session", async () => {
+    const runtime = runtimeSession(new Set(["cached"]))
+    runtime.session.set("message", "cached", [runtimeErrorMessage("cached")])
+    const controller = runtimeController(runtime.session, async () => ({}))
+
+    await expect(controller.refreshRuntime()).resolves.toBeUndefined()
+    expect(runtime.resolved).toEqual([])
+    expect(runtime.synced).toEqual([])
+  })
+
+  test("starts a fresh active request when the initial query is still pending", async () => {
+    const initial = deferred<ActiveSessionStatuses>()
+    let calls = 0
+    const load = () => {
+      calls++
+      if (calls === 1) return initial.promise
+      return Promise.resolve({})
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const options = loadActiveSessionsQuery(ServerScope.local, { active: load })
+    const initialRequest = queryClient.fetchQuery(options).catch(() => null)
+    await Promise.resolve()
+    const runtime = runtimeSession()
+    runtime.session.set("session_status", "completed", { type: "busy" })
+    const controller = runtimeController(runtime.session, () =>
+      refreshActiveSessionsQuery(queryClient, options.queryKey, load),
+    )
+
+    await controller.refreshRuntime()
+    expect(calls).toBe(2)
+    expect(runtime.session.data.session_status.completed).toEqual({ type: "idle" })
+    expect(queryClient.getQueryData<ActiveSessionStatuses | null>(options.queryKey)).toEqual({})
+
+    initial.resolve({ completed: { type: "running" } })
+    await initialRequest
+    expect(queryClient.getQueryData<ActiveSessionStatuses | null>(options.queryKey)).toEqual({})
   })
 
   test("clears stale busy state when active refresh fails", async () => {
@@ -554,11 +695,29 @@ describe("active session query", () => {
     expect(runtime.session.data.session_status.failed).toEqual({ type: "idle" })
     expect(runtime.session.data.message.failed).toEqual([failedMessage])
   })
+
+  test("reports background reconnect refresh failures", async () => {
+    const errors: unknown[] = []
+
+    await dispatchServerEventRuntimeRefresh(
+      { name: "global", details: { type: "server.connected" } },
+      {
+        refreshRuntime: async () => {
+          throw new Error("active refresh failed")
+        },
+        reportError: (error) => errors.push(error),
+      },
+    )
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect((errors[0] as Error).message).toBe("active refresh failed")
+  })
 })
 
 function runtimeController(
   session: ReturnType<typeof createServerSession>,
-  refreshActiveSessions: () => Promise<Record<string, { type: "running" }>>,
+  refreshActiveSessions: () => Promise<ActiveSessionStatuses | null>,
 ) {
   return createRuntimeRefreshController({
     refreshConfig: async () => undefined,
