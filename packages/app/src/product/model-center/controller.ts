@@ -1,9 +1,33 @@
 import { normalizeProductError } from "../errors"
-import type {
-  ProductDefaultModelInput,
-  ProductModelCenterAPI,
-  ProductProviderProfileInput,
+import {
+  sanitizeProviderProfile,
+  type ProductDefaultModelInput,
+  type ProductModelCenterAPI,
+  type ProductProviderProfile,
+  type ProductProviderProfileInput,
 } from "./contracts"
+
+export const COMMITTED_PRODUCT_PROFILE_ERROR = "COMMITTED_PRODUCT_PROFILE_ERROR"
+
+export class CommittedProductProfileError extends Error {
+  readonly _tag = COMMITTED_PRODUCT_PROFILE_ERROR
+  readonly profile: ProductProviderProfile
+
+  private constructor(profile: ProductProviderProfile, message: string) {
+    super(message)
+    this.name = "CommittedProductProfileError"
+    this.profile = sanitizeProviderProfile(profile)
+    Object.freeze(this)
+  }
+
+  static from(profile: ProductProviderProfile, error: unknown) {
+    return new CommittedProductProfileError(profile, safeMessage(error))
+  }
+}
+
+export function isCommittedProductProfileError(error: unknown): error is CommittedProductProfileError {
+  return error instanceof CommittedProductProfileError && error._tag === COMMITTED_PRODUCT_PROFILE_ERROR
+}
 
 type ProductModelCenterControllerOptions = {
   readonly modelCenter: ProductModelCenterAPI
@@ -28,8 +52,12 @@ export function createModelCenterController(options: ProductModelCenterControlle
     detectLocal: () => safe(() => options.modelCenter.detectLocal()),
     async save(input: ProductProviderProfileInput) {
       const profile = await safe(() => options.modelCenter.save(input))
-      await safe(() => options.modelCenter.reloadCredentials())
-      await safe(() => options.refreshRuntime())
+      try {
+        await options.modelCenter.reloadCredentials()
+        await options.refreshRuntime()
+      } catch (error) {
+        throw CommittedProductProfileError.from(profile, error)
+      }
       return profile
     },
     async remove(profileID: string) {
@@ -46,6 +74,10 @@ export function createModelCenterController(options: ProductModelCenterControlle
 }
 
 function safeError(error: unknown) {
+  return new Error(safeMessage(error))
+}
+
+function safeMessage(error: unknown) {
   const normalized = normalizeProductError(error)
-  return new Error(`${normalized.message} ${normalized.action}`)
+  return `${normalized.message} ${normalized.action}`
 }

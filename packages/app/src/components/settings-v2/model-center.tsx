@@ -33,7 +33,7 @@ export const SettingsModelCenterV2: Component<{ onOpenProviders: () => void }> =
   const serverSync = useServerSync()
   const controller = createModelCenterController({
     modelCenter: runtime.host.modelCenter,
-    refreshRuntime: () => serverSync().refreshProviders(),
+    refreshRuntime: () => serverSync().refreshProviders({ throwOnError: true }),
   })
   const [capabilities] = createResource(() => controller.capabilities())
   const [profiles, { mutate }] = createResource(() => controller.list())

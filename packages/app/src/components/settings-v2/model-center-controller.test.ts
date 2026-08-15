@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import type {
-  ProductCapabilityReport,
-  ProductLocalProviderCandidate,
-  ProductModelDiagnostic,
-  ProductModelDiscoveryResult,
-  ProductProviderProfile,
-  ProductProviderProfileInput,
+import {
+  createModelCenterController,
+  createUnavailableProductModelCenter,
+  type ProductCapabilityReport,
+  type ProductLocalProviderCandidate,
+  type ProductModelCenterAPI,
+  type ProductModelDiagnostic,
+  type ProductModelDiscoveryResult,
+  type ProductProviderProfile,
+  type ProductProviderProfileInput,
 } from "@/product/model-center"
 import { createModelProfileFormController, type ModelProfileOperations } from "./model-center-controller"
 
@@ -783,6 +786,74 @@ describe("createModelProfileFormController", () => {
     await firstDelete
     expect(saving.form.state.deleteConfirmation).toBe(false)
   })
+
+  test.each(["reloadCredentials", "refreshRuntime"] as const)(
+    "adopts a committed create before rejecting a %s failure so retry updates",
+    async (failing) => {
+      const saves: ProductProviderProfileInput[] = []
+      let failed = false
+      let creates = 0
+      let stored: ProductProviderProfile[] = []
+      const modelCenter: ProductModelCenterAPI = {
+        ...createUnavailableProductModelCenter(),
+        async save(value) {
+          saves.push(value)
+          const id = value.id ?? (creates++ === 0 ? profile.id : `${profile.id}-${creates}`)
+          const saved = {
+            ...profile,
+            id,
+            providerID: id === profile.id ? profile.providerID : `agent-profile-${id}`,
+            name: value.name,
+            kind: value.kind,
+            baseURL: value.baseURL,
+            headers: value.headers,
+            models: value.models,
+            ...(value.defaultModelID ? { defaultModelID: value.defaultModelID } : {}),
+            settings: value.settings,
+          }
+          const existing = stored.findIndex((item) => item.id === saved.id)
+          stored = existing === -1 ? [...stored, saved] : stored.map((item) => (item.id === saved.id ? saved : item))
+          return saved
+        },
+        async reloadCredentials() {
+          if (failing !== "reloadCredentials" || failed) return
+          failed = true
+          throw new Error("Bearer sk-private private reload response")
+        },
+      }
+      const form = createModelProfileFormController({
+        operations: createModelCenterController({
+          modelCenter,
+          async refreshRuntime() {
+            if (failing !== "refreshRuntime" || failed) return
+            failed = true
+            throw new Error("Bearer sk-private private refresh response")
+          },
+        }),
+      })
+      form.setField("name", profile.name)
+      form.setField("baseURL", profile.baseURL)
+      form.addManualModel("coder", "Coder")
+      form.setApiKey("sk-private")
+
+      await expect(form.save()).rejects.toThrow(
+        "An unexpected product error occurred. Retry once; if it continues, report the safe diagnostic fields.",
+      )
+      expect(form.state.error).not.toContain("sk-private")
+      expect(form.state.profileID).toBe(profile.id)
+      expect(form.state.mode).toBe("edit")
+      expect(form.canSelectDefault()).toBe(true)
+      expect(saves[0]).not.toHaveProperty("id")
+      expect(stored).toHaveLength(1)
+      expect(JSON.stringify(stored)).not.toContain("sk-private")
+
+      await form.save()
+      expect(saves[1]).toMatchObject({ id: profile.id })
+      expect(stored).toHaveLength(1)
+      expect(stored[0]?.id).toBe(profile.id)
+      expect(JSON.stringify(stored)).not.toContain("sk-private")
+    },
+  )
 
   test("cancels pending responses and redacts typed credentials from errors", async () => {
     const discovery = deferred<ProductModelDiscoveryResult>()

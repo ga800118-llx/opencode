@@ -35,7 +35,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
-import type { SolidQueryOptions } from "@tanstack/solid-query"
+import type { QueryClient, SolidQueryOptions } from "@tanstack/solid-query"
 import { createRefreshQueue } from "./global-sync/queue"
 import { directoryKey } from "./global-sync/utils"
 import { PathKey } from "@/utils/path-key"
@@ -92,7 +92,22 @@ type SessionActiveApi = {
   readonly active: () => Promise<SessionActiveOutput>
 }
 
+type ProviderRefreshOptions = { readonly throwOnError?: boolean }
+
 export type WorkspaceReadiness = "initializing" | "ready" | "degraded" | "failed"
+
+export function refetchProviderQueries(
+  queryClient: QueryClient,
+  scope: ServerScope,
+  options: ProviderRefreshOptions = {},
+) {
+  const filters = {
+    predicate: (query: { readonly queryKey: readonly unknown[] }) =>
+      query.queryKey[0] === scope && query.queryKey[2] === "providers",
+  }
+  if (!options.throwOnError) return queryClient.refetchQueries(filters)
+  return queryClient.refetchQueries(filters, { throwOnError: true })
+}
 
 export function refreshWorkspaceReadinessOnReconnect(input: {
   directories: readonly string[]
@@ -341,10 +356,8 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
   const queryClient = useQueryClient()
   const homeSessions = createHomeSessionIndexCache(queryClient, ServerConnection.key(serverSDK.server))
-  const refreshProviders = () =>
-    queryClient.refetchQueries({
-      predicate: (query) => query.queryKey[0] === serverSDK.scope && query.queryKey[2] === "providers",
-    })
+  const refreshProviders = (options?: ProviderRefreshOptions) =>
+    refetchProviderQueries(queryClient, serverSDK.scope, options)
   const refreshAgents = (directory?: string) =>
     queryClient.invalidateQueries({
       predicate: (query) =>

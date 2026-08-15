@@ -6,7 +6,7 @@ import {
   type ProductProviderProfile,
   type ProductProviderProfileInput,
 } from "./contracts"
-import { createModelCenterController } from "./controller"
+import { createModelCenterController, isCommittedProductProfileError } from "./controller"
 
 const report = {
   modelID: "coder",
@@ -70,6 +70,7 @@ function fixture(
 ) {
   const calls: unknown[][] = []
   let stored = [...(input.stored ?? [])]
+  let creates = 0
   const fail = (operation: Operation) => {
     if (input.failure?.operation === operation) throw input.failure.error
   }
@@ -92,9 +93,11 @@ function fixture(
     async save(value) {
       calls.push(["save", value])
       fail("save")
+      const id = value.id ?? (creates++ === 0 ? profile.id : `${profile.id}-${creates}`)
       const saved = {
         ...profile,
-        ...(value.id ? { id: value.id } : {}),
+        id,
+        providerID: id === profile.id ? profile.providerID : `agent-profile-${id}`,
         name: value.name,
         kind: value.kind,
         baseURL: value.baseURL,
@@ -103,7 +106,8 @@ function fixture(
         ...(value.defaultModelID ? { defaultModelID: value.defaultModelID } : {}),
         settings: value.settings,
       }
-      stored = [saved]
+      const existing = stored.findIndex((item) => item.id === id)
+      stored = existing === -1 ? [...stored, saved] : stored.map((item, index) => (index === existing ? saved : item))
       return saved
     },
     async remove(profileID) {
@@ -221,11 +225,25 @@ describe("createModelCenterController", () => {
   })
 
   test("skips refresh when the host credential reload fails", async () => {
-    const fake = fixture({ failure: { operation: "reloadCredentials", error: new Error("private reload failure") } })
+    const fake = fixture({
+      failure: { operation: "reloadCredentials", error: new Error("Bearer sk-test-secret private reload failure") },
+    })
 
-    await expect(fake.controller.save(draft)).rejects.toThrow(
+    const failure = await fake.controller.save(draft).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(isCommittedProductProfileError(failure)).toBe(true)
+    if (!isCommittedProductProfileError(failure)) throw new Error("committed profile failure required")
+    expect(failure.profile).toEqual(profile)
+    expect(failure.message).toBe(
       "An unexpected product error occurred. Retry once; if it continues, report the safe diagnostic fields.",
     )
+    expect("cause" in failure).toBe(false)
+    expect(JSON.stringify(failure)).not.toContain("sk-test-secret")
+    expect(JSON.stringify(failure)).not.toContain("private reload failure")
+    expect(failure.stack).not.toContain("sk-test-secret")
+    expect(failure.stack).not.toContain("private reload failure")
     expect(fake.calls).toEqual([["save", draft], ["reloadCredentials"]])
     expect(fake.stored()).toEqual([profile])
   })
@@ -250,9 +268,17 @@ describe("createModelCenterController", () => {
     } as const
 
     const save = fixture({ failure })
-    await expect(save.controller.save(draft)).rejects.toThrow(
+    const saveFailure = await save.controller.save(draft).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(isCommittedProductProfileError(saveFailure)).toBe(true)
+    if (!isCommittedProductProfileError(saveFailure)) throw new Error("committed profile failure required")
+    expect(saveFailure.profile).toEqual(profile)
+    expect(saveFailure.message).toBe(
       "An unexpected product error occurred. Retry once; if it continues, report the safe diagnostic fields.",
     )
+    expect("cause" in saveFailure).toBe(false)
     expect(save.calls).toEqual([["save", draft], ["reloadCredentials"], ["refreshRuntime"]])
     expect(save.stored()).toEqual([profile])
 

@@ -1,4 +1,5 @@
 import {
+  isCommittedProductProfileError,
   normalizeProviderProfileInput,
   type ProductCapabilityReport,
   type ProductLocalProviderCandidate,
@@ -160,6 +161,14 @@ export function createModelProfileFormController(options: {
     setState("testing", false)
     setState("report", undefined)
     setState("diagnostic", undefined)
+  }
+
+  const adoptProfile = (profile: ProductProviderProfile) => {
+    persistedModelIDs.clear()
+    profile.models.forEach((model) => persistedModelIDs.add(model.id))
+    setState("profileID", profile.id)
+    setState("mode", "edit")
+    return profile
   }
 
   const input = (): ProductProviderProfileInput => {
@@ -505,14 +514,9 @@ export function createModelProfileFormController(options: {
       clearLegacyFeedback()
       savePromise = options.operations
         .save(value)
-        .then((profile) => {
-          persistedModelIDs.clear()
-          profile.models.forEach((model) => persistedModelIDs.add(model.id))
-          setState("profileID", profile.id)
-          setState("mode", "edit")
-          return profile
-        })
+        .then(adoptProfile)
         .catch((error) => {
+          if (isCommittedProductProfileError(error)) adoptProfile(error.profile)
           throw recordError(error)
         })
         .finally(() => {

@@ -15,6 +15,7 @@ import {
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
+  refetchProviderQueries,
   refreshWorkspaceReadinessOnAgentChange,
   refreshWorkspaceReadinessOnReconnect,
   seedActiveSessionStatuses,
@@ -332,6 +333,29 @@ describe("MCP queries", () => {
 
     expect(calls).toEqual([{ location: { directory: "/project" } }])
     expect(result).toEqual({ "docs:docs://guide": { server: "docs", name: "Guide", uri: "docs://guide" } })
+  })
+})
+
+describe("provider refresh", () => {
+  test("keeps default refetch failures contained and lets strict callers reject", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let failing = false
+    let requests = 0
+    await queryClient.fetchQuery({
+      queryKey: [ServerScope.local, null, "providers"],
+      queryFn: async () => {
+        requests++
+        if (failing) throw new Error("provider refresh failed")
+        return { all: new Map(), connected: [], default: {} }
+      },
+    })
+    failing = true
+
+    await expect(refetchProviderQueries(queryClient, ServerScope.local)).resolves.toBeUndefined()
+    await expect(refetchProviderQueries(queryClient, ServerScope.local, { throwOnError: true })).rejects.toThrow(
+      "provider refresh failed",
+    )
+    expect(requests).toBe(3)
   })
 })
 
