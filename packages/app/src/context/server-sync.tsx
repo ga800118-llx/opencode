@@ -294,7 +294,10 @@ export function createRuntimeRefreshController(input: {
             rendererNonIdle.forEach((sessionID) => replaceSessionStatus(input.session, sessionID, { type: "idle" }))
             return { active: [], idle: rendererNonIdle }
           })()
-    const sessionIDs = [...new Set([...visible, ...rendererNonIdle, ...reconciliation.active, ...reconciliation.idle])]
+    const sessionIDs =
+      activeRefresh.status === "fulfilled"
+        ? [...new Set([...visible, ...rendererNonIdle, ...reconciliation.active, ...reconciliation.idle])]
+        : visible.filter((sessionID) => !rendererNonIdle.includes(sessionID))
     const resolutions = await Promise.allSettled(
       sessionIDs.map((sessionID) => {
         if (
@@ -329,6 +332,14 @@ export function createRuntimeRefreshController(input: {
       return request
     },
   }
+}
+
+export function dispatchServerEventRuntimeRefresh(
+  event: { readonly name: string; readonly details: { readonly type: string } },
+  refreshRuntime: () => Promise<unknown>,
+) {
+  if (event.name !== "global" || event.details.type !== "server.connected") return
+  return refreshRuntime().catch(() => undefined)
 }
 
 function makeQueryOptionsApi(
@@ -731,6 +742,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     const eventType: string = event.type
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
+    void dispatchServerEventRuntimeRefresh(e, refreshRuntime)
     if (event.current) session.applyV2(event.current)
     session.apply(event)
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
@@ -740,7 +752,6 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     if (eventType === "integration.connection.updated") void refreshProviders()
 
     if (directory === "global") {
-      if (eventType === "server.connected") void refreshRuntime().catch(() => undefined)
       applyGlobalEvent({
         event,
         project: globalStore.project,

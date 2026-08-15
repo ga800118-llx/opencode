@@ -13,6 +13,7 @@ import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/sessio
 import {
   createWorkspaceReadinessController,
   createRuntimeRefreshController,
+  dispatchServerEventRuntimeRefresh,
   loadActiveSessionsQuery,
   loadMcpQuery,
   loadMcpResourcesQuery,
@@ -412,12 +413,14 @@ describe("active session query", () => {
 
   test("refetches cached active data on every settled runtime refresh", async () => {
     let calls = 0
+    const refresh = deferred<Record<string, { type: "running" }>>()
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const options = loadActiveSessionsQuery(ServerScope.local, {
       active: async () => {
         calls++
-        const active: Record<string, { type: "running" }> = calls === 1 ? { initial: { type: "running" } } : {}
-        return active
+        if (calls === 1) return { initial: { type: "running" } }
+        if (calls === 2) return refresh.promise
+        return {}
       },
     })
     await queryClient.fetchQuery(options)
@@ -433,8 +436,33 @@ describe("active session query", () => {
       session,
     })
 
-    await controller.refreshRuntime()
-    await controller.refreshRuntime()
+    await dispatchServerEventRuntimeRefresh(
+      { name: "/repo", details: { type: "server.connected" } },
+      controller.refreshRuntime,
+    )
+    await dispatchServerEventRuntimeRefresh(
+      { name: "global", details: { type: "session.updated" } },
+      controller.refreshRuntime,
+    )
+    expect(calls).toBe(1)
+
+    const first = dispatchServerEventRuntimeRefresh(
+      { name: "global", details: { type: "server.connected" } },
+      controller.refreshRuntime,
+    )
+    const second = dispatchServerEventRuntimeRefresh(
+      { name: "global", details: { type: "server.connected" } },
+      controller.refreshRuntime,
+    )
+    await Promise.resolve()
+    expect(calls).toBe(2)
+
+    refresh.resolve({})
+    await Promise.all([first, second])
+    await dispatchServerEventRuntimeRefresh(
+      { name: "global", details: { type: "server.connected" } },
+      controller.refreshRuntime,
+    )
 
     expect(calls).toBe(3)
   })
@@ -495,6 +523,24 @@ describe("active session query", () => {
 
     await expect(controller.refreshRuntime()).rejects.toThrow("active refresh failed")
     expect(runtime.session.data.session_status.stale).toEqual({ type: "idle" })
+  })
+
+  test("preserves loaded error content without resolving when active refresh fails", async () => {
+    const runtime = runtimeSession()
+    const failedMessage = runtimeErrorMessage("failed")
+    runtime.session.set("session_status", "failed", { type: "busy" })
+    runtime.session.set("message", "failed", [failedMessage])
+    const before = JSON.stringify(runtime.session.data.message.failed)
+    const controller = runtimeController(runtime.session, async () => {
+      throw new Error("active refresh failed")
+    })
+
+    await expect(controller.refreshRuntime()).rejects.toThrow("active refresh failed")
+    expect(runtime.session.data.session_status.failed).toEqual({ type: "idle" })
+    expect(runtime.resolved).toEqual([])
+    expect(runtime.synced).toEqual([])
+    expect(JSON.stringify(runtime.session.data.message.failed)).toBe(before)
+    expect(runtime.session.data.message.failed).toEqual([failedMessage])
   })
 
   test("keeps existing error content when forced visible resolution fails", async () => {
