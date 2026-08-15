@@ -284,7 +284,7 @@ git commit -m "fix(app): centralize product model configuration"
 - Modify: `packages/app/src/context/server-sync.tsx`
 - Modify: `packages/app/src/context/server-sync.test.ts`
 
-- [ ] **Step 1: Add failing status reconciliation tests**
+- [x] **Step 1: Add failing status reconciliation tests**
 
 Replace seed-only expectations with a pure reconciliation helper. Starting with renderer statuses `busy`, `retry`, and `idle`, assert:
 
@@ -297,13 +297,13 @@ expect(session.data.session_status.failed).toEqual({ type: "idle" })
 
 Add a reconnect test that invokes the `server.connected` path twice with existing query data and expects both connections to refetch active sessions. Add a visible-session test that expects `session.resolve(id, { force: true })` for renderer sessions that were non-idle before reconciliation.
 
-- [ ] **Step 2: Run reconnect tests to prove the stale state**
+- [x] **Step 2: Run reconnect tests to prove the stale state**
 
 Run: `bun test ./src/context/server-sync.test.ts` from `packages/app`.
 
 Expected: FAIL because current code seeds missing statuses only and skips active refetch once data exists.
 
-- [ ] **Step 3: Implement full reconciliation**
+- [x] **Step 3: Implement full reconciliation**
 
 Change `seedActiveSessionStatuses` into `reconcileActiveSessionStatuses`. For each backend active ID, write its current running/retry status. For each renderer status that is non-idle and absent from the backend active map, write `{ type: "idle" }` and return that session ID for forced content resolution.
 
@@ -317,11 +317,11 @@ Implement `refreshRuntime` as one guarded in-flight request that refetches globa
 
 Update `model-center.tsx` from the Task 3 provider-only adapter to `refreshRuntime: () => serverSync().refreshRuntime()` after the method is exposed by the sync context.
 
-- [ ] **Step 4: Ensure errors terminate stale running UI**
+- [x] **Step 4: Ensure errors terminate stale running UI**
 
 When active-session reconciliation or forced resolution fails, set any affected renderer-only non-idle session to `{ type: "idle" }` and preserve the existing request/session error payload for display. Do not synthesize a successful assistant message.
 
-- [ ] **Step 5: Verify sync behavior and type checking**
+- [x] **Step 5: Verify sync behavior and type checking**
 
 Run from `packages/app`:
 
@@ -332,7 +332,7 @@ bun typecheck
 
 Expected: tests pass; repeated reconnects are coalesced while one refresh is in flight and a later reconnect can run a new refresh.
 
-- [ ] **Step 6: Commit reconnect recovery**
+- [x] **Step 6: Commit reconnect recovery**
 
 ```bash
 git add packages/app/src/context/server-sync.tsx packages/app/src/context/server-sync.test.ts packages/app/src/components/settings-v2/model-center.tsx
