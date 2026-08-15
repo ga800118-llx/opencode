@@ -204,11 +204,26 @@ describe("createModelCenterService", () => {
       defaultModelID: "coder",
     })
     await fake.service.reloadCredentials()
-    expect(fake.reloads()).toBe(1)
+    expect(fake.reloads()).toBe(2)
 
     await fake.service.remove(profile.id)
     expect(await fake.service.list()).toEqual([])
     expect(fake.credentialValues.size).toBe(0)
+  })
+
+  test("selecting a second default model updates the profile and reloads the runtime once", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save({
+      ...draft,
+      models: [...draft.models, { id: "reviewer", name: "Reviewer", source: "manual" }],
+    })
+
+    const selected = await fake.service.selectDefault({ profileID: profile.id, modelID: "reviewer" })
+
+    expect(selected.defaultModelID).toBe("reviewer")
+    expect(fake.profiles.defaultSelection()).toEqual({ profileID: profile.id, modelID: "reviewer" })
+    expect(fake.profiles.get(profile.id)?.defaultModelID).toBe("reviewer")
+    expect(fake.reloads()).toBe(1)
   })
 
   test("allows untested and non-agent-capable models as defaults", async () => {

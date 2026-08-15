@@ -68,7 +68,7 @@ import { createModelCredentialEnvironment } from "./model-center/environment"
 import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
 import { createProfileRepository } from "./model-center/profiles"
-import { reloadProductRuntimeConfig, writeProductRuntimeConfig } from "./model-center/runtime-config"
+import { createProductRuntimeConfigCoordinator, initializeProductRuntimeConfig } from "./model-center/runtime-config"
 import { createModelCenterService } from "./model-center/service"
 import {
   createDesktopRuntimeEnvironment,
@@ -411,7 +411,13 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.promise(() => credentialProxy.start())
   stopModelCredentialProxy = credentialProxy.stop
-  const logProductRuntimeConfig = (result: Awaited<ReturnType<typeof writeProductRuntimeConfig>>) => {
+  const runtimeConfigCoordinator = createProductRuntimeConfigCoordinator({
+    paths: runtimePaths,
+    profiles: profileRepository.list,
+    defaultSelection: profileRepository.defaultSelection,
+    presentProfile: credentialProxy.presentProfile,
+  })
+  const logProductRuntimeConfig = (result: Awaited<ReturnType<typeof runtimeConfigCoordinator.write>>) => {
     logger.log("model runtime config refreshed", {
       modelConfig: runtimePaths.modelConfig,
       manifest: runtimePaths.manifest,
@@ -421,16 +427,17 @@ const main = Effect.gen(function* () {
       models: result.modelCount,
     })
   }
-  const refreshProductRuntimeConfig = async () => {
-    const result = await writeProductRuntimeConfig({
-      paths: runtimePaths,
-      profiles: profileRepository.list(),
-      defaultSelection: profileRepository.defaultSelection(),
-      presentProfile: credentialProxy.presentProfile,
-    })
-    logProductRuntimeConfig(result)
-  }
-  yield* Effect.promise(refreshProductRuntimeConfig)
+  const initialRuntimeConfig = yield* Effect.promise(() =>
+    initializeProductRuntimeConfig({
+      write: runtimeConfigCoordinator.write,
+      cleanup: quitCoordinator.cleanup,
+      terminate: () => {
+        setAppQuitting()
+        app.exit(1)
+      },
+    }),
+  )
+  logProductRuntimeConfig(initialRuntimeConfig)
   const createLocalSidecarEnvironment = () =>
     createDesktopRuntimeEnvironment(runtimePaths, {
       ...process.env,
@@ -450,15 +457,9 @@ const main = Effect.gen(function* () {
     detector: modelDetector,
     presentProfile: credentialProxy.presentProfile,
     reloadCredentials: async () => {
-      await reloadProductRuntimeConfig({
-        paths: runtimePaths,
-        profiles: profileRepository.list(),
-        defaultSelection: profileRepository.defaultSelection(),
-        presentProfile: credentialProxy.presentProfile,
-        restart: async (result) => {
-          logProductRuntimeConfig(result)
-          await restartProductSidecar()
-        },
+      await runtimeConfigCoordinator.reload(async (result) => {
+        logProductRuntimeConfig(result)
+        await restartProductSidecar()
       })
     },
   })

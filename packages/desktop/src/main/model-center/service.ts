@@ -111,7 +111,9 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
     async selectDefault(input) {
       const profile = options.profiles.get(input.profileID)
       if (!profile) throw new Error("The model profile does not exist.")
-      return present(options.profiles.selectDefault(input))
+      const selected = options.profiles.selectDefault(input)
+      await options.reloadCredentials()
+      return present(selected)
     },
     async reloadCredentials() {
       await options.reloadCredentials()

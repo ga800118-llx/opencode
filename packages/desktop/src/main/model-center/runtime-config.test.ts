@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { serializeProviderProfile, type ProductProviderProfile } from "@opencode-ai/app/product/model-center"
 import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
-import { createProductRuntimeConfig, reloadProductRuntimeConfig, writeProductRuntimeConfig } from "./runtime-config"
+import {
+  createProductRuntimeConfig,
+  createProductRuntimeConfigCoordinator,
+  initializeProductRuntimeConfig,
+  reloadProductRuntimeConfig,
+  writeProductRuntimeConfig,
+} from "./runtime-config"
 
 const temporaryDirectories: string[] = []
 
@@ -140,11 +146,117 @@ describe("product runtime config", () => {
     expect(result).toEqual(expectedResult)
   })
 
+  test("serializes overlapping reloads and snapshots repository state inside the queue", async () => {
+    const paths = await runtimePaths()
+    const first = profile("first-queued", ["old-model"])
+    const second = profile("second-queued", ["new-model"])
+    const firstWriteStarted = Promise.withResolvers<void>()
+    const allowFirstWrite = Promise.withResolvers<void>()
+    const firstRestartStarted = Promise.withResolvers<void>()
+    const allowFirstRestart = Promise.withResolvers<void>()
+    const restarts: Array<string | null> = []
+    let profiles = [first]
+    let defaultSelection = { profileID: first.id, modelID: "old-model" }
+    let overlayWrites = 0
+    const coordinator = createProductRuntimeConfigCoordinator({
+      paths,
+      profiles: () => profiles,
+      defaultSelection: () => defaultSelection,
+      presentProfile: (item) => item,
+      fileSystem: {
+        open: async (path, flags) => {
+          if (typeof path === "string" && path.startsWith(`${paths.modelConfig}.tmp-`)) {
+            overlayWrites += 1
+            if (overlayWrites === 1) {
+              firstWriteStarted.resolve()
+              await allowFirstWrite.promise
+            }
+          }
+          return open(path, flags)
+        },
+      },
+    })
+
+    const older = coordinator.reload(async (result) => {
+      restarts.push(result.selectedModel)
+      firstRestartStarted.resolve()
+      await allowFirstRestart.promise
+    })
+    await firstWriteStarted.promise
+
+    profiles = [second]
+    defaultSelection = { profileID: second.id, modelID: "new-model" }
+    const newer = coordinator.reload(async (result) => {
+      restarts.push(result.selectedModel)
+    })
+
+    expect(overlayWrites).toBe(1)
+    allowFirstWrite.resolve()
+    await firstRestartStarted.promise
+    expect(overlayWrites).toBe(1)
+    expect(JSON.parse(await readFile(paths.modelConfig, "utf8")).model).toBe(`${first.providerID}/old-model`)
+
+    allowFirstRestart.resolve()
+    await Promise.all([older, newer])
+
+    expect(overlayWrites).toBe(2)
+    expect(restarts).toEqual([`${first.providerID}/old-model`, `${second.providerID}/new-model`])
+    expect(JSON.parse(await readFile(paths.modelConfig, "utf8"))).toEqual(
+      createProductRuntimeConfig({
+        profiles: [second],
+        defaultSelection,
+        presentProfile: (item) => item,
+      }),
+    )
+    expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
+      counts: { profiles: 1, providers: 1, models: 1 },
+      selectedModel: `${second.providerID}/new-model`,
+    })
+  })
+
+  test("cleans up and terminates once before sidecar startup when startup writing fails", async () => {
+    const paths = await runtimePaths()
+    const calls: string[] = []
+    let sidecarStarts = 0
+    const coordinator = createProductRuntimeConfigCoordinator({
+      paths,
+      profiles: () => [profile("startup-failure", ["coder"])],
+      defaultSelection: () => undefined,
+      presentProfile: (item) => item,
+      fileSystem: {
+        rename: async (source, destination) => {
+          if (destination === paths.modelConfig) throw new Error("raw private profile config")
+          await rename(source, destination)
+        },
+      },
+    })
+    const startup = initializeProductRuntimeConfig({
+      write: coordinator.write,
+      cleanup: async () => {
+        calls.push("cleanup")
+      },
+      terminate: () => {
+        calls.push("terminate")
+      },
+    }).then(() => {
+      sidecarStarts += 1
+    })
+
+    const message = await startup.then(
+      () => "unexpected success",
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    expect(message).toBe("The model runtime could not be initialized.")
+    expect(calls).toEqual(["cleanup", "terminate"])
+    expect(sidecarStarts).toBe(0)
+  })
+
   test("a failed overlay rename preserves the prior overlay, cleans its temporary file, and skips restart", async () => {
     const paths = await runtimePaths()
     const previous = { provider: { stable: { name: "Stable" } }, disabled_providers: [], model: "stable/coder" }
     await writeFile(paths.modelConfig, JSON.stringify(previous))
     let restarts = 0
+    const synced: string[] = []
 
     expect(
       reloadProductRuntimeConfig({
@@ -161,6 +273,9 @@ describe("product runtime config", () => {
             if (destination === paths.modelConfig) throw new Error("simulated overlay rename failure")
             await rename(source, destination)
           },
+          syncDirectory: async (directory) => {
+            synced.push(directory)
+          },
         },
       }),
     ).rejects.toThrow("simulated overlay rename failure")
@@ -170,10 +285,12 @@ describe("product runtime config", () => {
     expect(
       (await readdir(paths.config)).filter((entry) => entry.startsWith(`${basename(paths.modelConfig)}.tmp-`)),
     ).toEqual([])
+    expect(synced).toEqual([paths.config])
   })
 
   test("does not overwrite the migration marker after its first write", async () => {
     const paths = await runtimePaths()
+    const first = `${JSON.stringify({ schemaVersion: 1, isolatedAt: "2026-08-15T01:02:03Z" }, null, 2)}\n`
     const input = {
       paths,
       profiles: [profile("current", ["coder"])],
@@ -181,12 +298,66 @@ describe("product runtime config", () => {
       presentProfile: (item: ProductProviderProfile) => item,
     }
 
-    await writeProductRuntimeConfig({ ...input, now: () => new Date("2026-08-15T01:02:03.000Z") })
-    const first = await readFile(paths.migrationMarker, "utf8")
+    await writeFile(paths.migrationMarker, first)
     await writeProductRuntimeConfig({ ...input, now: () => new Date("2026-08-16T04:05:06.000Z") })
 
-    expect(JSON.parse(first)).toEqual({ schemaVersion: 1, isolatedAt: "2026-08-15T01:02:03.000Z" })
+    expect(JSON.parse(first)).toEqual({ schemaVersion: 1, isolatedAt: "2026-08-15T01:02:03Z" })
     expect(await readFile(paths.migrationMarker, "utf8")).toBe(first)
+  })
+
+  test("atomically repairs empty, truncated, and invalid migration markers", async () => {
+    await Promise.all(
+      [
+        "",
+        '{"schemaVersion":',
+        JSON.stringify({ schemaVersion: 0, isolatedAt: "2026-08-15T11:12:13.000Z" }),
+        JSON.stringify({ schemaVersion: 1, isolatedAt: "not-an-iso-timestamp" }),
+      ].map(async (contents, index) => {
+        const paths = await runtimePaths()
+        const destinations: string[] = []
+        await writeFile(paths.migrationMarker, contents)
+
+        await writeProductRuntimeConfig({
+          paths,
+          profiles: [profile(`repair-${index}`, ["coder"])],
+          defaultSelection: undefined,
+          presentProfile: (item) => item,
+          now: () => new Date("2026-08-15T11:12:13.000Z"),
+          fileSystem: {
+            rename: async (source, destination) => {
+              destinations.push(String(destination))
+              await rename(source, destination)
+            },
+          },
+        })
+
+        expect(JSON.parse(await readFile(paths.migrationMarker, "utf8"))).toEqual({
+          schemaVersion: 1,
+          isolatedAt: "2026-08-15T11:12:13.000Z",
+        })
+        expect(destinations).toContain(paths.migrationMarker)
+        expect((await readdir(paths.root)).filter((entry) => entry.startsWith("migration-v1.json.tmp-"))).toEqual([])
+      }),
+    )
+  })
+
+  test("syncs parent directories after publishing runtime files", async () => {
+    const paths = await runtimePaths()
+    const synced: string[] = []
+
+    await writeProductRuntimeConfig({
+      paths,
+      profiles: [profile("durable", ["coder"])],
+      defaultSelection: undefined,
+      presentProfile: (item) => item,
+      fileSystem: {
+        syncDirectory: async (directory) => {
+          synced.push(directory)
+        },
+      },
+    })
+
+    expect(synced).toEqual([paths.config, paths.root, paths.root])
   })
 
   test("writes only allowlisted nonsensitive metadata to the manifest", async () => {
