@@ -19,6 +19,7 @@ import { homedir, hostname, tmpdir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
 import opencodePkg from "../../opencode/package.json"
+import { SYSTEM_MODEL_IDS, SYSTEM_PROVIDER_ID } from "../src/main/model-center/system-models"
 import { formatChecksumManifest, sha256 } from "./internal-package"
 
 export { formatChecksumManifest, sha256 } from "./internal-package"
@@ -553,8 +554,17 @@ export function assertInternalMacSmokeEvidence(contents: string, bundledGitDirec
 export async function verifyInternalMacRuntimeState(temporaryDirectory: string) {
   const configDirectory = path.join(temporaryDirectory, "desktop", "runtime", "config")
   const config = (await Bun.file(path.join(configDirectory, "opencode", "opencode.json")).json()) as unknown
-  if (!isRecord(config) || !Array.isArray(config.enabled_providers) || config.enabled_providers.length !== 0) {
-    throw new Error("Clean packaged runtime did not disable unconfigured providers")
+  if (
+    !isRecord(config) ||
+    !Array.isArray(config.enabled_providers) ||
+    config.enabled_providers.length !== 1 ||
+    config.enabled_providers[0] !== SYSTEM_PROVIDER_ID ||
+    !isRecord(config.provider) ||
+    Object.keys(config.provider).length !== 1 ||
+    !isRecord(config.provider[SYSTEM_PROVIDER_ID]) ||
+    JSON.stringify(config.provider[SYSTEM_PROVIDER_ID].whitelist) !== JSON.stringify(SYSTEM_MODEL_IDS)
+  ) {
+    throw new Error("Clean packaged runtime did not expose exactly the curated system models")
   }
   const entries = await readdir(configDirectory, { recursive: true })
   if (entries.some((entry) => entry.split(path.sep).includes("node_modules"))) {

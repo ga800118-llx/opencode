@@ -55,6 +55,41 @@ function request(headers: Record<string, string>, variant?: string) {
 const decode = Schema.decodeUnknownSync(Config.Info)
 
 describe("ConfigProviderPlugin.Plugin", () => {
+  it.effect("applies provider model whitelist and blacklist", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("curated")
+      yield* catalog.transform((draft) => {
+        draft.provider.update(providerID, () => {})
+        draft.model.update(providerID, ModelV2.ID.make("keep"), () => {})
+        draft.model.update(providerID, ModelV2.ID.make("blocked"), () => {})
+        draft.model.update(providerID, ModelV2.ID.make("extra"), () => {})
+      })
+      const config = Config.Service.of({
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({
+                providers: {
+                  curated: {
+                    whitelist: ["keep", "blocked"],
+                    blacklist: ["blocked"],
+                  },
+                },
+              }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config)
+
+      expect(
+        (yield* catalog.model.all()).filter((model) => model.providerID === providerID).map((model) => model.id),
+      ).toEqual([ModelV2.ID.make("keep")])
+    }),
+  )
+
   it.effect("keeps configured model variant bodies unchanged", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service

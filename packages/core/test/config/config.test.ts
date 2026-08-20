@@ -140,6 +140,24 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("migrates v1 provider model filters into v2 providers", () =>
+    Effect.sync(() => {
+      const migrated = ConfigMigrateV1.migrate({
+        provider: {
+          opencode: {
+            whitelist: ["keep", "blocked"],
+            blacklist: ["blocked"],
+          },
+        },
+      })
+
+      expect(migrated.providers?.opencode).toMatchObject({
+        whitelist: ["keep", "blocked"],
+        blacklist: ["blocked"],
+      })
+    }),
+  )
+
   it.effect("migrates v1 command configuration", () =>
     Effect.sync(() => {
       expect(

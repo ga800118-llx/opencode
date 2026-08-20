@@ -15,6 +15,7 @@ import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "
 import { createProfileRepository } from "./profiles"
 import { createProductRuntimeConfigCoordinator } from "./runtime-config"
 import { createModelCenterService } from "./service"
+import { SYSTEM_MODEL_IDS, SYSTEM_PROVIDER_ID } from "./system-models"
 
 const temporaryDirectories: string[] = []
 
@@ -597,11 +598,11 @@ describe("createModelCenterService", () => {
     expect(fake.profiles.get(tested.id)?.test).toEqual(report)
     const overlay = JSON.parse(await readFile(paths.modelConfig, "utf8"))
     expect(Object.keys(overlay.provider).sort()).toEqual(
-      [selected.providerID, saved.providerID, tested.providerID].sort(),
+      [SYSTEM_PROVIDER_ID, selected.providerID, saved.providerID, tested.providerID].sort(),
     )
     expect(overlay.model).toBe(`${selected.providerID}/coder`)
     expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
-      counts: { profiles: 3, providers: 3, models: 4 },
+      counts: { profiles: 3, providers: 4, models: SYSTEM_MODEL_IDS.length + 4 },
       selectedModel: `${selected.providerID}/coder`,
     })
     expect(restarts).toBe(3)

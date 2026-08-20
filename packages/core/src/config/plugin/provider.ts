@@ -112,6 +112,12 @@ export const Plugin = define({
                 if (config.limit !== undefined) model.limit = { ...model.limit, ...config.limit }
               })
             }
+            const provider = catalog.provider.get(providerID)
+            for (const modelID of provider?.models.keys() ?? []) {
+              if (item.blacklist?.includes(modelID) || (item.whitelist && !item.whitelist.includes(modelID))) {
+                catalog.model.remove(providerID, modelID)
+              }
+            }
           }
         }
       }),

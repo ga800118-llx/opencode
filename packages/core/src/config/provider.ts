@@ -65,6 +65,8 @@ class Model extends Schema.Class<Model>("ConfigV2.Model")({
 export class Info extends Schema.Class<Info>("ConfigV2.Provider")({
   name: Schema.String.pipe(Schema.optional),
   env: Schema.String.pipe(Schema.Array, Schema.optional),
+  whitelist: Schema.String.pipe(Schema.Array, Schema.optional),
+  blacklist: Schema.String.pipe(Schema.Array, Schema.optional),
   api: ProviderV2.Api.pipe(Schema.optional),
   request: Request.pipe(Schema.optional),
   models: Schema.Record(Schema.String, Model).pipe(Schema.optional),

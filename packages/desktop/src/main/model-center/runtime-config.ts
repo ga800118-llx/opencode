@@ -8,6 +8,7 @@ import {
   type ProductProviderProfile,
 } from "@opencode-ai/app/product/model-center"
 import type { DesktopRuntimePaths } from "../runtime-environment"
+import { SYSTEM_DEFAULT_MODEL, SYSTEM_MODEL_IDS, SYSTEM_PROVIDER_CONFIG, SYSTEM_PROVIDER_ID } from "./system-models"
 
 const SCHEMA_VERSION = 1
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -21,7 +22,7 @@ type RuntimeConfigFileSystem = {
 }
 
 export type ProductRuntimeConfig = {
-  readonly provider: Readonly<Record<string, ProductOpenCodeProviderConfig>>
+  readonly provider: Readonly<Record<string, ProductOpenCodeProviderConfig | typeof SYSTEM_PROVIDER_CONFIG>>
   readonly enabled_providers: readonly string[]
   readonly disabled_providers: readonly string[]
   readonly model?: string
@@ -51,13 +52,14 @@ export function createProductRuntimeConfig(input: {
 
   return Object.freeze({
     provider: Object.freeze(
-      Object.fromEntries(
-        profiles.map((profile) => [profile.presented.providerID, serializeProviderProfile(profile.presented)]),
-      ),
+      Object.fromEntries([
+        [SYSTEM_PROVIDER_ID, SYSTEM_PROVIDER_CONFIG],
+        ...profiles.map((profile) => [profile.presented.providerID, serializeProviderProfile(profile.presented)]),
+      ]),
     ),
-    enabled_providers: Object.freeze(profiles.map((profile) => profile.presented.providerID)),
+    enabled_providers: Object.freeze([SYSTEM_PROVIDER_ID, ...profiles.map((profile) => profile.presented.providerID)]),
     disabled_providers: Object.freeze([]),
-    ...(selected ? { model: `${selected.profile.providerID}/${selected.modelID}` } : {}),
+    model: selected ? `${selected.profile.providerID}/${selected.modelID}` : SYSTEM_DEFAULT_MODEL,
   })
 }
 
@@ -134,7 +136,11 @@ export async function writeProductRuntimeConfig(input: {
   const counts = Object.freeze({
     profiles: input.profiles.length,
     providers: Object.keys(config.provider).length,
-    models: Object.values(config.provider).reduce((total, provider) => total + Object.keys(provider.models).length, 0),
+    models: Object.values(config.provider).reduce(
+      (total, provider) =>
+        total + ("models" in provider ? Object.keys(provider.models).length : SYSTEM_MODEL_IDS.length),
+      0,
+    ),
   })
 
   await writeAtomicJSON(input.paths.modelConfig, config, fileSystem, createUUID)

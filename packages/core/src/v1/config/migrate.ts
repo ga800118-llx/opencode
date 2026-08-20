@@ -200,6 +200,8 @@ function migrateProvider(info: ConfigProviderV1.Info) {
   return {
     name: info.name,
     env: info.env,
+    whitelist: info.whitelist,
+    blacklist: info.blacklist,
     api: info.npm
       ? {
           type: "aisdk" as const,
