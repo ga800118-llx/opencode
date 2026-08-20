@@ -35,6 +35,7 @@ describe("product runtime config", () => {
         [first.providerID]: serializeProviderProfile(presentProfile(first)),
         [second.providerID]: serializeProviderProfile(presentProfile(second)),
       },
+      enabled_providers: [first.providerID, second.providerID],
       disabled_providers: [],
       model: `${second.providerID}/precise`,
     })
@@ -66,6 +67,7 @@ describe("product runtime config", () => {
     })
     expect(config).toEqual({
       provider: { [empty.providerID]: serializeProviderProfile(empty) },
+      enabled_providers: [empty.providerID],
       disabled_providers: [],
     })
     expect("model" in config).toBe(false)
@@ -78,6 +80,20 @@ describe("product runtime config", () => {
       presentProfile: (item) => item,
     })
     expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBeNull()
+  })
+
+  test("disables every built-in provider when no product profile exists", () => {
+    expect(
+      createProductRuntimeConfig({
+        profiles: [],
+        defaultSelection: undefined,
+        presentProfile: (item) => item,
+      }),
+    ).toEqual({
+      provider: {},
+      enabled_providers: [],
+      disabled_providers: [],
+    })
   })
 
   test("rewriting removes providers orphaned in the prior overlay", async () => {

@@ -5,6 +5,7 @@ import { createCredentialService, type CredentialStore, type SafeStorageAdapter 
 function fixture(input: { platform?: NodeJS.Platform; available?: boolean; availabilityThrows?: boolean } = {}) {
   const values = new Map<string, unknown>()
   const writes: unknown[] = []
+  const calls = { availability: 0, decrypt: 0 }
   const store: CredentialStore = {
     get(key) {
       return values.get(key)
@@ -19,11 +20,13 @@ function fixture(input: { platform?: NodeJS.Platform; available?: boolean; avail
   }
   const safeStorage: SafeStorageAdapter = {
     isEncryptionAvailable: () => {
+      calls.availability += 1
       if (input.availabilityThrows) throw new Error("raw availability detail")
       return input.available ?? true
     },
     encryptString: (plainText) => Buffer.from(`cipher:${Buffer.from(plainText).toString("base64")}`),
     decryptString: (encrypted) => {
+      calls.decrypt += 1
       const value = encrypted.toString()
       if (!value.startsWith("cipher:")) throw new Error("raw decrypt detail")
       return Buffer.from(value.slice(7), "base64").toString()
@@ -35,7 +38,7 @@ function fixture(input: { platform?: NodeJS.Platform; available?: boolean; avail
     safeStorage,
     store,
   })
-  return { service, values, writes }
+  return { service, values, writes, calls }
 }
 
 describe("createCredentialService", () => {
@@ -61,6 +64,38 @@ describe("createCredentialService", () => {
     fake.service.delete("model-profile:one")
     expect(fake.service.has("model-profile:one")).toBe(false)
     expect(fake.service.read("model-profile:one")).toBeUndefined()
+  })
+
+  test("caches capability checks and decrypted envelopes until the credential changes", () => {
+    const fake = fixture()
+    fake.service.write("model-profile:one", { apiKey: "first-secret" })
+
+    expect(fake.service.capabilities().available).toBe(true)
+    expect(fake.service.capabilities().available).toBe(true)
+    expect(fake.service.read("model-profile:one")?.apiKey).toBe("first-secret")
+    expect(fake.service.read("model-profile:one")?.apiKey).toBe("first-secret")
+    expect(fake.calls).toEqual({ availability: 1, decrypt: 0 })
+
+    fake.service.write("model-profile:one", { apiKey: "second-secret" })
+    expect(fake.service.read("model-profile:one")?.apiKey).toBe("second-secret")
+    expect(fake.calls).toEqual({ availability: 1, decrypt: 0 })
+
+    fake.service.delete("model-profile:one")
+    expect(fake.service.read("model-profile:one")).toBeUndefined()
+    expect(fake.calls).toEqual({ availability: 1, decrypt: 0 })
+  })
+
+  test("decrypts a stored envelope only once", () => {
+    const fake = fixture()
+    fake.values.set("credentials", {
+      "model-profile:stored": Buffer.from(
+        `cipher:${Buffer.from(JSON.stringify({ apiKey: "stored-secret" })).toString("base64")}`,
+      ).toString("base64"),
+    })
+
+    expect(fake.service.read("model-profile:stored")?.apiKey).toBe("stored-secret")
+    expect(fake.service.read("model-profile:stored")?.apiKey).toBe("stored-secret")
+    expect(fake.calls).toEqual({ availability: 1, decrypt: 1 })
   })
 
   test("removes an entry when an empty envelope is written", () => {

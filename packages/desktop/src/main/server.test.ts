@@ -52,6 +52,7 @@ test("createSidecarEnv keeps the explicit desktop runtime authoritative", () => 
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect(child.DEBUG).toBeUndefined()
   expect(child.LD_PRELOAD).toBeUndefined()

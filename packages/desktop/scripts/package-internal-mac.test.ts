@@ -35,6 +35,7 @@ import {
   verifyInternalMacBundledGit,
   verifyInternalMacDeliveryArtifacts,
   verifyInternalMacPackagedApp,
+  verifyInternalMacRuntimeState,
   verifyInternalMacPackagedZip,
   withInternalMacDeliveryLock,
   MAC_GIT_ASSET,
@@ -966,6 +967,7 @@ describe("internal Mac package", () => {
       "app starting",
       `bundled git enabled { directory: '${bundledGit}' }`,
       "spawning supervised sidecar { url: 'http://127.0.0.1:43123' }",
+      "sidecar provider readiness passed",
       "loading task finished",
     ].join("\n")
 
@@ -981,6 +983,7 @@ describe("internal Mac package", () => {
         [
           "spawning supervised sidecar { url: 'http://127.0.0.1:43123' }",
           `bundled git enabled { directory: '${bundledGit}' }`,
+          "sidecar provider readiness passed",
           "loading task finished",
         ].join("\n"),
         bundledGit,
@@ -1047,9 +1050,14 @@ describe("internal Mac package", () => {
             argv: [bundledGitExecutable, "rev-parse", "--git-dir"],
           })}\n`,
         )
+        await Bun.write(
+          path.join(root, "desktop", "runtime", "config", "model-profiles.json"),
+          JSON.stringify({ provider: {}, enabled_providers: [], disabled_providers: [] }),
+        )
         return [
           `bundled git enabled { directory: '${path.join(bundledGitRoot, "bin")}' }`,
           "spawning supervised sidecar",
+          "sidecar provider readiness passed",
           "loading task finished",
         ].join("\n")
       },
@@ -1062,6 +1070,21 @@ describe("internal Mac package", () => {
     expect(spawned?.options.env).not.toHaveProperty("SSH_AUTH_SOCK")
     expect(killed).toBe("SIGTERM")
     expect(await Bun.file(smoke).exists()).toBeFalse()
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  test("rejects built-in providers and implicit runtime dependencies in a clean packaged profile", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "internal-mac-runtime-state-"))
+    const config = path.join(directory, "desktop", "runtime", "config")
+    await Bun.write(
+      path.join(config, "model-profiles.json"),
+      JSON.stringify({ provider: {}, enabled_providers: [], disabled_providers: [] }),
+    )
+
+    await expect(verifyInternalMacRuntimeState(directory)).resolves.toBeUndefined()
+
+    await mkdir(path.join(config, "opencode", "node_modules"), { recursive: true })
+    await expect(verifyInternalMacRuntimeState(directory)).rejects.toThrow("implicit runtime dependencies")
     await rm(directory, { recursive: true, force: true })
   })
 

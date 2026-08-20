@@ -9,7 +9,7 @@ export type SidecarSupervisorStatus =
   | "failed"
 
 export type SidecarSupervisorError = {
-  readonly kind: "start" | "health" | "exit"
+  readonly kind: "start" | "health" | "readiness" | "exit"
   readonly message: string
   readonly exitCode?: number
 }
@@ -28,6 +28,7 @@ export type SidecarSupervisorState = {
 export type SidecarInstance = {
   readonly listener: SidecarListener
   readonly health: HealthCheck
+  readonly readiness: HealthCheck
 }
 
 export type SidecarSupervisorLogger = {
@@ -133,6 +134,8 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
           ? "The local agent server stopped unexpectedly."
           : kind === "health"
             ? "The local agent server did not become healthy."
+            : kind === "readiness"
+              ? "The local agent server did not finish initializing."
             : "The local agent server could not be started.",
       ...(exitCode === undefined ? {} : { exitCode }),
     })
@@ -168,6 +171,7 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
       if (!desired || generation !== expectedGeneration) return
       transition(attempt === 0 ? "starting" : "restarting", attempt, { startedAt, ...(error ? { error } : {}) })
       let instance: SidecarInstance | undefined
+      let stage: SidecarSupervisorError["kind"] = "start"
       try {
         instance = await options.spawn()
         if (!desired || generation !== expectedGeneration) {
@@ -176,7 +180,10 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
         }
 
         active = { generation: expectedGeneration, listener: instance.listener }
+        stage = "health"
         await instance.health.wait
+        stage = "readiness"
+        await instance.readiness.wait
         if (!desired || generation !== expectedGeneration || active?.listener !== instance.listener) {
           await stopListener(instance.listener)
           return
@@ -191,7 +198,7 @@ export function createSidecarSupervisor(options: SidecarSupervisorOptions): Side
         if (active?.generation === expectedGeneration) active = undefined
         if (!desired || generation !== expectedGeneration) return
 
-        error = safeError(instance ? "health" : "start")
+        error = safeError(stage)
         options.logger?.warn("sidecar start attempt failed", { attempt, kind: error.kind })
         if (attempt >= maximumRestartAttempts) {
           transition("failed", attempt, { startedAt, error })

@@ -38,13 +38,17 @@ const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const MAX_SECRET_LENGTH = 32_768
 
 export function createCredentialService(options: CredentialServiceOptions): ProductCredentialService {
+  let available: boolean | undefined
+  const cache = new Map<string, ProductCredentialEnvelope>()
   const encryptionAvailable = () => {
+    if (available !== undefined) return available
     if (options.platform !== "darwin" && options.platform !== "win32") return false
     try {
-      return options.safeStorage.isEncryptionAvailable()
+      available = options.safeStorage.isEncryptionAvailable()
     } catch {
-      return false
+      available = false
     }
+    return available
   }
 
   const capabilities = () =>
@@ -73,6 +77,8 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
     read(reference) {
       assertReference(reference)
       assertAvailable()
+      const cached = cache.get(reference)
+      if (cached) return cached
       const encrypted = entries()[reference]
       if (!encrypted) return
 
@@ -84,7 +90,9 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
       }
 
       try {
-        return freezeEnvelope(normalizeEnvelope(JSON.parse(decrypted)))
+        const envelope = freezeEnvelope(normalizeEnvelope(JSON.parse(decrypted)))
+        cache.set(reference, envelope)
+        return envelope
       } catch {
         throw new Error("The saved credential is invalid.")
       }
@@ -97,6 +105,7 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
         const next = entries()
         delete next[reference]
         persist(next)
+        cache.delete(reference)
         return
       }
 
@@ -107,11 +116,13 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
         throw new Error("The credential could not be encrypted.")
       }
       persist({ ...entries(), [reference]: encrypted.toString("base64") })
+      cache.set(reference, freezeEnvelope(envelope))
     },
     delete(reference) {
       assertReference(reference)
       assertAvailable()
       const next = entries()
+      cache.delete(reference)
       if (!(reference in next)) return
       delete next[reference]
       persist(next)

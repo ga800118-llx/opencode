@@ -543,8 +543,23 @@ export function assertInternalMacSmokeEvidence(contents: string, bundledGitDirec
   if (sidecar < 0) throw new Error("Packaged application did not start the supervised sidecar")
   const ready = contents.indexOf("loading task finished")
   if (ready < 0) throw new Error("Packaged application did not complete startup")
+  const providerReady = contents.indexOf("sidecar provider readiness passed")
+  if (providerReady < 0) throw new Error("Packaged application did not complete provider initialization")
   if (bundledGit > sidecar) throw new Error("Packaged application did not enable bundled Git before sidecar startup")
   if (sidecar > ready) throw new Error("Packaged application reported sidecar readiness out of order")
+  if (providerReady > ready) throw new Error("Packaged application reported provider readiness out of order")
+}
+
+export async function verifyInternalMacRuntimeState(temporaryDirectory: string) {
+  const configDirectory = path.join(temporaryDirectory, "desktop", "runtime", "config")
+  const config = (await Bun.file(path.join(configDirectory, "model-profiles.json")).json()) as unknown
+  if (!isRecord(config) || !Array.isArray(config.enabled_providers) || config.enabled_providers.length !== 0) {
+    throw new Error("Clean packaged runtime did not disable unconfigured providers")
+  }
+  const entries = await readdir(configDirectory, { recursive: true })
+  if (entries.some((entry) => entry.split(path.sep).includes("node_modules"))) {
+    throw new Error("Packaged startup created implicit runtime dependencies")
+  }
 }
 
 type InternalMacSmokeProcess = {
@@ -634,6 +649,7 @@ export async function verifyInternalMacPackagedApp(
       .then(async () => {
         const contents = await waitForReady(temporaryDirectory, child)
         assertInternalMacSmokeEvidence(contents, path.join(bundledGitRoot, "bin"))
+        await verifyInternalMacRuntimeState(temporaryDirectory)
         const deadline = Date.now() + (input.timeoutMs ?? 90_000)
         while (Date.now() < deadline) {
           const gitTrace = await Bun.file(path.join(temporaryDirectory, "git-trace.json"))
@@ -677,6 +693,10 @@ export async function verifyInternalMacPackagedApp(
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === "object" && input !== null && !Array.isArray(input)
 }
 
 export function assertInternalMacSidecarGitTrace(contents: string, executable: string) {

@@ -16,6 +16,20 @@ describe("createSidecarSupervisor", () => {
     expect(child.stops()).toBe(0)
   })
 
+  test("does not publish ready until provider initialization completes", async () => {
+    const readiness = deferred<void>()
+    const child = sidecar({ healthy: true, readiness: readiness.promise })
+    const supervisor = createSidecarSupervisor({ spawn: async () => child.instance, now: clock() })
+
+    const starting = supervisor.start()
+    await flush()
+    expect(supervisor.getState().status).toBe("starting")
+
+    readiness.resolve()
+    await starting
+    expect(supervisor.getState().status).toBe("ready")
+  })
+
   test("restarts after unexpected exit with bounded exponential delay", async () => {
     const first = sidecar({ healthy: true })
     const second = sidecar({ healthy: true })
@@ -116,6 +130,23 @@ describe("createSidecarSupervisor", () => {
 
     expect(spawns).toBe(2)
     expect(unhealthy.stops()).toBe(1)
+    expect(supervisor.getState()).toMatchObject({ status: "ready", attempt: 1 })
+  })
+
+  test("retries a failed provider readiness check", async () => {
+    const unready = sidecar({ healthy: true, ready: false })
+    const ready = sidecar({ healthy: true })
+    let spawns = 0
+    const supervisor = createSidecarSupervisor({
+      spawn: async () => (++spawns === 1 ? unready.instance : ready.instance),
+      delay: async () => undefined,
+      now: clock(),
+    })
+
+    await supervisor.start()
+
+    expect(spawns).toBe(2)
+    expect(unready.stops()).toBe(1)
     expect(supervisor.getState()).toMatchObject({ status: "ready", attempt: 1 })
   })
 
@@ -273,7 +304,7 @@ describe("createSidecarSupervisor", () => {
   })
 })
 
-function sidecar(options: { healthy: boolean }) {
+function sidecar(options: { healthy: boolean; ready?: boolean; readiness?: Promise<void> }) {
   const exit = deferred<number>()
   let stopCount = 0
   const instance: SidecarInstance = {
@@ -286,6 +317,9 @@ function sidecar(options: { healthy: boolean }) {
     },
     health: {
       wait: options.healthy ? Promise.resolve() : Promise.reject(new Error("unhealthy")),
+    },
+    readiness: {
+      wait: options.readiness ?? (options.ready === false ? Promise.reject(new Error("unready")) : Promise.resolve()),
     },
   }
   return { instance, exit, stops: () => stopCount }

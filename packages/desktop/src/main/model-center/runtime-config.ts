@@ -22,6 +22,7 @@ type RuntimeConfigFileSystem = {
 
 export type ProductRuntimeConfig = {
   readonly provider: Readonly<Record<string, ProductOpenCodeProviderConfig>>
+  readonly enabled_providers: readonly string[]
   readonly disabled_providers: readonly string[]
   readonly model?: string
 }
@@ -54,6 +55,7 @@ export function createProductRuntimeConfig(input: {
         profiles.map((profile) => [profile.presented.providerID, serializeProviderProfile(profile.presented)]),
       ),
     ),
+    enabled_providers: Object.freeze(profiles.map((profile) => profile.presented.providerID)),
     disabled_providers: Object.freeze([]),
     ...(selected ? { model: `${selected.profile.providerID}/${selected.modelID}` } : {}),
   })

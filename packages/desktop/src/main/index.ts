@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app, safeStorage } from "electron"
+import { app, dialog, safeStorage } from "electron"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
@@ -39,6 +39,7 @@ import {
 } from "./onboarding"
 import { getDefaultServerUrl, preferAppEnv, setDefaultServerUrl, spawnLocalServer } from "./server"
 import { createSidecarSupervisor, type SidecarSupervisor } from "./sidecar-supervisor"
+import { waitForSidecarReadiness } from "./sidecar-readiness"
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import { safeWebContentsURL } from "./window-state"
 import {
@@ -80,6 +81,7 @@ import { getStore } from "./store"
 import { MODEL_CREDENTIALS_STORE, MODEL_PROFILES_STORE } from "./store-keys"
 import { resolveDesktopUserDataPath } from "./user-data"
 import { configureCACertificates } from "./ca-certificates"
+import { mountedApplicationMessage, shouldBlockMountedApplication } from "./install-location"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
@@ -384,6 +386,23 @@ const main = Effect.gen(function* () {
   const serverReady = Deferred.makeUnsafe<ServerReadyData, unknown>()
 
   yield* Effect.promise(() => app.whenReady())
+  if (
+    shouldBlockMountedApplication({
+      platform: process.platform,
+      packaged: app.isPackaged,
+      execPath: process.execPath,
+    })
+  ) {
+    yield* Effect.promise(() =>
+      dialog.showMessageBox({
+        type: "warning",
+        title: identity.name,
+        message: mountedApplicationMessage(identity.name),
+      }),
+    )
+    app.quit()
+    return
+  }
   startupShutdownGuard = createStartupShutdownGuard()
 
   if (!TEST_ONBOARDING) migrate()
@@ -578,6 +597,10 @@ const main = Effect.gen(function* () {
           throw error
         }),
       )
+      yield* Effect.promise(() =>
+        waitForSidecarReadiness(sidecar.url, sidecar.password, { directory: runtimePaths.root }),
+      )
+      logger.log("sidecar provider readiness passed")
       const readyAt = Date.now()
       publishV2SidecarStatus("ready", { startedAt, readyAt })
       yield* Deferred.succeed(serverReady, {
@@ -632,10 +655,17 @@ const main = Effect.gen(function* () {
           onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
           onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
         })
+        const health = withTimeout(instance.health.wait, 30_000, "Sidecar health check timed out.")
         return {
           listener: instance.listener,
           health: {
-            wait: withTimeout(instance.health.wait, 30_000, "Sidecar health check timed out."),
+            wait: health,
+          },
+          readiness: {
+            wait: health.then(async () => {
+              await waitForSidecarReadiness(url, password, { directory: runtimePaths.root })
+              logger.log("sidecar provider readiness passed")
+            }),
           },
         }
       },

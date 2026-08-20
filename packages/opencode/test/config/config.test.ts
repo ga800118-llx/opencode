@@ -96,12 +96,13 @@ const configLayer = (
     auth?: Layer.Layer<Auth.Service>
     account?: Layer.Layer<Account.Service>
     client?: HttpClient.HttpClient
+    npm?: Layer.Layer<Npm.Service>
   } = {},
 ) =>
   LayerNode.compile(LayerNode.group([Config.node, FSUtil.node, Env.node, CrossSpawnSpawner.node]), [
     [Auth.node, options.auth ?? AuthTest.empty],
     [Account.node, options.account ?? AccountTest.empty],
-    [Npm.node, NpmTest.noop],
+    [Npm.node, options.npm ?? NpmTest.noop],
     [httpClient, Layer.succeed(HttpClient.HttpClient, options.client ?? unexpectedHttp)],
   ])
 
@@ -965,6 +966,37 @@ it.effect("installs dependencies in writable OPENCODE_CONFIG_DIR", () =>
     )
 
     expect(yield* FSUtil.use.readFileString(path.join(configDir, ".gitignore"))).toContain("package-lock.json")
+  }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+)
+
+const skippedInstalls: string[] = []
+const disabledDependencyInstallIt = configIt({
+  npm: Layer.mock(Npm.Service)({
+    install: (directory) =>
+      Effect.sync(() => {
+        skippedInstalls.push(directory)
+      }),
+  }),
+})
+
+disabledDependencyInstallIt.effect("skips config dependency installation when disabled by the desktop runtime", () =>
+  Effect.gen(function* () {
+    skippedInstalls.length = 0
+    const dir = yield* tmpdirScoped()
+    const configDir = path.join(dir, "configdir")
+    yield* FSUtil.use.ensureDir(configDir)
+
+    yield* withProcessEnvs(
+      {
+        OPENCODE_CONFIG_DIR: configDir,
+        OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
+      },
+      Config.Service.use((svc) => svc.get().pipe(Effect.andThen(svc.waitForDependencies()))).pipe(
+        provideInstanceEffect(dir),
+      ),
+    )
+
+    expect(skippedInstalls).toEqual([])
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
 )
 

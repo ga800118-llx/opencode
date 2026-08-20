@@ -50,6 +50,7 @@ test("desktop runtime replaces inherited persistence paths", () => {
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect("UNDEFINED_VALUE" in environment).toBe(false)
   expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)
@@ -74,6 +75,7 @@ test("installing desktop runtime deletes inherited config overrides", () => {
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)
   expect("OPENCODE_CONFIG_CONTENT" in environment).toBe(false)
