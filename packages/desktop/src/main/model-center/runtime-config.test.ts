@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { serializeProviderProfile, type ProductProviderProfile } from "@opencode-ai/app/product/model-center"
 import { createDesktopRuntimePaths, ensureDesktopRuntime } from "../runtime-environment"
 import {
@@ -299,9 +299,11 @@ describe("product runtime config", () => {
     expect(restarts).toBe(0)
     expect(JSON.parse(await readFile(paths.modelConfig, "utf8"))).toEqual(previous)
     expect(
-      (await readdir(paths.config)).filter((entry) => entry.startsWith(`${basename(paths.modelConfig)}.tmp-`)),
+      (await readdir(dirname(paths.modelConfig))).filter((entry) =>
+        entry.startsWith(`${basename(paths.modelConfig)}.tmp-`),
+      ),
     ).toEqual([])
-    expect(synced).toEqual([paths.config])
+    expect(synced).toEqual([dirname(paths.modelConfig)])
   })
 
   test("does not overwrite the migration marker after its first write", async () => {
@@ -373,7 +375,7 @@ describe("product runtime config", () => {
       },
     })
 
-    expect(synced).toEqual([paths.config, paths.root, paths.root])
+    expect(synced).toEqual([dirname(paths.modelConfig), paths.root, paths.root])
   })
 
   test("writes only allowlisted nonsensitive metadata to the manifest", async () => {

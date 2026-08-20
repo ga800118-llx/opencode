@@ -552,7 +552,7 @@ export function assertInternalMacSmokeEvidence(contents: string, bundledGitDirec
 
 export async function verifyInternalMacRuntimeState(temporaryDirectory: string) {
   const configDirectory = path.join(temporaryDirectory, "desktop", "runtime", "config")
-  const config = (await Bun.file(path.join(configDirectory, "model-profiles.json")).json()) as unknown
+  const config = (await Bun.file(path.join(configDirectory, "opencode", "opencode.json")).json()) as unknown
   if (!isRecord(config) || !Array.isArray(config.enabled_providers) || config.enabled_providers.length !== 0) {
     throw new Error("Clean packaged runtime did not disable unconfigured providers")
   }

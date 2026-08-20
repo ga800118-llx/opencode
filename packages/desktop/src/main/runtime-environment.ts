@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 const forbiddenEnvironmentKeys = ["OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT"] as const
 
@@ -27,7 +27,7 @@ export function createDesktopRuntimePaths(userDataPath: string): DesktopRuntimeP
     cache: join(root, "cache"),
     state: join(root, "state"),
     database: join(data, "opencode.db"),
-    modelConfig: join(config, "model-profiles.json"),
+    modelConfig: join(config, "opencode", "opencode.json"),
     manifest: join(root, "manifest.json"),
     migrationMarker: join(root, "migration-v1.json"),
   }
@@ -70,5 +70,9 @@ export function isForbiddenDesktopRuntimeEnvironmentKey(key: string) {
 }
 
 export async function ensureDesktopRuntime(paths: DesktopRuntimePaths): Promise<void> {
-  await Promise.all([paths.config, paths.data, paths.cache, paths.state].map((path) => mkdir(path, { recursive: true })))
+  await Promise.all(
+    [paths.config, dirname(paths.modelConfig), paths.data, paths.cache, paths.state].map((path) =>
+      mkdir(path, { recursive: true }),
+    ),
+  )
 }

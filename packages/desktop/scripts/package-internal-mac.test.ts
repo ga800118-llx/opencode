@@ -1050,8 +1050,9 @@ describe("internal Mac package", () => {
             argv: [bundledGitExecutable, "rev-parse", "--git-dir"],
           })}\n`,
         )
+        await mkdir(path.join(root, "desktop", "runtime", "config", "opencode"), { recursive: true })
         await Bun.write(
-          path.join(root, "desktop", "runtime", "config", "model-profiles.json"),
+          path.join(root, "desktop", "runtime", "config", "opencode", "opencode.json"),
           JSON.stringify({ provider: {}, enabled_providers: [], disabled_providers: [] }),
         )
         return [
@@ -1076,8 +1077,9 @@ describe("internal Mac package", () => {
   test("rejects built-in providers and implicit runtime dependencies in a clean packaged profile", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "internal-mac-runtime-state-"))
     const config = path.join(directory, "desktop", "runtime", "config")
+    await mkdir(path.join(config, "opencode"), { recursive: true })
     await Bun.write(
-      path.join(config, "model-profiles.json"),
+      path.join(config, "opencode", "opencode.json"),
       JSON.stringify({ provider: {}, enabled_providers: [], disabled_providers: [] }),
     )
 

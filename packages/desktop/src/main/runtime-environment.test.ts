@@ -38,7 +38,7 @@ test("desktop runtime replaces inherited persistence paths", () => {
     cache: join(userDataPath, "runtime", "cache"),
     state: join(userDataPath, "runtime", "state"),
     database: join(userDataPath, "runtime", "data", "opencode.db"),
-    modelConfig: join(userDataPath, "runtime", "config", "model-profiles.json"),
+    modelConfig: join(userDataPath, "runtime", "config", "opencode", "opencode.json"),
     manifest: join(userDataPath, "runtime", "manifest.json"),
     migrationMarker: join(userDataPath, "runtime", "migration-v1.json"),
   })
@@ -96,6 +96,8 @@ test("ensureDesktopRuntime creates every runtime directory recursively", async (
 
   await ensureDesktopRuntime(paths)
 
-  const directories = await Promise.all([paths.root, paths.config, paths.data, paths.cache, paths.state].map(stat))
+  const directories = await Promise.all(
+    [paths.root, paths.config, join(paths.config, "opencode"), paths.data, paths.cache, paths.state].map(stat),
+  )
   expect(directories.every((entry) => entry.isDirectory())).toBe(true)
 })

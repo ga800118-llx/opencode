@@ -69,9 +69,32 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     plugins: info.plugin?.map((plugin) =>
       typeof plugin === "string" ? plugin : { package: plugin[0], options: plugin[1] },
     ),
-    experimental: info.experimental?.policies && { policies: info.experimental.policies },
+    experimental: experimental(info),
     providers: providers(info.provider),
   }
+}
+
+function experimental(info: typeof ConfigV1.Info.Type) {
+  const policies = [
+    ...(info.experimental?.policies ?? []),
+    ...(info.enabled_providers
+      ? [
+          { action: "provider.use" as const, resource: "*", effect: "deny" as const },
+          ...info.enabled_providers.map((resource) => ({
+            action: "provider.use" as const,
+            resource,
+            effect: "allow" as const,
+          })),
+        ]
+      : []),
+    ...(info.disabled_providers ?? []).map((resource) => ({
+      action: "provider.use" as const,
+      resource,
+      effect: "deny" as const,
+    })),
+  ]
+  if (!policies.length) return
+  return { policies }
 }
 
 function permissions(info?: ConfigPermissionV1.Info, tools?: Readonly<Record<string, boolean>>) {

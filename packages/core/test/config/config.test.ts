@@ -119,6 +119,27 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("migrates v1 provider filters into v2 provider policies", () =>
+    Effect.sync(() => {
+      const migrated = ConfigMigrateV1.migrate({
+        enabled_providers: ["private", "shared"],
+        disabled_providers: ["shared", "blocked"],
+        experimental: {
+          policies: [{ action: "provider.use", resource: "legacy", effect: "allow" }],
+        },
+      })
+
+      expect(migrated.experimental?.policies).toEqual([
+        { action: "provider.use", resource: "legacy", effect: "allow" },
+        { action: "provider.use", resource: "*", effect: "deny" },
+        { action: "provider.use", resource: "private", effect: "allow" },
+        { action: "provider.use", resource: "shared", effect: "allow" },
+        { action: "provider.use", resource: "shared", effect: "deny" },
+        { action: "provider.use", resource: "blocked", effect: "deny" },
+      ])
+    }),
+  )
+
   it.effect("migrates v1 command configuration", () =>
     Effect.sync(() => {
       expect(

@@ -4,7 +4,7 @@ import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
-import { type Component, For, Show } from "solid-js"
+import { type Component, createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
@@ -14,6 +14,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import { SettingsModelCenterV2 } from "./model-center"
+import { MODEL_LIST_EAGER_LIMIT, modelGroupExpanded } from "./model-list-presentation"
 import "./settings-v2.css"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
@@ -50,6 +51,7 @@ export const SettingsModelsV2: Component<{ onOpenProviders: () => void }> = (pro
       return aName.localeCompare(bName)
     },
   })
+  const resultCount = createMemo(() => list.flat().length)
 
   return (
     <>
@@ -113,7 +115,12 @@ export const SettingsModelsV2: Component<{ onOpenProviders: () => void }> = (pro
                 <For each={list.grouped.latest}>
                   {(group) => {
                     const searching = () => list.filter().length > 0
-                    const expanded = () => searching() || !store.collapsed[group.category]
+                    const expanded = () =>
+                      modelGroupExpanded({
+                        resultCount: resultCount(),
+                        searching: searching(),
+                        collapsed: store.collapsed[group.category],
+                      })
 
                     return (
                       <div
@@ -126,7 +133,7 @@ export const SettingsModelsV2: Component<{ onOpenProviders: () => void }> = (pro
                             type="button"
                             class="settings-v2-models-group-trigger"
                             aria-expanded={expanded()}
-                            disabled={searching()}
+                            disabled={searching() && resultCount() <= MODEL_LIST_EAGER_LIMIT}
                             onClick={() => setStore("collapsed", group.category, expanded())}
                           >
                             <span class="settings-v2-models-group-chevron">
