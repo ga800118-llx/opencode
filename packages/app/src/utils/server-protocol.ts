@@ -7,6 +7,7 @@ export type ServerApiRouting = {
   mcp: ServerProtocol
 }
 export type ServerApiCapabilities = ServerApiRouting & {
+  event: "global" | "current"
   permissionMode: boolean
 }
 
@@ -131,6 +132,7 @@ export async function detectServerApiCapabilities(
     return {
       project: "v1",
       mcp: "v1",
+      event: "global",
       permissionMode: hasPermissionModeCapability(openapi, kind),
     }
   }
@@ -140,6 +142,12 @@ export async function detectServerApiCapabilities(
     // Preserve current-server compatibility when an OpenAPI document is unavailable.
     project: !paths || hasOperations(paths, currentNamespaceOperations.project) ? "v2" : "v1",
     mcp: !paths || hasOperations(paths, currentNamespaceOperations.mcp) ? "v2" : "v1",
+    event:
+      paths &&
+      !hasOperations(paths, [["/api/event", "get"]]) &&
+      (hasOperations(paths, [["/event", "get"]]) || hasOperations(paths, [["/global/event", "get"]]))
+        ? "global"
+        : "current",
     permissionMode: hasPermissionModeCapability(openapi, kind),
   }
 }

@@ -49,6 +49,7 @@ export function createDesktopRuntimeEnvironment(
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DESKTOP_MODEL_CONFIG: paths.modelConfig,
     OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   }
 }

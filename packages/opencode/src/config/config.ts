@@ -114,8 +114,16 @@ type Info = ConfigV1.Info & {
   plugin_origins?: ConfigPlugin.Origin[]
 }
 
+type DesktopModelPolicy = Readonly<{
+  provider: NonNullable<Info["provider"]>
+  enabled_providers: NonNullable<Info["enabled_providers"]>
+  disabled_providers: NonNullable<Info["disabled_providers"]>
+  model?: Info["model"]
+}>
+
 type State = {
   config: Info
+  desktopModelPolicy?: DesktopModelPolicy
   directories: string[]
   deps: Fiber.Fiber<void>[]
   consoleState: ConsoleState
@@ -128,6 +136,7 @@ export interface Interface {
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
+  readonly reapplyDesktopModelPolicy: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
 }
@@ -173,6 +182,27 @@ function writableGlobal(info: Info) {
     ...(next.shell === "" ? { shell: undefined } : {}),
     ...(next.model === "" ? { model: undefined } : {}),
   }
+}
+
+function snapshotDesktopModelPolicy(info: Info): DesktopModelPolicy {
+  return Object.freeze(
+    structuredClone({
+      provider: info.provider ?? {},
+      enabled_providers: info.enabled_providers ?? [],
+      disabled_providers: info.disabled_providers ?? [],
+      ...(info.model === undefined ? {} : { model: info.model }),
+    }),
+  )
+}
+
+function applyDesktopModelPolicy(config: Info, policy: DesktopModelPolicy) {
+  const next = structuredClone(policy)
+  config.provider = next.provider
+  config.enabled_providers = next.enabled_providers
+  config.disabled_providers = next.disabled_providers
+  if (next.model !== undefined) config.model = next.model
+  else delete config.model
+  delete config.small_model
 }
 
 const layer = Layer.effect(
@@ -526,7 +556,8 @@ const layer = Layer.effect(
           }
         }
 
-        // macOS managed preferences (.mobileconfig deployed via MDM) override everything
+        // macOS managed preferences (.mobileconfig deployed via MDM) override ordinary config;
+        // Desktop reapplies its model-only policy below.
         const managed = yield* Effect.promise(() => ConfigManaged.readManagedPreferences())
         if (managed) {
           result = mergeConfigConcatArrays(
@@ -536,6 +567,15 @@ const layer = Layer.effect(
               source: managed.source,
             }),
           )
+        }
+
+        const desktopModelConfig = Flag.OPENCODE_DESKTOP_MODEL_CONFIG
+        const desktopModelPolicy = desktopModelConfig
+          ? snapshotDesktopModelPolicy(yield* loadFile(desktopModelConfig, authEnv))
+          : undefined
+        if (desktopModelPolicy) {
+          applyDesktopModelPolicy(result, desktopModelPolicy)
+          yield* Effect.logDebug("loaded desktop model policy", { path: desktopModelConfig })
         }
 
         for (const [name, mode] of Object.entries(result.mode ?? {})) {
@@ -590,6 +630,7 @@ const layer = Layer.effect(
 
         return {
           config: result,
+          desktopModelPolicy,
           directories,
           deps,
           consoleState: {
@@ -639,6 +680,13 @@ const layer = Layer.effect(
       yield* invalidateGlobal
     })
 
+    const reapplyDesktopModelPolicy = Effect.fn("Config.reapplyDesktopModelPolicy")(function* () {
+      yield* InstanceState.use(state, (s) => {
+        if (!s.desktopModelPolicy) return
+        applyDesktopModelPolicy(s.config, s.desktopModelPolicy)
+      })
+    })
+
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
@@ -671,6 +719,7 @@ const layer = Layer.effect(
       update,
       updateGlobal,
       invalidate,
+      reapplyDesktopModelPolicy,
       directories,
       waitForDependencies,
     })

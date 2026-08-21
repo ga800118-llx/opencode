@@ -111,6 +111,14 @@ describe("desktop product host", () => {
       available: false,
       operations: { read: false, write: false, delete: false },
     })
+    expect(
+      createProductCredentialCapabilities("dev.agent.desktop.credentials", "darwin", true, "local-encrypted-file"),
+    ).toEqual({
+      namespace: "dev.agent.desktop.credentials",
+      backend: "local-encrypted-file",
+      available: true,
+      operations: { read: true, write: true, delete: true },
+    })
   })
 
   test("creates a frozen host that delegates lifecycle operations", async () => {

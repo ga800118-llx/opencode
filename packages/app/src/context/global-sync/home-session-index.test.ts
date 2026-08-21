@@ -145,10 +145,11 @@ describe("Home V2 session index", () => {
     expect(homeSessionIndexSessions({ sessions: initial, eventSequence: 1 }, events)[0]?.title).toBe("current")
   })
 
-  test("refetches after reconnect, disposal, and session moves", () => {
+  test("refetches after reconnect, disposal, session moves, and generated titles", () => {
     expect(homeSessionIndexRefresh("server.connected", false)).toEqual({ connected: true, refetch: false })
     expect(homeSessionIndexRefresh("server.connected", true)).toEqual({ connected: true, refetch: true })
     expect(homeSessionIndexRefresh("global.disposed", true).refetch).toBe(true)
     expect(homeSessionIndexRefresh("session.next.moved", true).refetch).toBe(true)
+    expect(homeSessionIndexRefresh("session.next.title.generated", true).refetch).toBe(true)
   })
 })

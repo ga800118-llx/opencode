@@ -45,7 +45,11 @@ export type ProductSidecarStatus = {
   readonly error?: ProductSidecarError
 }
 
-export type ProductCredentialBackend = "macos-keychain" | "windows-credential-manager" | "unsupported"
+export type ProductCredentialBackend =
+  | "local-encrypted-file"
+  | "macos-keychain"
+  | "windows-credential-manager"
+  | "unsupported"
 
 export type ProductCredentialCapabilities = {
   readonly namespace: string
@@ -127,14 +131,12 @@ export function createProductCredentialCapabilities(
   namespace: string,
   platform: NodeJS.Platform,
   available = false,
+  override?: ProductCredentialBackend,
 ): ProductCredentialCapabilities {
   const backend =
-    platform === "darwin"
-      ? "macos-keychain"
-      : platform === "win32"
-        ? "windows-credential-manager"
-        : "unsupported"
-  const enabled = (platform === "darwin" || platform === "win32") && available
+    override ??
+    (platform === "darwin" ? "macos-keychain" : platform === "win32" ? "windows-credential-manager" : "unsupported")
+  const enabled = backend !== "unsupported" && available
   return Object.freeze({
     namespace,
     backend,

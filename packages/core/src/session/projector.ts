@@ -257,6 +257,14 @@ const layer = Layer.effectDiscard(
         yield* SessionContextEpoch.reset(db, event.data.sessionID)
       }),
     )
+    yield* events.project(SessionEvent.TitleGenerated, (event) =>
+      db
+        .update(SessionTable)
+        .set({ title: event.data.title })
+        .where(and(eq(SessionTable.id, event.data.sessionID), eq(SessionTable.title, event.data.previousTitle)))
+        .run()
+        .pipe(Effect.orDie),
+    )
     yield* events.project(SessionV1.Event.Deleted, (event) =>
       db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie),
     )

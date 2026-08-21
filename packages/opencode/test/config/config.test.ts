@@ -1249,6 +1249,104 @@ it.instance(
   { config: { autoupdate: true, disabled_providers: [] } },
 )
 
+it.instance(
+  "desktop model policy overrides only project model settings",
+  () =>
+    Effect.gen(function* () {
+      const policyDir = yield* tmpdirScoped()
+      const policyPath = path.join(policyDir, "desktop-model-policy.json")
+      const provider = {
+        private: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "https://private.example.com/v1" },
+          models: { secure: { name: "Private Model" } },
+        },
+      }
+      yield* writeConfigEffect(
+        policyDir,
+        {
+          provider,
+          enabled_providers: ["private"],
+          disabled_providers: [],
+          model: "private/secure",
+        },
+        "desktop-model-policy.json",
+      )
+
+      yield* withProcessEnv(
+        "OPENCODE_DESKTOP_MODEL_CONFIG",
+        policyPath,
+        Effect.gen(function* () {
+          const config = yield* Config.use.get()
+          expect(config.username).toBe("project-user")
+          expect(config.share).toBe("auto")
+          expect(config.permission?.bash).toBe("deny")
+          expect(config.provider).toEqual(provider)
+          expect(config.enabled_providers).toEqual(["private"])
+          expect(config.disabled_providers).toEqual([])
+          expect(config.model).toBe("private/secure")
+          expect(config.small_model).toBeUndefined()
+        }),
+      )
+    }),
+  {
+    config: {
+      username: "project-user",
+      share: "auto",
+      permission: { bash: "deny" },
+      provider: { opencode: { models: { builtin: { name: "Built-in Model" } } } },
+      enabled_providers: ["opencode"],
+      disabled_providers: ["private"],
+      model: "opencode/builtin",
+      small_model: "opencode/builtin",
+    },
+  },
+)
+
+it.instance(
+  "empty desktop model policy clears managed model settings",
+  () =>
+    Effect.gen(function* () {
+      const policyDir = yield* tmpdirScoped()
+      const policyPath = path.join(policyDir, "desktop-model-policy.json")
+      yield* writeManagedSettingsEffect({
+        snapshot: true,
+        provider: { opencode: { models: { managed: { name: "Managed Built-in Model" } } } },
+        enabled_providers: ["opencode"],
+        disabled_providers: ["private"],
+        model: "opencode/managed",
+        small_model: "opencode/managed",
+      })
+      yield* writeConfigEffect(policyDir, {}, "desktop-model-policy.json")
+
+      yield* withProcessEnv(
+        "OPENCODE_DESKTOP_MODEL_CONFIG",
+        policyPath,
+        Effect.gen(function* () {
+          const config = yield* Config.use.get()
+          expect(config.provider).toEqual({})
+          expect(config.enabled_providers).toEqual([])
+          expect(config.disabled_providers).toEqual([])
+          expect(config.model).toBeUndefined()
+          expect(config.small_model).toBeUndefined()
+          expect(config.username).toBe("project-user")
+          expect(config.snapshot).toBe(true)
+        }),
+      )
+    }),
+  {
+    config: {
+      username: "project-user",
+      snapshot: false,
+      provider: { opencode: { models: { project: { name: "Project Built-in Model" } } } },
+      enabled_providers: ["opencode"],
+      disabled_providers: ["private"],
+      model: "opencode/project",
+      small_model: "opencode/project",
+    },
+  },
+)
+
 it.instance("managed jsonc settings override managed json settings", () =>
   Effect.gen(function* () {
     yield* writeManagedSettingsEffect({ model: "managed/json" })

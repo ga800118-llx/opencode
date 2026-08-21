@@ -105,7 +105,7 @@ describe("model profile config serialization", () => {
 
     expect(config.env).toEqual(["AGENT_PROFILE_01AB_CD_API_KEY"])
     expect(config.options).toEqual({
-      baseURL: "{env:AGENT_PROFILE_01AB_CD_PROXY_BASE_URL}",
+      baseURL: "http://127.0.0.1:32123/model-profile/01ab-cd/v1",
       timeout: false,
       headerTimeout: false,
       headers: { "X-Tenant": "alpha" },

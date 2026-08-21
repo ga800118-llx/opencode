@@ -63,15 +63,12 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
 
   const find = (profileID: string) => state.value.profiles.find((profile) => profile.id === profileID)
 
-  const replace = (profile: ProductProviderProfile, selected = state.value.default) => {
+  const replace = (profile: ProductProviderProfile, requested = state.value.default) => {
     const profiles = [profile, ...state.value.profiles.filter((item) => item.id !== profile.id)].sort(
       (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
     )
-    const validDefault =
-      selected?.profileID === profile.id && !profile.models.some((model) => model.id === selected.modelID)
-        ? undefined
-        : selected
-    persist({ version: 1, profiles, ...(validDefault ? { default: validDefault } : {}) })
+    const selected = resolveDefault(profiles, requested)
+    persist({ version: 1, profiles, ...(selected ? { default: selected } : {}) })
     return profile
   }
 
@@ -136,7 +133,7 @@ export function createProfileRepository(options: ProfileRepositoryOptions): Prof
       const profile = find(profileID)
       if (!profile) return
       const profiles = state.value.profiles.filter((item) => item.id !== profileID)
-      const selected = state.value.default?.profileID === profileID ? undefined : state.value.default
+      const selected = resolveDefault(profiles, state.value.default)
       persist({ version: 1, profiles, ...(selected ? { default: selected } : {}) })
       return profile
     },
@@ -189,19 +186,33 @@ function loadState(input: unknown): { value: StoredProfileState; changed: boolea
             modelID: profiles.find((profile) => profile.id === input.defaultProfileID)?.defaultModelID,
           }
         : undefined
-  const selectedProfile =
-    typeof requestedDefault?.profileID === "string"
-      ? profiles.find((profile) => profile.id === requestedDefault.profileID)
-      : undefined
-  const selected =
-    selectedProfile &&
-    typeof requestedDefault?.modelID === "string" &&
-    selectedProfile.models.some((model) => model.id === requestedDefault.modelID)
-      ? Object.freeze({ profileID: selectedProfile.id, modelID: requestedDefault.modelID })
-      : undefined
+  const selected = resolveDefault(profiles, requestedDefault)
   const value = freezeState({ version: 1, profiles, ...(selected ? { default: selected } : {}) })
   const changed = input.version !== 1 || JSON.stringify(input) !== JSON.stringify(value)
   return { value, changed }
+}
+
+function resolveDefault(
+  profiles: readonly ProductProviderProfile[],
+  requested?: { readonly profileID?: unknown; readonly modelID?: unknown },
+): ProductDefaultModelInput | undefined {
+  const selectedProfile =
+    typeof requested?.profileID === "string"
+      ? profiles.find((profile) => profile.id === requested.profileID)
+      : undefined
+  if (
+    selectedProfile &&
+    typeof requested?.modelID === "string" &&
+    selectedProfile.models.some((model) => model.id === requested.modelID)
+  ) {
+    return Object.freeze({ profileID: selectedProfile.id, modelID: requested.modelID })
+  }
+
+  const profile = profiles.find((item) => item.models.length > 0)
+  if (!profile) return
+  const modelID = profile.models[0]?.id
+  if (!modelID) return
+  return Object.freeze({ profileID: profile.id, modelID })
 }
 
 function freezeState(input: StoredProfileState): StoredProfileState {

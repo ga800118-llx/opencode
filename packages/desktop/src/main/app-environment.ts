@@ -15,6 +15,7 @@ export function applyPreferredAppEnv(
             "XDG_STATE_HOME",
             "OPENCODE_DB",
             "OPENCODE_CONFIG",
+            "OPENCODE_DESKTOP_MODEL_CONFIG",
             "GUAI_CODE_INTERNAL_PACKAGE_SMOKE",
           ].includes(key) && !isForbiddenDesktopRuntimeEnvironmentKey(key),
       ),

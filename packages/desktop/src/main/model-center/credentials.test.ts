@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { createProductCredentialCapabilities } from "../../product/host"
+import { createProductCredentialCapabilities, type ProductCredentialBackend } from "../../product/host"
 import { createCredentialService, type CredentialStore, type SafeStorageAdapter } from "./credentials"
 
-function fixture(input: { platform?: NodeJS.Platform; available?: boolean; availabilityThrows?: boolean } = {}) {
+function fixture(
+  input: {
+    platform?: NodeJS.Platform
+    backend?: ProductCredentialBackend
+    available?: boolean
+    availabilityThrows?: boolean
+  } = {},
+) {
   const values = new Map<string, unknown>()
   const writes: unknown[] = []
   const calls = { availability: 0, decrypt: 0 }
@@ -35,6 +42,7 @@ function fixture(input: { platform?: NodeJS.Platform; available?: boolean; avail
   const service = createCredentialService({
     namespace: "dev.agent.desktop.credentials",
     platform: input.platform ?? "darwin",
+    backend: input.backend,
     safeStorage,
     store,
   })
@@ -96,6 +104,31 @@ describe("createCredentialService", () => {
     expect(fake.service.read("model-profile:stored")?.apiKey).toBe("stored-secret")
     expect(fake.service.read("model-profile:stored")?.apiKey).toBe("stored-secret")
     expect(fake.calls).toEqual({ availability: 1, decrypt: 1 })
+  })
+
+  test("treats foreign ciphertext as absent for the local encrypted file backend", () => {
+    const fake = fixture({ backend: "local-encrypted-file" })
+    fake.values.set("credentials", {
+      "model-profile:foreign": Buffer.from("foreign-ciphertext").toString("base64"),
+    })
+
+    expect(fake.service.has("model-profile:foreign")).toBe(false)
+    expect(fake.calls.decrypt).toBe(1)
+  })
+
+  test("preserves presence-only checks for system credential backends", () => {
+    for (const input of [
+      { platform: "darwin", backend: "macos-keychain" },
+      { platform: "win32", backend: "windows-credential-manager" },
+    ] as const) {
+      const fake = fixture(input)
+      fake.values.set("credentials", {
+        "model-profile:foreign": Buffer.from("foreign-ciphertext").toString("base64"),
+      })
+
+      expect(fake.service.has("model-profile:foreign")).toBe(true)
+      expect(fake.calls.decrypt).toBe(0)
+    }
   })
 
   test("removes an entry when an empty envelope is written", () => {

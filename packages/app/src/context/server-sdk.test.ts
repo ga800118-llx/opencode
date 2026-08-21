@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { adaptServerEvent, coalesceServerEvents, enqueueServerEvent, resumeStreamAfterPageShow } from "./server-sdk"
+import {
+  adaptServerEvent,
+  coalesceServerEvents,
+  createEventStreamFetch,
+  enqueueServerEvent,
+  resumeStreamAfterPageShow,
+} from "./server-sdk"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import type { Event } from "@opencode-ai/sdk/v2/client"
 
@@ -12,6 +18,28 @@ describe("resumeStreamAfterPageShow", () => {
     resumeStreamAfterPageShow({ persisted: true } as PageTransitionEvent, start)
 
     expect(starts).toBe(1)
+  })
+})
+
+describe("createEventStreamFetch", () => {
+  test("uses a unique request URL for every connection attempt", async () => {
+    const urls: string[] = []
+    const fetcher = Object.assign(
+      (input: URL | RequestInfo) => {
+        urls.push(new Request(input).url)
+        return Promise.resolve(new Response())
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    )
+    const streamFetch = createEventStreamFetch(fetcher)
+
+    await streamFetch("http://127.0.0.1:4096/global/event")
+    await streamFetch("http://127.0.0.1:4096/global/event")
+
+    expect(urls).toEqual([
+      "http://127.0.0.1:4096/global/event?_event=1",
+      "http://127.0.0.1:4096/global/event?_event=2",
+    ])
   })
 })
 

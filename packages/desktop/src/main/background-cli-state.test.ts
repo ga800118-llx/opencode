@@ -24,6 +24,7 @@ describe("background CLI state plan", () => {
       XDG_STATE_HOME: join("shell", "shared-state"),
       OPENCODE_DB: join(runtimeRoot, "data", "opencode.db"),
       OPENCODE_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
+      OPENCODE_DESKTOP_MODEL_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
       OPENCODE_CONFIG_DIR: join("shared", "config"),
       OPENCODE_CONFIG_CONTENT: '{"provider":{"shared":{}}}',
       AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
@@ -40,6 +41,7 @@ describe("background CLI state plan", () => {
       XDG_STATE_HOME: runtimeStateHome,
       OPENCODE_DB: join(runtimeRoot, "data", "opencode.db"),
       OPENCODE_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
+      OPENCODE_DESKTOP_MODEL_CONFIG: join(runtimeRoot, "config", "model-profiles.json"),
       AGENT_PROFILE_PROFILE_ONE_API_KEY: "test-credential",
     })
     expect("UNDEFINED_VALUE" in environment).toBe(false)
@@ -54,7 +56,7 @@ describe("background CLI state plan", () => {
         XDG_CONFIG_HOME: join("user-data", "runtime", "config"),
       }),
     ).toThrow(
-      "Missing required V2 sidecar environment: XDG_DATA_HOME, XDG_CACHE_HOME, OPENCODE_DB, OPENCODE_CONFIG",
+      "Missing required V2 sidecar environment: XDG_DATA_HOME, XDG_CACHE_HOME, OPENCODE_DB, OPENCODE_CONFIG, OPENCODE_DESKTOP_MODEL_CONFIG",
     )
   })
 })

@@ -48,8 +48,14 @@ export function createSensitiveHeaderCredentialProxy(options: SensitiveHeaderCre
   const needsProxy = (profile: ProductProviderProfile) =>
     profile.hasApiKey || profile.headers.some((header) => header.sensitive && header.hasValue)
 
+  const hasUsableCredentials = (profile: ProductProviderProfile) => {
+    if (!needsProxy(profile)) return true
+    if (!profile.credentialRef) return false
+    return options.credentials.has(profile.credentialRef)
+  }
+
   const runtimeCredential = (profile: ProductProviderProfile): string | undefined => {
-    if (!needsProxy(profile) || port === undefined) return undefined
+    if (!needsProxy(profile) || !hasUsableCredentials(profile) || port === undefined) return undefined
     const existing = tokens.get(profile.id)
     if (existing) return existing
     const token = options.token?.() ?? randomBytes(32).toString("base64url")
@@ -58,6 +64,16 @@ export function createSensitiveHeaderCredentialProxy(options: SensitiveHeaderCre
   }
 
   const presentProfile = (profile: ProductProviderProfile) => {
+    if (needsProxy(profile) && !hasUsableCredentials(profile)) {
+      return sanitizeProviderProfile({
+        ...profile,
+        hasApiKey: false,
+        headers: profile.headers.map((header) =>
+          header.sensitive ? { ...header, hasValue: false } : header,
+        ),
+        runtime: undefined,
+      })
+    }
     if (!needsProxy(profile) || port === undefined) return profile
     return sanitizeProviderProfile({
       ...profile,

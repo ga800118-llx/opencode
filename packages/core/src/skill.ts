@@ -31,6 +31,8 @@ import {
 import { SkillSafeMove } from "./skill/safe-move"
 import { State } from "./state"
 import { EffectFlock } from "./util/effect-flock"
+import { AppProcess } from "./process"
+import { ChildProcess } from "effect/unstable/process"
 
 export const DirectorySource = Skill.DirectorySource
 export type DirectorySource = Skill.DirectorySource
@@ -71,6 +73,48 @@ const Frontmatter = Schema.Struct({
   slash: Schema.Boolean.pipe(Schema.optional),
 })
 const decodeFrontmatter = Schema.decodeUnknownOption(Frontmatter)
+const decodeSkillFiles = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)))
+const sourceScanTimeout = "2 seconds"
+const sourceLoadTimeout = "3 seconds"
+const maxScanOutputBytes = 4 * 1024 * 1024
+const scanner = `
+const fs = require("node:fs/promises")
+const path = require("node:path")
+const root = process.env.OPENCODE_SKILL_SOURCE
+const files = []
+const visited = new Set()
+
+async function walk(directory, depth) {
+  const real = await fs.realpath(directory)
+  if (visited.has(real)) return
+  visited.add(real)
+  const entries = await fs.readdir(directory, { withFileTypes: true })
+  for (const entry of entries) {
+    if (entry.name === ".git") continue
+    const filepath = path.join(directory, entry.name)
+    const skill = (depth === 0 && entry.name.endsWith(".md")) || (depth > 0 && entry.name === "SKILL.md")
+    if (entry.isFile()) {
+      if (skill) files.push(filepath)
+      continue
+    }
+    if (entry.isDirectory()) {
+      await walk(filepath, depth + 1)
+      continue
+    }
+    if (!entry.isSymbolicLink()) continue
+    const stat = await fs.stat(filepath)
+    if (stat.isDirectory()) await walk(filepath, depth + 1)
+    if (stat.isFile() && skill) files.push(filepath)
+  }
+}
+
+walk(root, 0)
+  .then(() => process.stdout.write(JSON.stringify(files)))
+  .catch((error) => {
+    process.stderr.write(String(error))
+    process.exitCode = 1
+  })
+`
 
 export type Data = {
   sources: Types.DeepMutable<Source>[]
@@ -106,6 +150,7 @@ const layer = Layer.effect(
     const location = yield* Location.Service
     const flock = yield* EffectFlock.Service
     const safeMove = yield* SkillSafeMove.Service
+    const appProcess = yield* AppProcess.Service
     const cache = new Map<string, Info[]>()
     const managementRefreshes = new Set<() => Effect.Effect<void>>()
 
@@ -132,14 +177,35 @@ const layer = Layer.effect(
         }),
     })
 
+    // Filesystem providers can block inside directory enumeration. Keep that
+    // work outside the server process so one unavailable source cannot freeze it.
+    const scan = Effect.fn("SkillV2.scan")(function* (directory: string) {
+      const result = yield* appProcess.run(
+        ChildProcess.make(process.execPath, ["-e", scanner], {
+          env: {
+            ELECTRON_RUN_AS_NODE: "1",
+            OPENCODE_SKILL_SOURCE: directory,
+          },
+          extendEnv: true,
+          stdin: "ignore",
+          killSignal: "SIGKILL",
+        }),
+        {
+          timeout: sourceScanTimeout,
+          maxOutputBytes: maxScanOutputBytes,
+          maxErrorBytes: 8 * 1024,
+        },
+      )
+      if (result.exitCode !== 0 || result.stdoutTruncated) return []
+      return yield* decodeSkillFiles(result.stdout.toString("utf8"))
+    })
+
     const load = Effect.fn("SkillV2.load")(function* (source: Source) {
       const skills: Info[] = []
       if (source.type === "embedded") return [source.skill]
       const directories = source.type === "directory" ? [source.path] : yield* discovery.pull(source.url)
       for (const directory of directories) {
-        const files = yield* fs
-          .glob("{*.md,**/SKILL.md}", { cwd: directory, absolute: true, include: "file", symlink: true, dot: true })
-          .pipe(Effect.catch(() => Effect.succeed([] as string[])))
+        const files = yield* scan(directory).pipe(Effect.catch(() => Effect.succeed([] as string[])))
         for (const filepath of files.toSorted()) {
           const content = yield* fs.readFileStringSafe(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (!content) continue
@@ -166,17 +232,30 @@ const layer = Layer.effect(
       return skills
     })
 
-    // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
-    // events, following the reload policy chosen for other context sources?
-    const installed = Effect.fn("SkillV2.installed")(function* () {
-      const skills: Installed[] = []
-      for (const source of state.get().sources) {
-        const key = Source.key(source)
-        const loaded = source.type === "directory" ? yield* load(source) : (cache.get(key) ?? (yield* load(source)))
-        if (source.type !== "directory") cache.set(key, loaded)
-        skills.push(...loaded.map((info) => ({ source, info })))
-      }
-      return skills
+    const installed = Effect.fn("SkillV2.installed")(function* (refresh = false) {
+      if (refresh) cache.clear()
+      const loaded = yield* Effect.forEach(
+        state.get().sources,
+        (source) => {
+          const key = Source.key(source)
+          const cached = cache.get(key)
+          if (cached !== undefined) return Effect.succeed({ source, skills: cached })
+          return load(source).pipe(
+            Effect.timeout(sourceLoadTimeout),
+            Effect.catch((cause) =>
+              Effect.logWarning("Skipping unavailable skill source", {
+                type: source.type,
+                origin: source.origin?.type,
+                cause: String(cause),
+              }).pipe(Effect.as([] as Info[])),
+            ),
+            Effect.tap((skills) => Effect.sync(() => cache.set(key, skills))),
+            Effect.map((skills) => ({ source, skills })),
+          )
+        },
+        { concurrency: "unbounded" },
+      )
+      return loaded.flatMap((entry) => entry.skills.map((info) => ({ source: entry.source, info })))
     })
     const paths = statePaths(global, location)
     const disabled = Effect.fn("SkillV2.disabled")(function* () {
@@ -192,8 +271,8 @@ const layer = Layer.effect(
     const managementList = Effect.fn("SkillV2.management.list")(function* (refresh = false) {
       yield* Effect.forEach(managementRefreshes, (reload) => reload(), { discard: true })
       yield* state.reload()
-      if (refresh) cache.clear()
-      return yield* managementSnapshot()
+      if (!refresh) return yield* managementSnapshot()
+      return yield* management(yield* installed(true), yield* disabled(), fs, safeMove)
     })
 
     return Service.of({
@@ -224,21 +303,17 @@ const layer = Layer.effect(
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
           const expectedScope = scope(installation.source)
-          yield* updateStateIfInstalled(
-            fs,
-            flock,
-            paths[expectedScope],
-            installationID,
-            enabled,
-            expectedScope,
-            installed,
+          yield* updateStateIfInstalled(fs, flock, paths[expectedScope], installationID, enabled, expectedScope, () =>
+            installed(true),
           )
           return yield* managementSnapshot()
         }),
         remove: Effect.fn("SkillV2.management.remove")(function* (installationID: ManagementID) {
           const installation = (yield* installed()).find((entry) => id(entry) === installationID)
           if (!installation) return yield* new NotFoundError({ id: installationID })
-          yield* remove(fs, safeMove, flock, global, paths[scope(installation.source)], installation, installed)
+          yield* remove(fs, safeMove, flock, global, paths[scope(installation.source)], installation, () =>
+            installed(true),
+          )
           cache.delete(Source.key(installation.source))
           return yield* managementSnapshot()
         }),
@@ -263,5 +338,13 @@ function ownership(source: Source) {
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [SkillDiscovery.node, FSUtil.node, Global.node, Location.node, EffectFlock.node, SkillSafeMove.node],
+  deps: [
+    SkillDiscovery.node,
+    FSUtil.node,
+    Global.node,
+    Location.node,
+    EffectFlock.node,
+    SkillSafeMove.node,
+    AppProcess.node,
+  ],
 })

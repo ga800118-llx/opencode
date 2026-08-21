@@ -52,6 +52,7 @@ test("createSidecarEnv keeps the explicit desktop runtime authoritative", () => 
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DESKTOP_MODEL_CONFIG: paths.modelConfig,
     OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect(child.DEBUG).toBeUndefined()
@@ -69,7 +70,7 @@ test("prepareSidecarEnv requires the complete desktop runtime", () => {
   }
 
   expect(() => prepareSidecarEnv("test-password", environment)).toThrow(
-    "Missing required sidecar environment: XDG_STATE_HOME, OPENCODE_DB, OPENCODE_CONFIG",
+    "Missing required sidecar environment: XDG_STATE_HOME, OPENCODE_DB, OPENCODE_CONFIG, OPENCODE_DESKTOP_MODEL_CONFIG",
   )
   expect(environment).toEqual({
     XDG_CONFIG_HOME: "/runtime/config",

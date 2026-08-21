@@ -114,7 +114,7 @@ test("keeps a delayed model request running beyond the former short deadline", a
       credentialProxy: proxy.runtimeEnvironment,
     })
     expect(provider.options).toMatchObject({
-      baseURL: `{env:${profileCredentialProxyBaseURLEnvironment(profile.id)}}`,
+      baseURL: presented.runtime.baseURL,
       timeout: false,
       headerTimeout: false,
     })
@@ -768,6 +768,7 @@ function profileRepository(profile: ProductProviderProfile): ProfileRepository {
     remove: () => undefined,
     recordTest: () => profile,
     selectDefault: () => profile,
+    selectDefaultTransaction: () => ({ profile, rollback: () => undefined }),
     defaultSelection: () => undefined,
   }
 }

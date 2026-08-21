@@ -9,8 +9,8 @@ import { WorkspaceEvent } from "../src/workspace-event"
 
 describe("public event manifest", () => {
   test("owns the complete public event surface", () => {
-    expect(EventManifest.ServerDefinitions.length).toBe(61)
-    expect(EventManifest.Definitions.length).toBe(91)
+    expect(EventManifest.ServerDefinitions.length).toBe(66)
+    expect(EventManifest.Definitions.length).toBe(96)
     expect(SessionV1.Event.Definitions).toEqual([
       SessionV1.Event.Created,
       SessionV1.Event.Updated,
@@ -23,8 +23,8 @@ describe("public event manifest", () => {
       SessionV1.Event.Diff,
       SessionV1.Event.Error,
     ])
-    expect(EventManifest.Latest.size).toBe(91)
-    expect(EventManifest.Durable.size).toBe(38)
+    expect(EventManifest.Latest.size).toBe(96)
+    expect(EventManifest.Durable.size).toBe(43)
   })
 
   test("uses canonical definitions for current public events", () => {
@@ -33,6 +33,7 @@ describe("public event manifest", () => {
     expect(Workspace.Event).toBe(WorkspaceEvent)
     expect(Workspace.Event.Definitions).toBe(WorkspaceEvent.Definitions)
     expect(EventManifest.Latest.get("session.next.permission-mode.switched")).toBe(SessionEvent.PermissionModeSwitched)
+    expect(EventManifest.Latest.get("session.execution.failed")).toBe(SessionEvent.Execution.Failed)
     expect(EventManifest.Latest.get("session.next.step.ended")).toBe(SessionEvent.Step.Ended)
     expect(EventManifest.Latest.get("session.next.compaction.admitted")).toBe(SessionEvent.Compaction.Admitted)
     expect(EventManifest.Latest.get("session.next.compaction.started")).toBe(SessionEvent.Compaction.Started)

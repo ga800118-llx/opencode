@@ -183,11 +183,13 @@ describe("SessionRunnerLLM recorded", () => {
           .all()).map((event) => event.type),
       ).toEqual([
         "session.next.prompt.admitted.1",
+        "session.execution.started.1",
         "session.next.prompted.1",
         "session.next.step.started.1",
         "session.next.text.started.1",
         "session.next.text.ended.1",
         "session.next.step.ended.2",
+        "session.execution.succeeded.1",
       ])
     }),
   )

@@ -223,6 +223,29 @@ describe("server session", () => {
     expect(ctx.store.data.info.child).toMatchObject({ permissionMode: "auto", time: { updated: 11 } })
   })
 
+  test("applies generated titles only to the matching default title", () => {
+    const defaultTitle = "New session - 2026-08-21T00:00:00.000Z"
+    const current = { ...session("child"), title: defaultTitle }
+    const ctx = setup({ child: current })
+    ctx.store.remember(current)
+    const apply = (previousTitle: string, title: string, timestamp: number) =>
+      ctx.store.applyV2({
+        id: `evt_title_${timestamp}`,
+        type: "session.next.title.generated",
+        durable: { aggregateID: "child", seq: timestamp, version: 1 },
+        location: { directory: "/repo" },
+        data: { timestamp, sessionID: "child", previousTitle, title },
+      })
+
+    apply(defaultTitle, "自动生成标题", 10)
+
+    expect(ctx.store.data.info.child).toMatchObject({ title: "自动生成标题", time: { updated: 10 } })
+
+    apply(defaultTitle, "不应覆盖", 11)
+
+    expect(ctx.store.data.info.child).toMatchObject({ title: "自动生成标题", time: { updated: 10 } })
+  })
+
   test("does not let an older in-flight session response replace a newer permission mode event", async () => {
     const stale = Promise.withResolvers<Session>()
     const auto = { ...session("child"), permissionMode: "auto" as const, time: { created: 1, updated: 10 } }
@@ -353,6 +376,168 @@ describe("server session", () => {
 
     expect(requests).toEqual([{ sessionID: "root", limit: 20, order: "desc" }])
     expect(store.data.session_message.root.map((message) => message.id)).toEqual([user.id, assistant.id])
+  })
+
+  test("uses the initial page size when completion repairs an empty cached page", async () => {
+    const requests: unknown[] = []
+    const initial = Promise.withResolvers<{ data: []; cursor: { previous: null; next: null } }>()
+    const pages = [
+      initial.promise,
+      {
+        data: [
+          {
+            id: "assistant",
+            type: "assistant" as const,
+            agent: "build",
+            model: { id: "model", providerID: "provider" },
+            content: [{ type: "text" as const, text: "hi" }],
+            time: { created: 2, completed: 3 },
+          },
+          { id: "user", type: "user" as const, text: "hello", time: { created: 1 } },
+        ],
+        cursor: { previous: null, next: null },
+      },
+    ]
+    const sessionApi = { get: async () => session("child") } as unknown as SessionApi
+    const messageApi = {
+      list: async (input: unknown) => {
+        requests.push(input)
+        return pages.shift()!
+      },
+    } as unknown as MessageApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, messageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+    store.remember(session("child"))
+    const loading = store.sync("child")
+    await Bun.sleep(0)
+
+    store.applyV2({
+      id: "evt_execution_succeeded",
+      created: 3,
+      type: "session.execution.succeeded",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent)
+    initial.resolve({ data: [], cursor: { previous: null, next: null } })
+    await loading
+    for (let attempt = 0; attempt < 20 && store.data.session_message.child?.at(-1)?.type !== "assistant"; attempt++) {
+      await Bun.sleep(0)
+    }
+
+    expect(requests).toEqual([
+      { sessionID: "child", limit: 20, order: "desc" },
+      { sessionID: "child", limit: 20, order: "desc" },
+    ])
+    expect(store.data.session_message.child.at(-1)).toMatchObject({ type: "assistant" })
+  })
+
+  test("runs completion repair after an active history load", async () => {
+    const requests: unknown[] = []
+    const history = Promise.withResolvers<{
+      data: [{ id: string; type: "user"; text: string; time: { created: number } }]
+      cursor: { previous: null; next: null }
+    }>()
+    const user = { id: "user", type: "user" as const, text: "hello", time: { created: 2 } }
+    const older = { id: "older", type: "user" as const, text: "older", time: { created: 1 } }
+    const assistant = {
+      id: "assistant",
+      type: "assistant" as const,
+      agent: "build",
+      model: { id: "model", providerID: "provider" },
+      content: [{ type: "text" as const, text: "hi" }],
+      time: { created: 3, completed: 4 },
+    }
+    const pages = [
+      { data: [user], cursor: { previous: null, next: "older" } },
+      history.promise,
+      { data: [assistant, user], cursor: { previous: null, next: null } },
+    ]
+    const sessionApi = { get: async () => session("child") } as unknown as SessionApi
+    const messageApi = {
+      list: async (input: unknown) => {
+        requests.push(input)
+        return pages.shift()!
+      },
+    } as unknown as MessageApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, messageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+    store.remember(session("child"))
+    await store.sync("child")
+    const loading = store.history.loadMore("child")
+    await Bun.sleep(0)
+
+    store.applyV2({
+      id: "evt_execution_succeeded",
+      created: 4,
+      type: "session.execution.succeeded",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent)
+    history.resolve({ data: [older], cursor: { previous: null, next: null } })
+    await loading
+    for (let attempt = 0; attempt < 20 && store.data.session_message.child?.at(-1)?.type !== "assistant"; attempt++) {
+      await Bun.sleep(0)
+    }
+
+    expect(requests).toEqual([
+      { sessionID: "child", limit: 20, order: "desc" },
+      { sessionID: "child", limit: 200, cursor: "older" },
+      { sessionID: "child", limit: 20, order: "desc" },
+    ])
+    expect(store.data.session_message.child.at(-1)).toMatchObject({ type: "assistant" })
+  })
+
+  test("cancels a pending completion repair when the session is deleted", async () => {
+    const requests: unknown[] = []
+    const history = Promise.withResolvers<{
+      data: [{ id: string; type: "user"; text: string; time: { created: number } }]
+      cursor: { previous: null; next: null }
+    }>()
+    const user = { id: "user", type: "user" as const, text: "hello", time: { created: 2 } }
+    const older = { id: "older", type: "user" as const, text: "older", time: { created: 1 } }
+    const pages = [{ data: [user], cursor: { previous: null, next: "older" } }, history.promise]
+    const sessionApi = { get: async () => session("child") } as unknown as SessionApi
+    const messageApi = {
+      list: async (input: unknown) => {
+        requests.push(input)
+        return pages.shift()!
+      },
+    } as unknown as MessageApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, messageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+    store.remember(session("child"))
+    await store.sync("child")
+    const loading = store.history.loadMore("child")
+    await Bun.sleep(0)
+
+    store.applyV2({
+      id: "evt_execution_succeeded",
+      created: 4,
+      type: "session.execution.succeeded",
+      location: { directory: "/repo" },
+      data: { sessionID: "child" },
+    } as OpenCodeEvent)
+    store.apply({ type: "session.deleted", properties: { sessionID: "child" } })
+    history.resolve({ data: [older], cursor: { previous: null, next: null } })
+    await loading
+    await Bun.sleep(0)
+
+    expect(requests).toHaveLength(2)
+    expect(store.data.info.child).toBeUndefined()
+    expect(store.data.session_message.child).toBeUndefined()
+  })
+
+  test("preserves an explicit zero message limit on V1", async () => {
+    const client = messageClient(response())
+    const store = createServerSession(client, { protocol: Promise.resolve("v1") })
+    store.remember(session("child"))
+
+    await store.sync("child", { force: true, messageLimit: 0 })
+
+    expect(client.requests).toEqual([{ sessionID: "child", limit: 0, before: undefined }])
   })
 
   test("extends a current page to include the user for split assistant turns", async () => {
@@ -1003,6 +1188,53 @@ describe("server session", () => {
     expect(store.data.part_text_accum_delta[part.id]).toBeUndefined()
   })
 
+  test("projects an optimistic user before a streamed assistant turn", () => {
+    const previous = userMessage("message-1")
+    const current = userMessage("message-2", { time: { created: 2 } })
+    const part = textPart(current.id, { text: "current question" })
+    const store = setup({ child: session("child") }).store
+    store.apply({ type: "message.updated", properties: { sessionID: "child", info: previous } })
+
+    store.optimistic.add({ sessionID: "child", message: current, parts: [part] })
+    store.applyV2({
+      id: "evt_step",
+      created: 3,
+      type: "session.step.started",
+      location: { directory: "/repo" },
+      data: {
+        sessionID: "child",
+        assistantMessageID: "message-3",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    } as OpenCodeEvent)
+
+    expect(store.data.session_message.child.map((message) => message.id)).toEqual([
+      previous.id,
+      current.id,
+      "message-3",
+    ])
+    expect(store.data.message.child.find((message) => message.id === "message-3")).toMatchObject({
+      role: "assistant",
+      parentID: current.id,
+    })
+  })
+
+  test("removes an unconfirmed optimistic user from the V2 timeline", () => {
+    const message = userMessage("message")
+    const part = textPart(message.id, { text: "optimistic" })
+    const store = setup({ child: session("child") }).store
+    store.optimistic.add({ sessionID: "child", message, parts: [part] })
+
+    expect(store.data.session_message.child.map((item) => item.id)).toEqual([message.id])
+
+    store.optimistic.remove({ sessionID: "child", messageID: message.id })
+
+    expect(store.data.message.child).toEqual([])
+    expect(store.data.part[message.id]).toBeUndefined()
+    expect(store.data.session_message.child).toEqual([])
+  })
+
   test("does not remove content confirmed by a message event", () => {
     const message = userMessage("message")
     const part = textPart(message.id)
@@ -1014,6 +1246,7 @@ describe("server session", () => {
 
     expect(store.data.message.child).toEqual([message])
     expect(store.data.part[message.id]).toBeUndefined()
+    expect(store.data.session_message.child.map((item) => item.id)).toEqual([message.id])
   })
 
   test("does not remove parts confirmed by part events", () => {
@@ -1816,7 +2049,7 @@ describe("server session", () => {
     expect(ctx.store.data.session_activity.child).toBe(base - 1)
   })
 
-  test("records V2 execution completion before returning to idle", () => {
+  test("records V2 execution completion, returns to idle, and repairs messages", async () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
     const base = Date.now()
@@ -1835,8 +2068,11 @@ describe("server session", () => {
       data: { sessionID: "child" },
     } as OpenCodeEvent)
 
+    await Bun.sleep(0)
+
     expect(ctx.store.data.session_activity.child).toBe(base - 1)
     expect(ctx.store.data.session_status.child).toEqual({ type: "idle" })
+    expect(ctx.messages).toHaveLength(1)
   })
 
   test("records optimistic prompt admission activity", () => {

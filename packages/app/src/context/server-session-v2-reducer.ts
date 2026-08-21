@@ -3,6 +3,128 @@ import type { OpenCodeEvent, SessionMessageInfo, SessionPendingMessage } from "@
 type Assistant = Extract<SessionMessageInfo, { type: "assistant" }>
 type Compaction = Extract<SessionMessageInfo, { type: "compaction" }>
 type Shell = Extract<SessionMessageInfo, { type: "shell" }>
+type NativeEvent<Type extends string, Data extends object> = {
+  readonly id: string
+  readonly metadata?: Readonly<Record<string, unknown>>
+  readonly type: Type
+  readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+  readonly location?: { readonly directory: string; readonly workspaceID?: string }
+  readonly data: {
+    readonly timestamp: number
+    readonly sessionID: string
+  } & Data
+}
+type NativeToolContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
+type NativeProvider = {
+  readonly executed: boolean
+  readonly metadata?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+}
+type NativeSessionEvent =
+  | NativeEvent<
+      "session.next.step.started",
+      {
+        readonly assistantMessageID: string
+        readonly agent: string
+        readonly model: Assistant["model"]
+        readonly snapshot?: string
+      }
+    >
+  | NativeEvent<
+      "session.next.step.ended",
+      {
+        readonly assistantMessageID: string
+        readonly finish: string
+        readonly cost: number
+        readonly tokens: NonNullable<Assistant["tokens"]>
+        readonly snapshot?: string
+        readonly files?: readonly string[]
+      }
+    >
+  | NativeEvent<
+      "session.next.step.failed",
+      { readonly assistantMessageID: string; readonly error: NonNullable<Assistant["error"]> }
+    >
+  | NativeEvent<"session.next.text.started", { readonly assistantMessageID: string; readonly textID: string }>
+  | NativeEvent<
+      "session.next.text.delta",
+      { readonly assistantMessageID: string; readonly textID: string; readonly delta: string }
+    >
+  | NativeEvent<
+      "session.next.text.ended",
+      { readonly assistantMessageID: string; readonly textID: string; readonly text: string }
+    >
+  | NativeEvent<
+      "session.next.reasoning.started",
+      {
+        readonly assistantMessageID: string
+        readonly reasoningID: string
+        readonly providerMetadata?: NativeProvider["metadata"]
+      }
+    >
+  | NativeEvent<
+      "session.next.reasoning.delta",
+      { readonly assistantMessageID: string; readonly reasoningID: string; readonly delta: string }
+    >
+  | NativeEvent<
+      "session.next.reasoning.ended",
+      {
+        readonly assistantMessageID: string
+        readonly reasoningID: string
+        readonly text: string
+        readonly providerMetadata?: NativeProvider["metadata"]
+      }
+    >
+  | NativeEvent<
+      "session.next.tool.input.started",
+      { readonly assistantMessageID: string; readonly callID: string; readonly name: string }
+    >
+  | NativeEvent<
+      "session.next.tool.input.delta",
+      { readonly assistantMessageID: string; readonly callID: string; readonly delta: string }
+    >
+  | NativeEvent<
+      "session.next.tool.input.ended",
+      { readonly assistantMessageID: string; readonly callID: string; readonly text: string }
+    >
+  | NativeEvent<
+      "session.next.tool.called",
+      {
+        readonly assistantMessageID: string
+        readonly callID: string
+        readonly input: Readonly<Record<string, unknown>>
+        readonly provider: NativeProvider
+      }
+    >
+  | NativeEvent<
+      "session.next.tool.progress",
+      {
+        readonly assistantMessageID: string
+        readonly callID: string
+        readonly structured: Readonly<Record<string, unknown>>
+        readonly content: readonly NativeToolContent[]
+      }
+    >
+  | NativeEvent<
+      "session.next.tool.success",
+      {
+        readonly assistantMessageID: string
+        readonly callID: string
+        readonly structured: Readonly<Record<string, unknown>>
+        readonly content: readonly NativeToolContent[]
+        readonly provider: NativeProvider
+      }
+    >
+  | NativeEvent<
+      "session.next.tool.failed",
+      {
+        readonly assistantMessageID: string
+        readonly callID: string
+        readonly error: NonNullable<Assistant["error"]>
+        readonly provider: NativeProvider
+      }
+    >
 
 export type V2SessionReduction = {
   sessionID: string
@@ -13,8 +135,12 @@ export type V2SessionReduction = {
 
 export function createV2SessionReducer() {
   const pending = new Map<string, SessionPendingMessage>()
+  const nativeOrdinals = new Map<string, number>()
 
-  const reduce = (source: readonly SessionMessageInfo[], event: OpenCodeEvent): V2SessionReduction | undefined => {
+  const reduce = (
+    source: readonly SessionMessageInfo[],
+    event: OpenCodeEvent | NativeSessionEvent,
+  ): V2SessionReduction | undefined => {
     if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
     const result = (messages: SessionMessageInfo[], touched: string[] = []): V2SessionReduction => ({
@@ -24,6 +150,9 @@ export function createV2SessionReducer() {
     })
     const append = (message: SessionMessageInfo) =>
       result(source.some((item) => item.id === message.id) ? [...source] : [...source, message], [message.id])
+    const native = nativeSessionEvent(event)
+    const current = native ? adaptNativeSessionEvent(source, native, nativeOrdinals) : undefined
+    if (current) return reduce(source, current)
 
     switch (event.type) {
       case "session.input.admitted":
@@ -412,8 +541,207 @@ export function createV2SessionReducer() {
       for (const id of pending.keys()) {
         if (id.startsWith(`${sessionID}:`)) pending.delete(id)
       }
+      for (const id of nativeOrdinals.keys()) {
+        if (id.startsWith(`${sessionID}:`)) nativeOrdinals.delete(id)
+      }
     },
   }
+}
+
+function adaptNativeSessionEvent(
+  source: readonly SessionMessageInfo[],
+  event: NativeSessionEvent,
+  ordinals: Map<string, number>,
+): OpenCodeEvent | undefined {
+  const base = {
+    id: event.id,
+    created: event.data.timestamp,
+    metadata: event.metadata,
+    durable: event.durable,
+    location: event.location,
+  }
+  switch (event.type) {
+    case "session.next.step.started":
+      return {
+        ...base,
+        type: "session.step.started",
+        data: {
+          sessionID: event.data.sessionID,
+          assistantMessageID: event.data.assistantMessageID,
+          agent: event.data.agent,
+          model: event.data.model,
+          snapshot: event.data.snapshot,
+        },
+      } as OpenCodeEvent
+    case "session.next.step.ended":
+      return {
+        ...base,
+        type: "session.step.ended",
+        data: {
+          sessionID: event.data.sessionID,
+          assistantMessageID: event.data.assistantMessageID,
+          finish: event.data.finish,
+          cost: event.data.cost,
+          tokens: event.data.tokens,
+          snapshot: event.data.snapshot,
+          files: event.data.files,
+        },
+      } as OpenCodeEvent
+    case "session.next.step.failed":
+      return {
+        ...base,
+        type: "session.step.failed",
+        data: {
+          sessionID: event.data.sessionID,
+          assistantMessageID: event.data.assistantMessageID,
+          error: event.data.error,
+        },
+      } as OpenCodeEvent
+    case "session.next.text.started":
+      return adaptNativePartStarted(source, event, "text", event.data.textID, ordinals)
+    case "session.next.text.delta":
+      return adaptNativePartUpdate(event, "text", event.data.textID, ordinals, { delta: event.data.delta })
+    case "session.next.text.ended":
+      return adaptNativePartUpdate(event, "text", event.data.textID, ordinals, { text: event.data.text })
+    case "session.next.reasoning.started":
+      return adaptNativePartStarted(source, event, "reasoning", event.data.reasoningID, ordinals, {
+        state: event.data.providerMetadata,
+      })
+    case "session.next.reasoning.delta":
+      return adaptNativePartUpdate(event, "reasoning", event.data.reasoningID, ordinals, {
+        delta: event.data.delta,
+      })
+    case "session.next.reasoning.ended":
+      return adaptNativePartUpdate(event, "reasoning", event.data.reasoningID, ordinals, {
+        text: event.data.text,
+        state: event.data.providerMetadata,
+      })
+    case "session.next.tool.input.started":
+      return nativeToolEvent(event, "session.tool.input.started", {
+        name: event.data.name,
+      })
+    case "session.next.tool.input.delta":
+      return nativeToolEvent(event, "session.tool.input.delta", { delta: event.data.delta })
+    case "session.next.tool.input.ended":
+      return nativeToolEvent(event, "session.tool.input.ended", { text: event.data.text })
+    case "session.next.tool.called":
+      return nativeToolEvent(event, "session.tool.called", {
+        input: event.data.input,
+        executed: event.data.provider.executed,
+        state: event.data.provider.metadata,
+      })
+    case "session.next.tool.progress":
+      return nativeToolEvent(event, "session.tool.progress", { metadata: event.data.structured })
+    case "session.next.tool.success":
+      return nativeToolEvent(event, "session.tool.success", {
+        content: event.data.content,
+        metadata: event.data.structured,
+        executed: event.data.provider.executed,
+        resultState: event.data.provider.metadata,
+      })
+    case "session.next.tool.failed":
+      return nativeToolEvent(event, "session.tool.failed", {
+        error: event.data.error,
+        executed: event.data.provider.executed,
+        resultState: event.data.provider.metadata,
+      })
+    default:
+      return
+  }
+}
+
+function nativeSessionEvent(event: OpenCodeEvent | NativeSessionEvent) {
+  if (!event.type.startsWith("session.next.")) return
+  return event as NativeSessionEvent
+}
+
+function adaptNativePartStarted(
+  source: readonly SessionMessageInfo[],
+  event: Extract<NativeSessionEvent, { type: "session.next.text.started" | "session.next.reasoning.started" }>,
+  type: "text" | "reasoning",
+  partID: string,
+  ordinals: Map<string, number>,
+  extra: Readonly<Record<string, unknown>> = {},
+) {
+  const assistant = source.find(
+    (item): item is Assistant => item.type === "assistant" && item.id === event.data.assistantMessageID,
+  )
+  const ordinal = assistant?.content.filter((item) => item.type === type).length ?? 0
+  ordinals.set(nativePartKey(event.data.sessionID, event.data.assistantMessageID, type, partID), ordinal)
+  return {
+    id: event.id,
+    created: event.data.timestamp,
+    metadata: event.metadata,
+    durable: event.durable,
+    location: event.location,
+    type: `session.${type}.started`,
+    data: {
+      sessionID: event.data.sessionID,
+      assistantMessageID: event.data.assistantMessageID,
+      ordinal,
+      ...extra,
+    },
+  } as OpenCodeEvent
+}
+
+function adaptNativePartUpdate(
+  event: Extract<
+    NativeSessionEvent,
+    {
+      type:
+        | "session.next.text.delta"
+        | "session.next.text.ended"
+        | "session.next.reasoning.delta"
+        | "session.next.reasoning.ended"
+    }
+  >,
+  type: "text" | "reasoning",
+  partID: string,
+  ordinals: Map<string, number>,
+  extra: Readonly<Record<string, unknown>>,
+) {
+  const ordinal = ordinals.get(nativePartKey(event.data.sessionID, event.data.assistantMessageID, type, partID))
+  if (ordinal === undefined) return
+  const suffix = event.type.endsWith(".delta") ? "delta" : "ended"
+  return {
+    id: event.id,
+    created: event.data.timestamp,
+    metadata: event.metadata,
+    durable: event.durable,
+    location: event.location,
+    type: `session.${type}.${suffix}`,
+    data: {
+      sessionID: event.data.sessionID,
+      assistantMessageID: event.data.assistantMessageID,
+      ordinal,
+      ...extra,
+    },
+  } as OpenCodeEvent
+}
+
+function nativeToolEvent(
+  event: Extract<NativeSessionEvent, { type: `session.next.tool.${string}` }>,
+  type: string,
+  extra: Readonly<Record<string, unknown>>,
+) {
+  return {
+    id: event.id,
+    created: event.data.timestamp,
+    metadata: event.metadata,
+    durable: event.durable,
+    location: event.location,
+    type,
+    data: {
+      sessionID: event.data.sessionID,
+      assistantMessageID: event.data.assistantMessageID,
+      callID: event.data.callID,
+      ...extra,
+    },
+  } as OpenCodeEvent
+}
+
+function nativePartKey(sessionID: string, messageID: string, type: string, partID: string) {
+  return `${sessionID}:${messageID}:${type}:${partID}`
 }
 
 function key(sessionID: string, inputID: string) {

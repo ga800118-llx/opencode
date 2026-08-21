@@ -11,7 +11,6 @@ import {
   reloadProductRuntimeConfig,
   writeProductRuntimeConfig,
 } from "./runtime-config"
-import { SYSTEM_MODEL_IDS, SYSTEM_PROVIDER_CONFIG, SYSTEM_PROVIDER_ID } from "./system-models"
 
 const temporaryDirectories: string[] = []
 
@@ -33,11 +32,10 @@ describe("product runtime config", () => {
 
     expect(config).toEqual({
       provider: {
-        [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG,
         [first.providerID]: serializeProviderProfile(presentProfile(first)),
         [second.providerID]: serializeProviderProfile(presentProfile(second)),
       },
-      enabled_providers: [SYSTEM_PROVIDER_ID, first.providerID, second.providerID],
+      enabled_providers: [first.providerID, second.providerID],
       disabled_providers: [],
       model: `${second.providerID}/precise`,
     })
@@ -69,12 +67,10 @@ describe("product runtime config", () => {
     })
     expect(config).toEqual({
       provider: {
-        [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG,
         [empty.providerID]: serializeProviderProfile(empty),
       },
-      enabled_providers: [SYSTEM_PROVIDER_ID, empty.providerID],
+      enabled_providers: [empty.providerID],
       disabled_providers: [],
-      model: `${SYSTEM_PROVIDER_ID}/${SYSTEM_MODEL_IDS[0]}`,
     })
 
     const paths = await runtimePaths()
@@ -84,12 +80,10 @@ describe("product runtime config", () => {
       defaultSelection: undefined,
       presentProfile: (item) => item,
     })
-    expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBe(
-      `${SYSTEM_PROVIDER_ID}/${SYSTEM_MODEL_IDS[0]}`,
-    )
+    expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBeNull()
   })
 
-  test("exposes only curated system models when no product profile exists", () => {
+  test("exposes no providers when no product profile exists", () => {
     expect(
       createProductRuntimeConfig({
         profiles: [],
@@ -97,10 +91,9 @@ describe("product runtime config", () => {
         presentProfile: (item) => item,
       }),
     ).toEqual({
-      provider: { [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG },
-      enabled_providers: [SYSTEM_PROVIDER_ID],
+      provider: {},
+      enabled_providers: [],
       disabled_providers: [],
-      model: `${SYSTEM_PROVIDER_ID}/${SYSTEM_MODEL_IDS[0]}`,
     })
   })
 
@@ -114,6 +107,7 @@ describe("product runtime config", () => {
     })
 
     expect(config.provider[current.providerID]).toEqual(serializeProviderProfile(current))
+    expect(Object.keys(config.provider)).toEqual([current.providerID])
     expect(config.model).toBe(`${current.providerID}/seven`)
   })
 
@@ -151,8 +145,8 @@ describe("product runtime config", () => {
     })
     const expectedResult = {
       profileCount: 1,
-      providerCount: 2,
-      modelCount: 7,
+      providerCount: 1,
+      modelCount: 2,
       selectedModel: `${current.providerID}/reviewer`,
     }
     let restarts = 0
@@ -169,7 +163,7 @@ describe("product runtime config", () => {
         expect(JSON.parse(await readFile(paths.modelConfig, "utf8"))).toEqual(expected)
         expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
           generatedAt: "2026-08-15T10:11:12.000Z",
-          counts: { profiles: 1, providers: 2, models: 7 },
+          counts: { profiles: 1, providers: 1, models: 2 },
           selectedModel: `${current.providerID}/reviewer`,
         })
         expect(JSON.parse(await readFile(paths.migrationMarker, "utf8"))).toEqual({
@@ -246,7 +240,7 @@ describe("product runtime config", () => {
       }),
     )
     expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
-      counts: { profiles: 1, providers: 2, models: 6 },
+      counts: { profiles: 1, providers: 1, models: 1 },
       selectedModel: `${second.providerID}/new-model`,
     })
   })
@@ -424,7 +418,7 @@ describe("product runtime config", () => {
         database: paths.database,
         modelConfig: paths.modelConfig,
       },
-      counts: { profiles: 1, providers: 2, models: 7 },
+      counts: { profiles: 1, providers: 1, models: 2 },
       selectedModel: `${current.providerID}/reviewer`,
     })
     expect(Object.keys(manifest)).toEqual(["schemaVersion", "generatedAt", "runtime", "counts", "selectedModel"])

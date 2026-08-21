@@ -998,6 +998,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     get ready() {
       return globalStore.ready
     },
+    get bootstrapped() {
+      return bootstrap.isSuccess
+    },
     get error() {
       return globalStore.error
     },

@@ -128,7 +128,7 @@ export type ProductDefaultModelInput = {
 
 export type ProductModelCenterCapabilities = {
   readonly available: boolean
-  readonly credentialBackend: "macos-keychain" | "windows-credential-manager" | "unsupported"
+  readonly credentialBackend: "local-encrypted-file" | "macos-keychain" | "windows-credential-manager" | "unsupported"
   readonly credentialOperations: {
     readonly read: boolean
     readonly write: boolean

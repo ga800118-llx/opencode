@@ -56,15 +56,17 @@ export const Plugin = define({
         }
 
         if (entry.type === "directory") {
-          const files = yield* fs
-            .glob("{plugin,plugins}/*.{ts,js}", {
-              cwd: entry.path,
-              absolute: true,
-              include: "file",
-              dot: true,
-              symlink: true,
-            })
-            .pipe(Effect.orElseSucceed(() => []))
+          const files = yield* Effect.forEach(["plugin", "plugins"], (directory) =>
+            fs
+              .glob("*.{ts,js}", {
+                cwd: path.join(entry.path, directory),
+                absolute: true,
+                include: "file",
+                dot: true,
+                symlink: true,
+              })
+              .pipe(Effect.orElseSucceed(() => [] as string[])),
+          ).pipe(Effect.map((matches) => matches.flat()))
           files.sort()
           for (const file of files) configured.push({ package: file })
         }

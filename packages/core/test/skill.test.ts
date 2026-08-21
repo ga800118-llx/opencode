@@ -3,6 +3,7 @@ import os from "os"
 import path from "path"
 import { describe, expect } from "bun:test"
 import { Cause, Context, Deferred, Effect, Exit, Fiber, Function, Layer, Logger, PlatformError } from "effect"
+import * as TestClock from "effect/testing/TestClock"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -10,6 +11,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { Project } from "@opencode-ai/core/project"
+import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
@@ -123,6 +125,7 @@ type SkillLayerInput = {
   filesystem?: FSUtil.Interface
   safeMove?: SkillSafeMove.Interface
   flock?: EffectFlock.Interface
+  process?: AppProcess.Interface
 }
 
 function skillLayer(input: SkillLayerInput) {
@@ -142,6 +145,7 @@ function skillLayer(input: SkillLayerInput) {
       ],
       ...(input.filesystem ? ([[FSUtil.node, Layer.succeed(FSUtil.Service, input.filesystem)]] as const) : []),
       ...(input.flock ? ([[EffectFlock.node, Layer.succeed(EffectFlock.Service, input.flock)]] as const) : []),
+      ...(input.process ? ([[AppProcess.node, Layer.succeed(AppProcess.Service, input.process)]] as const) : []),
       [SkillSafeMove.node, Layer.succeed(SkillSafeMove.Service, input.safeMove ?? portableSafeMove)],
     ]),
   )
@@ -2126,7 +2130,7 @@ describe("SkillV2", () => {
           )
           yield* Effect.promise(() => fs.mkdir(target))
           yield* Effect.promise(() => write(sourceRoot, "shared", "Reinstalled skill"))
-          expect((yield* second.management.list()).map((item) => ({ id: item.id, status: item.status }))).toEqual([
+          expect((yield* second.management.list(true)).map((item) => ({ id: item.id, status: item.status }))).toEqual([
             { id: installed.id, status: "active" },
           ])
         }),
@@ -2180,10 +2184,11 @@ describe("SkillV2", () => {
 
           yield* Effect.promise(() => fs.mkdir(path.join(sourceRoot, "external"), { recursive: true }))
           yield* Effect.promise(() => write(sourceRoot, "external", "External deletion"))
-          const external = (yield* second.management.list())[0]
+          const external = (yield* second.management.list(true))[0]
           expect(external.name).toBe("external")
           yield* Effect.promise(() => fs.rm(path.join(sourceRoot, "external"), { recursive: true }))
           expect(yield* first.management.list()).toEqual([])
+          expect(yield* second.management.list(true)).toEqual([])
           expect(yield* second.list()).toEqual([])
           expect(yield* second.management.remove(external.id).pipe(Effect.flip)).toBeInstanceOf(SkillV2.NotFoundError)
         }),
@@ -2274,7 +2279,7 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("rescans local Skills and reloads changed source topology for every management GET", () =>
+  it.live("caches local Skills until refresh and reloads changed source topology", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -2314,15 +2319,52 @@ describe("SkillV2", () => {
             await write(first, "alpha", "Alpha")
             await write(first, "beta", "Beta")
           })
-          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
+          expect(yield* skill.management.list()).toEqual([])
+          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["alpha", "beta"])
 
           selected.sources = [secondSource]
           expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["gamma"])
           expect(yield* skill.sources()).toEqual([secondSource])
 
           selected.sources = [firstSource]
-          expect((yield* skill.management.list(true)).map((item) => item.name)).toEqual(["alpha", "beta"])
+          expect((yield* skill.management.list()).map((item) => item.name)).toEqual(["alpha", "beta"])
           expect(yield* skill.sources()).toEqual([firstSource])
+        }),
+      ),
+    ),
+  )
+
+  it.effect("skips a stalled source while retaining healthy Skills", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const stalled = path.join(tmp.path, "stalled")
+          const processContext = yield* Layer.build(AppNodeBuilder.build(AppProcess.node, []))
+          const appProcess = Context.get(processContext, AppProcess.Service)
+          const skill = yield* buildSkill({
+            state: path.join(tmp.path, "state"),
+            directory: path.join(tmp.path, "repo"),
+            projectID: Project.ID.make("stalled-source-project"),
+            projectRoot: path.join(tmp.path, "repo"),
+            process: AppProcess.Service.of({ ...appProcess, run: () => Effect.never }),
+          })
+          yield* register(skill, [
+            SkillV2.DirectorySource.make({
+              type: "directory",
+              path: AbsolutePath.make(stalled),
+              origin: { type: "config-directory", scope: "project", value: stalled },
+            }),
+            embedded("healthy", "global", "healthy"),
+          ])
+
+          const listing = yield* Effect.forkChild(skill.management.list())
+          yield* Effect.yieldNow
+          yield* TestClock.adjust("3 seconds")
+          expect((yield* Fiber.join(listing)).map((item) => item.name)).toEqual(["healthy"])
+          expect((yield* skill.list()).map((item) => item.name)).toEqual(["healthy"])
         }),
       ),
     ),

@@ -80,7 +80,9 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     queryFn: () => {
       const sdk = serverSDK()
       const directory = props.directory!
-      return loadSkills(JSON.stringify([sdk.scope, directory]), () => sdk.skillManagement.list(directory))
+      return loadSkills(JSON.stringify([sdk.scope, directory]), () =>
+        sdk.skillManagement.list(directory, { refresh: true }),
+      )
     },
   }))
   const items = createMemo(() => skills.data ?? [])

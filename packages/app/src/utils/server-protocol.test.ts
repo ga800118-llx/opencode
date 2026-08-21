@@ -111,6 +111,7 @@ describe("detectServerApiCapabilities", () => {
     expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
       project: "v1",
       mcp: "v1",
+      event: "current",
       permissionMode: false,
     })
     expect(paths).toEqual(["/openapi.json", "/doc"])
@@ -129,6 +130,8 @@ describe("detectServerApiCapabilities", () => {
             "/api/mcp/{server}/disconnect": { post: {} },
             "/api/mcp/resource": { get: {} },
             "/api/session/{sessionID}/permission-mode": { post: {} },
+            "/api/event": { get: {} },
+            "/global/event": { get: {} },
           },
         }),
       ),
@@ -137,8 +140,52 @@ describe("detectServerApiCapabilities", () => {
     expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
       project: "v2",
       mcp: "v2",
+      event: "current",
       permissionMode: true,
     })
+  })
+
+  test("does not route the current client to the legacy typed event path", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/event": { get: {} },
+            "/global/event": { get: {} },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toMatchObject({ event: "global" })
+  })
+
+  test("does not route the current client to a typed-only event path", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/event": { get: {} },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toMatchObject({ event: "global" })
+  })
+
+  test("falls back to the global event stream only when V2 has no current event stream", async () => {
+    const fetcher = mockFetch(() =>
+      Promise.resolve(
+        json({
+          paths: {
+            "/global/event": { get: {} },
+          },
+        }),
+      ),
+    )
+
+    expect(await detectServerApiCapabilities(server, fetcher, "v2")).toMatchObject({ event: "global" })
   })
 
   test("preserves current routing when V2 OpenAPI is unavailable", async () => {
@@ -147,6 +194,7 @@ describe("detectServerApiCapabilities", () => {
     expect(await detectServerApiCapabilities(server, fetcher, "v2")).toEqual({
       project: "v2",
       mcp: "v2",
+      event: "current",
       permissionMode: false,
     })
   })
@@ -157,6 +205,7 @@ describe("detectServerApiCapabilities", () => {
     expect(await detectServerApiCapabilities(server, fetcher, "v1")).toEqual({
       project: "v1",
       mcp: "v1",
+      event: "global",
       permissionMode: false,
     })
   })

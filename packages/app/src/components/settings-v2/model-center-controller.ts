@@ -39,6 +39,8 @@ type FormState = {
   baseURL: string
   apiKey: ""
   apiKeyPresent: boolean
+  credentialRecoveryRequired: boolean
+  credentialInputRevision: number
   headers: HeaderDraft[]
   models: ProductProviderModel[]
   modelQuery: string
@@ -91,6 +93,14 @@ function isCompleteEndpoint(value: string) {
   )
 }
 
+function requiresCredentialRecovery(profile?: ProductProviderProfile) {
+  return Boolean(
+    profile?.credentialRef &&
+      !profile.hasApiKey &&
+      !profile.headers.some((header) => header.sensitive && header.hasValue),
+  )
+}
+
 export function createModelProfileFormController(options: {
   readonly operations: ModelProfileOperations
   readonly profile?: ProductProviderProfile
@@ -104,7 +114,13 @@ export function createModelProfileFormController(options: {
   let savePromise: Promise<ProductProviderProfile> | undefined
   let deletePromise: Promise<void> | undefined
   let defaultPromise: Promise<ProductProviderProfile> | undefined
+  let persistedApiKeyPresent = initial?.hasApiKey ?? false
+  let credentialRecoveryBaseline = requiresCredentialRecovery(initial)
   const persistedModelIDs = new Set(initial?.models.map((model) => model.id) ?? [])
+  const persistedSecretHeaders = new Map<number, { name: string; hasValue: boolean }>()
+  initial?.headers.forEach((header, index) => {
+    if (header.sensitive) persistedSecretHeaders.set(index, { name: header.name, hasValue: header.hasValue })
+  })
 
   const [state, setState] = createStore<FormState>({
     mode: initial ? "edit" : "create",
@@ -114,6 +130,8 @@ export function createModelProfileFormController(options: {
     baseURL: initial?.baseURL ?? KIND_DEFAULTS["openai-compatible"].baseURL,
     apiKey: "",
     apiKeyPresent: initial?.hasApiKey ?? false,
+    credentialRecoveryRequired: credentialRecoveryBaseline,
+    credentialInputRevision: 0,
     headers:
       initial?.headers.map((header) => ({
         name: header.name,
@@ -150,6 +168,26 @@ export function createModelProfileFormController(options: {
     setState("discoveryFeedback", undefined)
   }
 
+  const updateCredentialRecovery = () => {
+    const hasReplacement =
+      apiKey.length > 0 ||
+      state.headers.some(
+        (header, index) => header.sensitive && header.name.trim().length > 0 && Boolean(secretHeaders.get(index)),
+      )
+    setState("credentialRecoveryRequired", credentialRecoveryBaseline && !hasReplacement)
+  }
+
+  const persistedHeaderHasValue = (index: number, name: string) => {
+    const persisted = persistedSecretHeaders.get(index)
+    return Boolean(persisted?.hasValue && persisted.name.trim().toLowerCase() === name.trim().toLowerCase())
+  }
+
+  const clearTransientCredentials = () => {
+    apiKey = ""
+    secretHeaders.clear()
+    setState("credentialInputRevision", (revision) => revision + 1)
+  }
+
   const invalidateDiscovery = () => {
     discoveryGeneration += 1
     setState("discovering", false)
@@ -166,8 +204,26 @@ export function createModelProfileFormController(options: {
   const adoptProfile = (profile: ProductProviderProfile) => {
     persistedModelIDs.clear()
     profile.models.forEach((model) => persistedModelIDs.add(model.id))
+    persistedApiKeyPresent = profile.hasApiKey
+    credentialRecoveryBaseline = requiresCredentialRecovery(profile)
+    persistedSecretHeaders.clear()
+    profile.headers.forEach((header, index) => {
+      if (header.sensitive) persistedSecretHeaders.set(index, { name: header.name, hasValue: header.hasValue })
+    })
+    clearTransientCredentials()
     setState("profileID", profile.id)
     setState("mode", "edit")
+    setState("apiKeyPresent", profile.hasApiKey)
+    setState("credentialRecoveryRequired", credentialRecoveryBaseline)
+    setState(
+      "headers",
+      profile.headers.map((header) => ({
+        name: header.name,
+        value: header.sensitive ? "" : (header.value ?? ""),
+        sensitive: header.sensitive,
+        hasValue: header.hasValue,
+      })),
+    )
     return profile
   }
 
@@ -177,7 +233,13 @@ export function createModelProfileFormController(options: {
       if (!header.name.trim()) return []
       if (header.sensitive) {
         const secret = secretHeaders.get(index)
-        return [{ name: header.name, sensitive: true, hasValue: Boolean(secret) || header.hasValue }]
+        return [
+          {
+            name: header.name,
+            sensitive: true,
+            hasValue: Boolean(secret) || persistedHeaderHasValue(index, header.name),
+          },
+        ]
       }
       return [
         {
@@ -190,9 +252,9 @@ export function createModelProfileFormController(options: {
     })
     const credentialHeaders = Object.fromEntries(
       state.headers.flatMap((header, index) => {
-        if (!header.sensitive) return []
+        if (!header.sensitive || !header.name.trim()) return []
         const value = secretHeaders.get(index)
-        return value === undefined ? [] : [[header.name, value]]
+        return value ? [[header.name, value]] : []
       }),
     )
     const hasCredentialPatch = apiKey.length > 0 || Object.keys(credentialHeaders).length > 0
@@ -223,21 +285,31 @@ export function createModelProfileFormController(options: {
 
   const controller = {
     state,
-    apiKeyValue: () => apiKey,
-    headerValue: (index: number) =>
-      state.headers[index]?.sensitive ? (secretHeaders.get(index) ?? "") : (state.headers[index]?.value ?? ""),
+    apiKeyValue: () => {
+      void state.credentialInputRevision
+      return apiKey
+    },
+    headerValue: (index: number) => {
+      void state.credentialInputRevision
+      return state.headers[index]?.sensitive
+        ? (secretHeaders.get(index) ?? "")
+        : (state.headers[index]?.value ?? "")
+    },
     setKind(kind: ProductProviderKind) {
       const defaults = KIND_DEFAULTS[kind]
       invalidateDiscovery()
       invalidateTest()
-      apiKey = ""
-      secretHeaders.clear()
+      persistedApiKeyPresent = false
+      credentialRecoveryBaseline = false
+      persistedSecretHeaders.clear()
+      clearTransientCredentials()
       setState({
         ...state,
         kind,
         name: defaults.name,
         baseURL: defaults.baseURL,
         apiKeyPresent: false,
+        credentialRecoveryRequired: false,
         headers: [],
         models: [],
         selectedModelID: undefined,
@@ -268,7 +340,8 @@ export function createModelProfileFormController(options: {
       invalidateDiscovery()
       invalidateTest()
       apiKey = value
-      setState("apiKeyPresent", Boolean(value) || Boolean(initial?.hasApiKey))
+      setState("apiKeyPresent", Boolean(value) || persistedApiKeyPresent)
+      updateCredentialRecovery()
       clearLegacyFeedback()
     },
     addHeader(header: { name?: string; value?: string; sensitive?: boolean } = {}) {
@@ -276,7 +349,7 @@ export function createModelProfileFormController(options: {
       const sensitive = header.sensitive === true
       invalidateDiscovery()
       invalidateTest()
-      if (sensitive && header.value !== undefined) secretHeaders.set(index, header.value)
+      if (sensitive && header.value) secretHeaders.set(index, header.value)
       setState(
         "headers",
         produce((rows) => {
@@ -288,6 +361,7 @@ export function createModelProfileFormController(options: {
           })
         }),
       )
+      updateCredentialRecovery()
       clearLegacyFeedback()
     },
     setHeader(index: number, patch: Partial<Pick<HeaderDraft, "name" | "value" | "sensitive">>) {
@@ -295,21 +369,24 @@ export function createModelProfileFormController(options: {
       if (!current) return
       const sensitive = patch.sensitive ?? current.sensitive
       const nextValue = patch.value ?? controller.headerValue(index)
+      const nextName = patch.name ?? current.name
       invalidateDiscovery()
       invalidateTest()
-      if (sensitive) secretHeaders.set(index, nextValue)
+      if (sensitive && nextValue) secretHeaders.set(index, nextValue)
       else secretHeaders.delete(index)
       setState("headers", index, {
         ...current,
         ...patch,
         value: sensitive ? "" : nextValue,
         sensitive,
-        hasValue: sensitive ? Boolean(nextValue) || current.hasValue : Boolean(nextValue),
+        hasValue: sensitive ? Boolean(nextValue) || persistedHeaderHasValue(index, nextName) : Boolean(nextValue),
       })
+      updateCredentialRecovery()
       clearLegacyFeedback()
     },
     removeHeader(index: number) {
-      const values = state.headers.map((_, current) => controller.headerValue(current))
+      const replacements = [...secretHeaders.entries()]
+      const persisted = [...persistedSecretHeaders.entries()]
       invalidateDiscovery()
       invalidateTest()
       setState(
@@ -319,11 +396,16 @@ export function createModelProfileFormController(options: {
         }),
       )
       secretHeaders.clear()
-      state.headers.forEach((header, current) => {
-        if (!header.sensitive) return
-        const value = values[current >= index ? current + 1 : current]
-        if (value) secretHeaders.set(current, value)
+      replacements.forEach(([current, value]) => {
+        if (current === index) return
+        secretHeaders.set(current > index ? current - 1 : current, value)
       })
+      persistedSecretHeaders.clear()
+      persisted.forEach(([current, value]) => {
+        if (current === index) return
+        persistedSecretHeaders.set(current > index ? current - 1 : current, value)
+      })
+      updateCredentialRecovery()
       clearLegacyFeedback()
     },
     addManualModel(id: string, name = id) {
@@ -371,9 +453,16 @@ export function createModelProfileFormController(options: {
       invalidateDiscovery()
       invalidateTest()
       detectionGeneration += 1
+      persistedApiKeyPresent = false
+      credentialRecoveryBaseline = false
+      persistedSecretHeaders.clear()
+      clearTransientCredentials()
       setState("kind", candidate.kind)
       setState("name", candidate.name)
       setState("baseURL", candidate.baseURL)
+      setState("apiKeyPresent", false)
+      setState("credentialRecoveryRequired", false)
+      setState("headers", state.headers.filter((header) => !header.sensitive))
       setState(
         "models",
         candidate.models.map((model) => ({ ...model })),
@@ -461,7 +550,7 @@ export function createModelProfileFormController(options: {
       setState("report", report)
     },
     canSave() {
-      if (state.models.length === 0) return false
+      if (state.models.length === 0 || state.credentialRecoveryRequired) return false
       try {
         input()
         return !state.saving && !state.deleting && !state.selectingDefault
@@ -510,6 +599,7 @@ export function createModelProfileFormController(options: {
       } catch (error) {
         return Promise.reject(recordError(error))
       }
+      const secrets = credentialValues()
       setState("saving", true)
       clearLegacyFeedback()
       savePromise = options.operations
@@ -517,7 +607,7 @@ export function createModelProfileFormController(options: {
         .then(adoptProfile)
         .catch((error) => {
           if (isCommittedProductProfileError(error)) adoptProfile(error.profile)
-          throw recordError(error)
+          throw recordError(error, secrets)
         })
         .finally(() => {
           setState("saving", false)
@@ -567,8 +657,8 @@ export function createModelProfileFormController(options: {
     input,
   }
 
-  function recordError(error: unknown) {
-    const safe = redactedError(error)
+  function recordError(error: unknown, secrets = credentialValues()) {
+    const safe = redactedError(error, secrets)
     setState("error", safe.message)
     return safe
   }

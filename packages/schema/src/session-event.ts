@@ -95,6 +95,17 @@ export const Moved = Event.define({
 })
 export type Moved = typeof Moved.Type
 
+export const TitleGenerated = Event.define({
+  type: "session.next.title.generated",
+  ...options,
+  schema: {
+    ...Base,
+    previousTitle: Schema.String,
+    title: Schema.String,
+  },
+})
+export type TitleGenerated = typeof TitleGenerated.Type
+
 export const Prompted = Event.define({
   type: "session.next.prompted",
   ...options,
@@ -130,6 +141,39 @@ export const Synthetic = Event.define({
   },
 })
 export type Synthetic = typeof Synthetic.Type
+
+export namespace Execution {
+  export const Started = Event.define({
+    type: "session.execution.started",
+    ...options,
+    schema: Base,
+  })
+  export type Started = typeof Started.Type
+
+  export const Succeeded = Event.define({
+    type: "session.execution.succeeded",
+    ...options,
+    schema: Base,
+  })
+  export type Succeeded = typeof Succeeded.Type
+
+  export const Failed = Event.define({
+    type: "session.execution.failed",
+    ...options,
+    schema: {
+      ...Base,
+      error: UnknownError,
+    },
+  })
+  export type Failed = typeof Failed.Type
+
+  export const Interrupted = Event.define({
+    type: "session.execution.interrupted",
+    ...options,
+    schema: Base,
+  })
+  export type Interrupted = typeof Interrupted.Type
+}
 
 export namespace Shell {
   export const Started = Event.define({
@@ -483,10 +527,15 @@ export const DurableDefinitions = Event.inventory(
   ModelSwitched,
   PermissionModeSwitched,
   Moved,
+  TitleGenerated,
   Prompted,
   PromptAdmitted,
   ContextUpdated,
   Synthetic,
+  Execution.Started,
+  Execution.Succeeded,
+  Execution.Failed,
+  Execution.Interrupted,
   Shell.Started,
   Shell.Ended,
   Step.Started,
@@ -517,10 +566,15 @@ export const Definitions = Event.inventory(
   ModelSwitched,
   PermissionModeSwitched,
   Moved,
+  TitleGenerated,
   Prompted,
   PromptAdmitted,
   ContextUpdated,
   Synthetic,
+  Execution.Started,
+  Execution.Succeeded,
+  Execution.Failed,
+  Execution.Interrupted,
   Shell.Started,
   Shell.Ended,
   Step.Started,

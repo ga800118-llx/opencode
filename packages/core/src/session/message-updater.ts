@@ -124,6 +124,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
       },
       "session.next.permission-mode.switched": () => Effect.void,
       "session.next.moved": () => Effect.void,
+      "session.next.title.generated": () => Effect.void,
       "session.next.prompted": (event) => {
         return adapter.appendMessage(
           SessionMessage.User.make({
@@ -159,6 +160,10 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
           }),
         )
       },
+      "session.execution.started": () => Effect.void,
+      "session.execution.succeeded": () => Effect.void,
+      "session.execution.failed": () => Effect.void,
+      "session.execution.interrupted": () => Effect.void,
       "session.next.shell.started": (event) => {
         return adapter.appendMessage(
           SessionMessage.Shell.make({

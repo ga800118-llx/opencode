@@ -3,7 +3,6 @@ import { chmod, lstat, mkdir, mkdtemp, readlink, readdir, realpath, rm, stat, sy
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import pkg from "../package.json"
-import { SYSTEM_PROVIDER_CONFIG, SYSTEM_PROVIDER_ID } from "../src/main/model-center/system-models"
 import { formatChecksumManifest } from "./internal-package"
 import {
   assertInternalMacBuildInputsUnchanged,
@@ -265,7 +264,7 @@ describe("internal Mac package", () => {
       schemaVersion: 5,
       product: "Guai Code Beta",
       channel: "beta",
-      version: "0.1.0-alpha.3",
+      version: "0.1.0-alpha.4",
       platform: "darwin",
       arch: "arm64",
       source: {
@@ -1055,8 +1054,8 @@ describe("internal Mac package", () => {
         await Bun.write(
           path.join(root, "desktop", "runtime", "config", "opencode", "opencode.json"),
           JSON.stringify({
-            provider: { [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG },
-            enabled_providers: [SYSTEM_PROVIDER_ID],
+            provider: {},
+            enabled_providers: [],
             disabled_providers: [],
           }),
         )
@@ -1079,15 +1078,15 @@ describe("internal Mac package", () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  test("requires curated system models and rejects implicit runtime dependencies in a clean packaged profile", async () => {
+  test("requires no configured models and rejects implicit runtime dependencies in a clean packaged profile", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "internal-mac-runtime-state-"))
     const config = path.join(directory, "desktop", "runtime", "config")
     await mkdir(path.join(config, "opencode"), { recursive: true })
     await Bun.write(
       path.join(config, "opencode", "opencode.json"),
       JSON.stringify({
-        provider: { [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG },
-        enabled_providers: [SYSTEM_PROVIDER_ID],
+        provider: {},
+        enabled_providers: [],
         disabled_providers: [],
       }),
     )
@@ -1097,20 +1096,21 @@ describe("internal Mac package", () => {
     await Bun.write(
       path.join(config, "opencode", "opencode.json"),
       JSON.stringify({
-        provider: {
-          [SYSTEM_PROVIDER_ID]: { whitelist: [...SYSTEM_PROVIDER_CONFIG.whitelist, "unexpected-system-model"] },
-        },
-        enabled_providers: [SYSTEM_PROVIDER_ID],
+        provider: { unexpected: {} },
+        enabled_providers: ["unexpected"],
         disabled_providers: [],
+        model: "unexpected/model",
       }),
     )
-    await expect(verifyInternalMacRuntimeState(directory)).rejects.toThrow("curated system models")
+    await expect(verifyInternalMacRuntimeState(directory)).rejects.toThrow(
+      "Clean packaged runtime exposed models before user configuration",
+    )
 
     await Bun.write(
       path.join(config, "opencode", "opencode.json"),
       JSON.stringify({
-        provider: { [SYSTEM_PROVIDER_ID]: SYSTEM_PROVIDER_CONFIG },
-        enabled_providers: [SYSTEM_PROVIDER_ID],
+        provider: {},
+        enabled_providers: [],
         disabled_providers: [],
       }),
     )

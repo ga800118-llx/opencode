@@ -5,6 +5,7 @@ const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mc
 
 export interface MockServerConfig {
   protocol?: "v1" | "v2"
+  openapi?: unknown
   provider: unknown | (() => unknown)
   integrationMethods?: Record<string, unknown[]>
   onConnectKey?: (input: { integrationID: string; body: unknown }) => void
@@ -78,6 +79,8 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
+    if ((path === "/openapi.json" || path === "/doc") && config.openapi)
+      return json(route, config.openapi)
     if (path === "/api/provider") {
       const provider = typeof config.provider === "function" ? config.provider() : config.provider
       const catalog = provider as {

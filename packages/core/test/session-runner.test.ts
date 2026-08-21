@@ -539,6 +539,17 @@ const verifyPartialFlushOnFailure = (kind: FragmentKind) =>
         content: [fixture.expectedContent],
       },
     ])
+    expect(
+      (yield* session.history({ sessionID, limit: 100 })).events.filter((event) =>
+        event.type.startsWith("session.execution."),
+      ),
+    ).toMatchObject([
+      { type: "session.execution.started" },
+      {
+        type: "session.execution.failed",
+        data: { error: { type: "unknown", message: "Provider unavailable" } },
+      },
+    ])
   })
 
 const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
@@ -646,6 +657,96 @@ describe("SessionRunnerLLM", () => {
       expect(yield* session.messages({ sessionID })).toMatchObject([
         { id: message.id, type: "user", text: "Run automatically" },
       ])
+    }),
+  )
+
+  it.effect("generates a durable title after the first successful turn", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const title = "New session - 2026-08-21T00:00:00.000Z"
+      yield* db.update(SessionTable).set({ title }).where(eq(SessionTable.id, sessionID)).run().pipe(Effect.orDie)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "修复自动标题功能" }), resume: false })
+      requests.length = 0
+      responses = [
+        fragmentFixture("text", "answer", ["完成"]).completeEvents,
+        [LLMEvent.textDelta({ id: "title", text: '<think>分析</think>\n"修复自动标题"' })],
+      ]
+      const generated = yield* events
+        .subscribe(SessionEvent.TitleGenerated)
+        .pipe(Stream.take(1), Stream.runHead, Effect.timeout("1 second"), Effect.forkScoped)
+
+      yield* session.resume(sessionID)
+      yield* Fiber.join(generated)
+
+      expect(requests).toHaveLength(2)
+      expect((yield* session.get(sessionID)).title).toBe("修复自动标题")
+    }),
+  )
+
+  it.effect("falls back to the normalized first prompt when title output is empty", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const title = "New session - 2026-08-21T00:00:00.000Z"
+      yield* db.update(SessionTable).set({ title }).where(eq(SessionTable.id, sessionID)).run().pipe(Effect.orDie)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "  修复   自动标题功能  " }), resume: false })
+      requests.length = 0
+      responses = [fragmentFixture("text", "answer", ["完成"]).completeEvents, []]
+      const generated = yield* events
+        .subscribe(SessionEvent.TitleGenerated)
+        .pipe(Stream.take(1), Stream.runHead, Effect.timeout("1 second"), Effect.forkScoped)
+
+      yield* session.resume(sessionID)
+      yield* Fiber.join(generated)
+
+      expect(requests).toHaveLength(2)
+      expect((yield* session.get(sessionID)).title).toBe("修复 自动标题功能")
+    }),
+  )
+
+  it.effect("does not generate a title for an explicitly named session", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep the title" }), resume: false })
+      requests.length = 0
+      response = fragmentFixture("text", "answer", ["Done"]).completeEvents
+
+      yield* session.resume(sessionID)
+      yield* Effect.yieldNow
+
+      expect(requests).toHaveLength(1)
+      expect((yield* session.get(sessionID)).title).toBe("test")
+    }),
+  )
+
+  it.effect("preserves a manual title when a generated-title event arrives late", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const previousTitle = "New session - 2026-08-21T00:00:00.000Z"
+      yield* db
+        .update(SessionTable)
+        .set({ title: "手动标题" })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+
+      yield* events.publish(SessionEvent.TitleGenerated, {
+        sessionID,
+        timestamp: yield* DateTime.now,
+        previousTitle,
+        title: "模型标题",
+      })
+
+      expect((yield* session.get(sessionID)).title).toBe("手动标题")
     }),
   )
 

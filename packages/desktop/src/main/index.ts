@@ -65,6 +65,7 @@ import { createBackgroundCliOwnership } from "./background-cli-ownership"
 import { createQuitCoordinator } from "./quit-coordinator"
 import { createCredentialService } from "./model-center/credentials"
 import { createSensitiveHeaderCredentialProxy } from "./model-center/credential-proxy"
+import { createLocalCredentialStorage } from "./model-center/local-credential-storage"
 import { createModelCredentialEnvironment } from "./model-center/environment"
 import { createLocalModelDetector } from "./model-center/local-detection"
 import { createModelProbe } from "./model-center/probe"
@@ -410,7 +411,12 @@ const main = Effect.gen(function* () {
   const credentialService = createCredentialService({
     namespace: identity.credentialNamespace,
     platform: process.platform,
-    safeStorage,
+    ...(process.platform === "darwin" && identity.channel !== "prod"
+      ? {
+          backend: "local-encrypted-file" as const,
+          safeStorage: createLocalCredentialStorage(join(app.getPath("userData"), "agent.credentials.key")),
+        }
+      : { safeStorage }),
     store: {
       get: (key) => credentialStore.get(key),
       set: (key, value) => credentialStore.set(key, value),

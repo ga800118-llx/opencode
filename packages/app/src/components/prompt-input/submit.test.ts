@@ -384,6 +384,31 @@ beforeEach(() => {
 })
 
 describe("prompt submit worktree selection", () => {
+  test("does not interrupt active work on an empty submission", async () => {
+    params = { id: "session-1" }
+    promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => true,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 0,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(interruptInputs).toEqual([])
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       prompt,
@@ -839,6 +864,41 @@ describe("prompt submit worktree selection", () => {
     ])
     expect(serverSessionSyncs).toBe(0)
     expect(directSessionCalls).toBe(0)
+  })
+
+  test("blocks submission and directs the user to configure a model", async () => {
+    const model = {
+      current: () => undefined,
+      variant: { current: () => undefined },
+    } as unknown as ModelSelection
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      model,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(createdSessions).toEqual([])
+    expect(sentPrompts).toEqual([])
+    expect(toasts).toEqual([
+      {
+        title: "workflow.modelSetup.action",
+        description: "workflow.modelSetup.description",
+      },
+    ])
   })
 
   test("uses an injected model selection", async () => {

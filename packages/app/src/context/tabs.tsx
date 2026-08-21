@@ -19,6 +19,7 @@ import { directoryKey } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { createSessionTabReconciler, probeSessionTab } from "./session-tab-reconciliation"
 
 export type SessionTab = {
   type: "session"
@@ -128,6 +129,17 @@ export const tabKey = (tab: Tab) => (tab.type === "draft" ? `draft:${tab.draftID
 
 export function sessionHasOpenTab(tabs: Tab[], server: ServerConnection.Key, session: Session) {
   return tabs.some((tab) => tab.type === "session" && tab.server === server && tab.sessionId === session.id)
+}
+
+export function collectSessionTabCandidates(
+  tabs: readonly Tab[],
+  closed: readonly ClosedTab[],
+  readyServers: ReadonlySet<ServerConnection.Key>,
+) {
+  return [
+    ...tabs.flatMap((tab) => (tab.type === "session" && readyServers.has(tab.server) ? [tab] : [])),
+    ...closed.flatMap((entry) => (readyServers.has(entry.tab.server) ? [entry.tab] : [])),
+  ]
 }
 
 export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
@@ -490,6 +502,35 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return memory.get<T>(tabKey(tab), name)
       },
     }
+
+    const reconciler = createSessionTabReconciler({
+      probe: async (tab, signal) => {
+        if (!global.servers.health[tab.server]?.healthy) return "unavailable"
+        const conn = global.servers.list().find((item) => ServerConnection.key(item) === tab.server)
+        if (!conn) return "unavailable"
+        const ctx = global.ensureServerCtx(conn)
+        if (!ctx.sync.bootstrapped) return "unavailable"
+        return probeSessionTab(
+          tab.sessionId,
+          (requestSignal) => ctx.sdk.api.session.get({ sessionID: tab.sessionId }, { signal: requestSignal }),
+          signal,
+        )
+      },
+      remove: (targetServer, sessionIDs) => actions.removeSessions({ server: targetServer, directory: "", sessionIDs }),
+    })
+    onCleanup(() => reconciler.dispose())
+
+    createEffect(() => {
+      if (!ready() || !closedReady()) return
+      const readyServers = new Set(
+        global.servers.list().flatMap((conn) => {
+          const key = ServerConnection.key(conn)
+          const health = global.servers.health[key]
+          return health?.healthy && global.ensureServerCtx(conn).sync.bootstrapped ? [key] : []
+        }),
+      )
+      void reconciler.reconcile(collectSessionTabCandidates(store, closed, readyServers))
+    })
 
     return { ...actions, store, info, ready, recentReady }
   },

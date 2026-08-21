@@ -20,3 +20,15 @@ test("preferred shell environment preserves an inherited internal package smoke 
 
   expect(environment.GUAI_CODE_INTERNAL_PACKAGE_SMOKE).toBe("1")
 })
+
+test("preferred shell environment preserves the desktop model policy path", () => {
+  const environment: Record<string, string | undefined> = {
+    OPENCODE_DESKTOP_MODEL_CONFIG: "/desktop/runtime/config/opencode/opencode.json",
+  }
+
+  applyPreferredAppEnv(environment, {
+    OPENCODE_DESKTOP_MODEL_CONFIG: "/shell/config/opencode/opencode.json",
+  })
+
+  expect(environment.OPENCODE_DESKTOP_MODEL_CONFIG).toBe("/desktop/runtime/config/opencode/opencode.json")
+})

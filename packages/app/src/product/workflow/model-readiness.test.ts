@@ -22,7 +22,7 @@ describe("modelReadiness", () => {
     ).toBe("loading")
   })
 
-  test("accepts a usable selected or built-in model without setup", () => {
+  test("accepts a usable selected model without setup", () => {
     expect(
       modelReadiness(
         input({

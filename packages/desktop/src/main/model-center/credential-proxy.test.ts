@@ -23,6 +23,129 @@ const profile = {
 } satisfies ProductProviderProfile
 
 describe("model credential proxy", () => {
+  test("presents profiles with unavailable credentials as needing recovery", async () => {
+    let reads = 0
+    let tokens = 0
+    const current = {
+      ...profile,
+      runtime: { baseURL: "http://127.0.0.1:9999/model-profile/profile-one/v1", credentialProxy: true },
+      headers: [
+        ...profile.headers,
+        { name: "X-Public-Header", value: "public-value", sensitive: false, hasValue: true },
+      ],
+    } satisfies ProductProviderProfile
+    const unavailable = {
+      ...credentials(),
+      has: () => false,
+      read: () => {
+        reads++
+        throw new Error("unavailable credential should not be read")
+      },
+    } satisfies ProductCredentialService
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: unavailable,
+      store: { get: () => undefined, set: () => undefined },
+      token: () => {
+        tokens++
+        return "unavailable-credential-token"
+      },
+    })
+    try {
+      await proxy.start()
+      const presented = proxy.presentProfile(current)
+
+      expect(presented.credentialRef).toBe(current.credentialRef)
+      expect(presented.hasApiKey).toBe(false)
+      expect(presented.headers).toEqual([
+        { name: "X-Private-Token", sensitive: true, hasValue: false },
+        { name: "X-Public-Header", value: "public-value", sensitive: false, hasValue: true },
+      ])
+      expect(presented.runtime).toBeUndefined()
+      expect(proxy.runtimeCredential(current)).toBeUndefined()
+      expect(proxy.runtimeEnvironment(current)).toBeUndefined()
+      expect(reads).toBe(0)
+      expect(tokens).toBe(0)
+    } finally {
+      await proxy.stop()
+    }
+  })
+
+  test("does not mint runtime credentials when a secret-bearing profile has no credential reference", async () => {
+    let checks = 0
+    let reads = 0
+    let tokens = 0
+    const current = { ...profile, credentialRef: undefined }
+    const unavailable = {
+      ...credentials(),
+      has: () => {
+        checks++
+        return true
+      },
+      read: () => {
+        reads++
+        return undefined
+      },
+    } satisfies ProductCredentialService
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: unavailable,
+      store: { get: () => undefined, set: () => undefined },
+      token: () => {
+        tokens++
+        return "missing-reference-token"
+      },
+    })
+    try {
+      await proxy.start()
+      const presented = proxy.presentProfile(current)
+
+      expect(presented.credentialRef).toBeUndefined()
+      expect(presented.hasApiKey).toBe(false)
+      expect(presented.headers).toEqual([{ name: "X-Private-Token", sensitive: true, hasValue: false }])
+      expect(presented.runtime).toBeUndefined()
+      expect(proxy.runtimeCredential(current)).toBeUndefined()
+      expect(proxy.runtimeEnvironment(current)).toBeUndefined()
+      expect(checks).toBe(0)
+      expect(reads).toBe(0)
+      expect(tokens).toBe(0)
+    } finally {
+      await proxy.stop()
+    }
+  })
+
+  test("keeps profiles that do not need secrets unchanged", async () => {
+    let checks = 0
+    let tokens = 0
+    const current = { ...profile, credentialRef: undefined, hasApiKey: false, headers: [] }
+    const proxy = createSensitiveHeaderCredentialProxy({
+      profiles: repository(current),
+      credentials: {
+        ...credentials(),
+        has: () => {
+          checks++
+          return false
+        },
+      },
+      store: { get: () => undefined, set: () => undefined },
+      token: () => {
+        tokens++
+        return "unused-token"
+      },
+    })
+    try {
+      await proxy.start()
+
+      expect(proxy.presentProfile(current)).toBe(current)
+      expect(proxy.runtimeCredential(current)).toBeUndefined()
+      expect(proxy.runtimeEnvironment(current)).toBeUndefined()
+      expect(checks).toBe(0)
+      expect(tokens).toBe(0)
+    } finally {
+      await proxy.stop()
+    }
+  })
+
   test("publishes a fresh runtime URL when the persisted port is occupied", async () => {
     const occupied = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied") })
     const values = new Map<string, unknown>([["credentialProxyPort", occupied.port]])

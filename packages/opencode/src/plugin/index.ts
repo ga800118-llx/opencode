@@ -249,6 +249,7 @@ const layer = Layer.effect(
             Effect.ignore,
           )
         }
+        yield* config.reapplyDesktopModelPolicy()
 
         const unsubscribe = yield* events.listen((event) => {
           if (event.location?.directory !== ctx.directory) return Effect.void

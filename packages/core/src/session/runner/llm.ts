@@ -32,6 +32,7 @@ import { SessionInput } from "../input"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
+import { SessionTitle } from "../title"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
@@ -106,6 +107,7 @@ const layer = Layer.effect(
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
+    const titles = yield* SessionTitle.make
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
@@ -235,10 +237,29 @@ const layer = Layer.effect(
     const continueAfterOverflowCompaction = (step: number) =>
       new TurnTransitionError({ _tag: "ContinueAfterOverflowCompaction", step })
 
+    const optionalContext = (name: string, context: Effect.Effect<SystemContext.SystemContext>) =>
+      context.pipe(
+        Effect.timeout("5 seconds"),
+        Effect.catch((cause) =>
+          Effect.logWarning("Skipping unavailable session context", { name, cause: String(cause) }).pipe(
+            Effect.as(SystemContext.empty),
+          ),
+        ),
+        Effect.catchDefect((cause) =>
+          Effect.logWarning("Skipping defective session context", { name, cause: String(cause) }).pipe(
+            Effect.as(SystemContext.empty),
+          ),
+        ),
+      )
     const loadSystemContext = (agent: AgentV2.Selection) =>
-      Effect.all([systemContext.load(), skillGuidance.load(agent), referenceGuidance.load()], {
-        concurrency: "unbounded",
-      }).pipe(Effect.map(SystemContext.combine))
+      Effect.all(
+        [
+          optionalContext("system", systemContext.load()),
+          optionalContext("skills", skillGuidance.load(agent)),
+          optionalContext("references", referenceGuidance.load()),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(Effect.map(SystemContext.combine))
 
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
       sessionID: SessionSchema.ID,
@@ -468,7 +489,7 @@ const layer = Layer.effect(
       )
     })
 
-    const run = Effect.fn("SessionRunner.run")(function* (input: {
+    const runDrain = Effect.fnUntraced(function* (input: {
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
     }) {
@@ -503,11 +524,48 @@ const layer = Layer.effect(
       }
     })
 
+    const run = Effect.fn("SessionRunner.run")(function* (input: {
+      readonly sessionID: SessionSchema.ID
+      readonly force: boolean
+    }) {
+      yield* events.publish(SessionEvent.Execution.Started, {
+        sessionID: input.sessionID,
+        timestamp: yield* DateTime.now,
+      })
+      return yield* runDrain(input).pipe(
+        Effect.onExit((exit) =>
+          Effect.gen(function* () {
+            const timestamp = yield* DateTime.now
+            if (Exit.isSuccess(exit)) {
+              yield* events.publish(SessionEvent.Execution.Succeeded, { sessionID: input.sessionID, timestamp })
+              yield* titles.schedule(input.sessionID)
+              return
+            }
+            if (Cause.hasInterrupts(exit.cause)) {
+              yield* events.publish(SessionEvent.Execution.Interrupted, { sessionID: input.sessionID, timestamp })
+              return
+            }
+            yield* events.publish(SessionEvent.Execution.Failed, {
+              sessionID: input.sessionID,
+              timestamp,
+              error: { type: "unknown", message: executionFailureMessage(exit.cause) },
+            })
+          }),
+        ),
+      )
+    })
+
     return Service.of({
       run,
     })
   }),
 )
+
+function executionFailureMessage(cause: Cause.Cause<unknown>) {
+  const failure = Option.getOrUndefined(Cause.findErrorOption(cause)) ?? Cause.squash(cause)
+  if (failure instanceof LLMError) return failure.reason.message
+  return failure instanceof Error ? failure.message : String(failure)
+}
 
 export const node = makeLocationNode({
   service: Service,

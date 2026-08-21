@@ -16,6 +16,7 @@ import type {
   SessionShellOutput,
 } from "@opencode-ai/client/promise"
 import type { Permission } from "@opencode-ai/schema/permission"
+import { sessionNotFoundError } from "./server-errors"
 
 type LegacyClient = OpencodeClient
 type LegacyFor = (directory?: string) => LegacyClient
@@ -101,14 +102,40 @@ export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   return lazyApi(
     routing.then(([protocol, routing]) => {
       if (protocol === "v1") return v1
+      const v2 = createV2Api(current)
       return {
-        ...current,
+        ...v2,
         project: routing.project === "v1" ? v1.project : current.project,
         mcp: routing.mcp === "v1" ? v1.mcp : current.mcp,
       }
     }),
     v1,
   )
+}
+
+function createV2Api(current: CompatibleApi): CompatibleApi {
+  return {
+    ...current,
+    session: {
+      ...current.session,
+      async prompt(value) {
+        if (value.agent) {
+          await current.session.switchAgent({ sessionID: value.sessionID, agent: value.agent })
+        }
+        if (value.model) {
+          await current.session.switchModel({
+            sessionID: value.sessionID,
+            model: {
+              id: value.model.modelID,
+              providerID: value.model.providerID,
+              variant: value.variant,
+            },
+          })
+        }
+        return current.session.prompt(value)
+      },
+    },
+  }
 }
 
 function lazyApi<T extends object>(implementation: Promise<T>, shape: T): T {
@@ -190,9 +217,17 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         if (!result.data) throw new Error("Failed to create session")
         return sessionInfo(result.data)
       },
-      async get(value: Parameters<ServerApi["session"]["get"]>[0]) {
-        const result = await legacy().session.get(value)
-        if (!result.data) throw new Error(`Session not found: ${value.sessionID}`)
+      async get(
+        value: Parameters<ServerApi["session"]["get"]>[0],
+        options?: Parameters<ServerApi["session"]["get"]>[1],
+      ) {
+        const result = await legacy()
+          .session.get(value, options)
+          .catch((error: unknown) => {
+            if (isLegacySessionNotFoundError(error, value.sessionID)) throw sessionNotFoundError(value.sessionID)
+            throw error
+          })
+        if (!result.data) throw sessionNotFoundError(value.sessionID)
         return sessionInfo(result.data)
       },
       async switchPermissionMode(value: { sessionID: string; mode: Permission.Mode }) {
@@ -588,4 +623,15 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       },
     },
   }
+}
+
+function isLegacySessionNotFoundError(error: unknown, sessionID: string) {
+  const cause = error instanceof Error ? error.cause : undefined
+  if (typeof cause !== "object" || cause === null || !("body" in cause) || !("status" in cause)) return false
+  if (cause.status !== 404 || typeof cause.body !== "object" || cause.body === null) return false
+  if (!("name" in cause.body) || cause.body.name !== "NotFoundError" || !("data" in cause.body)) return false
+  const data = cause.body.data
+  return (
+    typeof data === "object" && data !== null && "message" in data && data.message === `Session not found: ${sessionID}`
+  )
 }

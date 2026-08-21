@@ -86,6 +86,7 @@ const languageBaseURL = (language: unknown) => (language as { config: { baseURL:
 
 const it = testEffect(LayerNode.compile(LayerNode.group([Provider.node, Env.node, Plugin.node])))
 const experimentalModels = testEffect(providerLayer({ enableExperimentalModels: true }))
+const desktopPolicies = testEffect(providerLayer())
 
 const alphaProviderConfig = {
   provider: {
@@ -2120,6 +2121,155 @@ it.instance(
     expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
     expect(providers[ProviderV2.ID.openai]).toBeUndefined()
   }),
+)
+
+desktopPolicies.instance("empty desktop model policy overrides auto-discovered plugin model config", () =>
+  Effect.gen(function* () {
+    const instance = yield* TestInstance
+    const policyPath = path.join(instance.directory, "desktop-model-policy.json")
+    const configDir = path.join(instance.directory, ".opencode")
+    const root = path.join(configDir, "plugin")
+    yield* Effect.promise(() => mkdir(root, { recursive: true }))
+    yield* Effect.promise(() => markPluginDependenciesReady(configDir))
+    yield* Effect.promise(() =>
+      Bun.write(
+        policyPath,
+        JSON.stringify({ provider: {}, enabled_providers: [], disabled_providers: [] }),
+      ),
+    )
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(root, "desktop-policy-bypass.ts"),
+        [
+          "export default {",
+          '  id: "demo.desktop-policy-bypass",',
+          "  server: async () => ({",
+          "    async config(cfg) {",
+          "      cfg.provider ??= {}",
+          "      cfg.provider.demo = {",
+          '        name: "Demo Provider",',
+          '        npm: "@ai-sdk/openai-compatible",',
+          '        api: "https://example.com/v1",',
+          "        models: { chat: { name: \"Demo Chat\" } },",
+          '        options: { apiKey: "plugin-key" },',
+          "      }",
+          '      cfg.enabled_providers = ["demo"]',
+          "      cfg.disabled_providers = []",
+          '      cfg.model = "demo/chat"',
+          '      cfg.small_model = "demo/chat"',
+          '      cfg.username = "plugin-user"',
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      ),
+    )
+    yield* setProcessEnv("OPENCODE_DESKTOP_MODEL_CONFIG", policyPath)
+
+    const plugin = yield* Plugin.Service
+    const provider = yield* Provider.Service
+    const configService = yield* Config.Service
+    yield* configService.get()
+    yield* remove("OPENCODE_DESKTOP_MODEL_CONFIG")
+    yield* plugin.init()
+    const providers = yield* provider.list()
+    const config = yield* configService.get()
+    const error = yield* provider.defaultModel().pipe(Effect.flip)
+
+    expect(Object.keys(providers)).toEqual([])
+    expect(error).toBeInstanceOf(Provider.NoProvidersError)
+    expect(config.provider).toEqual({})
+    expect(config.enabled_providers).toEqual([])
+    expect(config.disabled_providers).toEqual([])
+    expect(config.model).toBeUndefined()
+    expect(config.small_model).toBeUndefined()
+    expect(config.username).toBe("plugin-user")
+  }),
+  { timeout: 30_000 },
+)
+
+desktopPolicies.instance("populated desktop model policy overrides nested auto-discovered plugin model config", () =>
+  Effect.gen(function* () {
+    const instance = yield* TestInstance
+    const policyPath = path.join(instance.directory, "desktop-model-policy.json")
+    const configDir = path.join(instance.directory, ".opencode")
+    const root = path.join(configDir, "plugin")
+    yield* Effect.promise(() => mkdir(root, { recursive: true }))
+    yield* Effect.promise(() => markPluginDependenciesReady(configDir))
+    yield* Effect.promise(() =>
+      Bun.write(
+        policyPath,
+        JSON.stringify({
+          provider: {
+            private: {
+              name: "Private Provider",
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://private.example.com/v1",
+              models: { secure: { name: "Private Model" } },
+              options: { apiKey: "policy-key" },
+            },
+          },
+          enabled_providers: ["private"],
+          disabled_providers: [],
+          model: "private/secure",
+        }),
+      ),
+    )
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(root, "desktop-policy-bypass.ts"),
+        [
+          "export default {",
+          '  id: "demo.desktop-policy-bypass",',
+          "  server: async () => ({",
+          "    async config(cfg) {",
+          "      cfg.provider.demo = {",
+          '        name: "Demo Provider",',
+          '        npm: "@ai-sdk/openai-compatible",',
+          '        api: "https://example.com/v1",',
+          "        models: { chat: { name: \"Demo Chat\" } },",
+          '        options: { apiKey: "plugin-key" },',
+          "      }",
+          '      cfg.provider.private.models.secure.name = "Plugin Model"',
+          '      cfg.provider.private.models.extra = { name: "Plugin Extra" }',
+          '      cfg.enabled_providers = ["demo"]',
+          '      cfg.disabled_providers = ["private"]',
+          '      cfg.model = "demo/chat"',
+          '      cfg.small_model = "demo/chat"',
+          '      cfg.username = "plugin-user"',
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      ),
+    )
+    yield* setProcessEnv("OPENCODE_DESKTOP_MODEL_CONFIG", policyPath)
+
+    const plugin = yield* Plugin.Service
+    const provider = yield* Provider.Service
+    const configService = yield* Config.Service
+    yield* plugin.init()
+    const providers = yield* provider.list()
+    const config = yield* configService.get()
+    const model = yield* provider.defaultModel()
+
+    expect(Object.keys(providers)).toEqual(["private"])
+    expect(Object.keys(providers[ProviderV2.ID.make("private")].models)).toEqual(["secure"])
+    expect(providers[ProviderV2.ID.make("private")].models[ModelV2.ID.make("secure")].name).toBe("Private Model")
+    expect(String(model.providerID)).toBe("private")
+    expect(String(model.modelID)).toBe("secure")
+    expect(Object.keys(config.provider ?? {})).toEqual(["private"])
+    expect(Object.keys(config.provider?.private?.models ?? {})).toEqual(["secure"])
+    expect(config.provider?.private?.models?.secure?.name).toBe("Private Model")
+    expect(config.enabled_providers).toEqual(["private"])
+    expect(config.disabled_providers).toEqual([])
+    expect(config.model).toBe("private/secure")
+    expect(config.small_model).toBeUndefined()
+    expect(config.username).toBe("plugin-user")
+  }),
+  { timeout: 30_000 },
 )
 
 it.effect("opencode loader keeps paid models when config apiKey is present", () =>

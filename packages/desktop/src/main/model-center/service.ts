@@ -58,12 +58,19 @@ export function createModelCenterService(options: ModelCenterServiceOptions): Pr
           existing ?? options.profiles.save(withoutCredentials(normalized), { hasApiKey: false, sensitiveHeaders: [] })
         const created = !existing
         const reference = provisional.credentialRef ?? `model-profile:${provisional.id}`
+        const hasReplacement = hasReplacementCredentials(normalized.credentials, normalized.headers)
         let previous: ProductCredentialEnvelope | undefined
         try {
-          previous = options.credentials.has(reference) ? options.credentials.read(reference) : undefined
+          const available = options.credentials.has(reference)
+          if (existing && requiresCredentialEnvelope(existing) && !available && !hasReplacement) {
+            throw new Error("The saved model credentials are unavailable.")
+          }
+          previous = available ? options.credentials.read(reference) : undefined
         } catch {
           if (created) options.profiles.remove(provisional.id)
-          throw new Error("The saved model credentials are unavailable.")
+          if (!hasReplacement) {
+            throw new Error("The saved model credentials are unavailable.")
+          }
         }
         const next = mergeCredentialEnvelope(previous, normalized.credentials, normalized.headers)
 
@@ -204,18 +211,46 @@ function resolveProbeTarget(input: ProductProviderProbeInput, options: ModelCent
   const draft = normalizeProviderProfileInput(input.draft)
   const existing = draft.id ? options.profiles.get(draft.id) : undefined
   if (draft.id && !existing) throw new Error("The model profile does not exist.")
-  const current = existing ? readProfileCredentials(existing, options.credentials) : undefined
+  const current = existing
+    ? readProfileCredentials(existing, options.credentials, hasReplacementCredentials(draft.credentials, draft.headers))
+    : undefined
   const envelope = mergeCredentialEnvelope(current, draft.credentials, draft.headers)
   return targetFromDraft(draft, envelope)
 }
 
-function readProfileCredentials(profile: ProductProviderProfile, credentials: ProductCredentialService) {
-  if (!profile.credentialRef || !credentials.has(profile.credentialRef)) return undefined
+function readProfileCredentials(
+  profile: ProductProviderProfile,
+  credentials: ProductCredentialService,
+  allowUnavailable = false,
+) {
+  if (!profile.credentialRef) return undefined
+  if (!credentials.has(profile.credentialRef)) {
+    if (requiresCredentialEnvelope(profile) && !allowUnavailable) {
+      throw new Error("The saved model credentials are unavailable.")
+    }
+    return undefined
+  }
   try {
     return credentials.read(profile.credentialRef)
   } catch {
+    if (allowUnavailable) return undefined
     throw new Error("The saved model credentials are unavailable.")
   }
+}
+
+function requiresCredentialEnvelope(profile: ProductProviderProfile) {
+  return profile.hasApiKey || profile.headers.some((header) => header.sensitive && header.hasValue)
+}
+
+function hasReplacementCredentials(
+  input: ProductCredentialEnvelopeInput | undefined,
+  headers: readonly ProductProviderHeader[],
+) {
+  if (typeof input?.apiKey === "string" && input.apiKey.length > 0) return true
+  const sensitive = new Set(headers.filter((header) => header.sensitive).map((header) => header.name.toLowerCase()))
+  return Object.entries(input?.headers ?? {}).some(
+    ([name, value]) => sensitive.has(name.toLowerCase()) && typeof value === "string" && value.length > 0,
+  )
 }
 
 function targetFromProfile(profile: ProductProviderProfile, envelope?: ProductCredentialEnvelope): ModelProbeTarget {

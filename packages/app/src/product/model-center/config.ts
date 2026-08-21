@@ -98,7 +98,6 @@ export function defaultModelPatch(profile: ProductProviderProfile, modelID: stri
 }
 
 function providerBaseURL(profile: ProductProviderProfile) {
-  if (profile.runtime?.credentialProxy) return `{env:${profileCredentialProxyBaseURLEnvironment(profile.id)}}`
   const runtimeBaseURL = profile.runtime?.baseURL ?? profile.baseURL
   if (profile.kind !== "ollama") return runtimeBaseURL.replace(/\/$/, "")
   const base = runtimeBaseURL.replace(/\/$/, "")

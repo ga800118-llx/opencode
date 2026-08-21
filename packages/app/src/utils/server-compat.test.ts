@@ -105,6 +105,15 @@ function setup(
           time: { created: 1, updated: 1 },
         })
       }
+      if (request.method === "GET" && url.pathname === "/session/missing") {
+        return Response.json(
+          { name: "NotFoundError", data: { message: "Session not found: missing" } },
+          { status: 404 },
+        )
+      }
+      if (request.method === "GET" && url.pathname === "/session/generic-404") {
+        return Response.json({ name: "NotFoundError", data: { message: "Not found" } }, { status: 404 })
+      }
       if (request.method === "GET") return Response.json([])
       return new Response(undefined, { status: 204 })
     },
@@ -186,6 +195,29 @@ describe("createCompatibleApi", () => {
     })
   })
 
+  test("switches the V2 agent and model before admitting a prompt", async () => {
+    const { api, requests } = setup("v2")
+    await api.session.prompt({
+      sessionID: "ses_1",
+      id: "msg_1",
+      text: "hello",
+      agent: "reviewer",
+      model: { providerID: "provider", modelID: "model" },
+      variant: "high",
+      location: { directory: "/repo" },
+    })
+
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/api/session/ses_1/agent",
+      "/api/session/ses_1/model",
+      "/api/session/ses_1/prompt",
+    ])
+    expect(await requests[0]!.json()).toEqual({ agent: "reviewer" })
+    expect(await requests[1]!.json()).toEqual({
+      model: { id: "model", providerID: "provider", variant: "high" },
+    })
+  })
+
   test("maps permission mode from a V1 session", async () => {
     const { api } = setup("v1")
 
@@ -193,6 +225,33 @@ describe("createCompatibleApi", () => {
       id: "ses_1",
       permissionMode: "auto",
     })
+  })
+
+  test("forwards abort signals to V1 session reads", async () => {
+    const { api, requests } = setup("v1")
+    const controller = new AbortController()
+
+    await api.session.get({ sessionID: "ses_1" }, { signal: controller.signal })
+    controller.abort()
+
+    expect(requests[0]?.signal.aborted).toBe(true)
+  })
+
+  test("normalizes V1 session 404 responses to the requested session", async () => {
+    const { api } = setup("v1")
+
+    await expect(api.session.get({ sessionID: "missing" })).rejects.toThrow("Session not found: missing")
+  })
+
+  test("preserves generic V1 404 responses as unavailable errors", async () => {
+    const { api } = setup("v1")
+
+    const error = await api.session.get({ sessionID: "generic-404" }).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    )
+
+    expect(error).toMatchObject({ message: "Not found" })
   })
 
   test("routes V1 permission mode switches through the stable endpoint", async () => {

@@ -26,6 +26,7 @@ export function createBackgroundCliEnvironment(
     "XDG_STATE_HOME",
     "OPENCODE_DB",
     "OPENCODE_CONFIG",
+    "OPENCODE_DESKTOP_MODEL_CONFIG",
   ].filter((key) => !environment[key])
   if (missing.length > 0) throw new Error(`Missing required V2 sidecar environment: ${missing.join(", ")}`)
   return environment

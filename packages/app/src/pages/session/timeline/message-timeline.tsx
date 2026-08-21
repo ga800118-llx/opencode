@@ -431,6 +431,7 @@ export function MessageTimeline(props: {
     observeElementOffset: observeElementOffsetReconnectAware,
     initialOffset: () => (props.shouldAnchorBottom() ? Number.MAX_SAFE_INTEGER : 0),
     initialMeasurementsCache: initialMeasurements,
+    useAnimationFrameWithResizeObserver: true,
     estimateSize: () => timelineFallbackItemSize,
     scrollToFn: (offset, options, instance) => {
       // Expose the computed range before core writes an anchor correction so the browser does not clamp it to the old height.

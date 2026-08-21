@@ -1,4 +1,8 @@
-import { createProductCredentialCapabilities, type ProductCredentialCapabilities } from "../../product/host"
+import {
+  createProductCredentialCapabilities,
+  type ProductCredentialBackend,
+  type ProductCredentialCapabilities,
+} from "../../product/host"
 
 export type ProductCredentialEnvelope = {
   readonly apiKey?: string
@@ -28,6 +32,7 @@ export type ProductCredentialService = {
 type CredentialServiceOptions = {
   readonly namespace: string
   readonly platform: NodeJS.Platform
+  readonly backend?: ProductCredentialBackend
   readonly safeStorage: SafeStorageAdapter
   readonly store: CredentialStore
 }
@@ -52,7 +57,7 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
   }
 
   const capabilities = () =>
-    createProductCredentialCapabilities(options.namespace, options.platform, encryptionAvailable())
+    createProductCredentialCapabilities(options.namespace, options.platform, encryptionAvailable(), options.backend)
 
   const assertAvailable = () => {
     if (!capabilities().available) throw new Error("Secure credential storage is unavailable.")
@@ -68,11 +73,35 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
     options.store.set(STORE_KEY, Object.freeze({ ...next }))
   }
 
+  const decrypt = (encrypted: string) => {
+    let decrypted: string
+    try {
+      decrypted = options.safeStorage.decryptString(Buffer.from(encrypted, "base64"))
+    } catch {
+      throw new Error("The saved credential could not be decrypted.")
+    }
+
+    try {
+      return freezeEnvelope(normalizeEnvelope(JSON.parse(decrypted)))
+    } catch {
+      throw new Error("The saved credential is invalid.")
+    }
+  }
+
   return Object.freeze({
     capabilities,
     has(reference) {
       assertReference(reference)
-      return typeof entries()[reference] === "string"
+      const encrypted = entries()[reference]
+      if (typeof encrypted !== "string") return false
+      if (options.backend !== "local-encrypted-file") return true
+      if (cache.has(reference)) return true
+      try {
+        cache.set(reference, decrypt(encrypted))
+        return true
+      } catch {
+        return false
+      }
     },
     read(reference) {
       assertReference(reference)
@@ -81,21 +110,9 @@ export function createCredentialService(options: CredentialServiceOptions): Prod
       if (cached) return cached
       const encrypted = entries()[reference]
       if (!encrypted) return
-
-      let decrypted: string
-      try {
-        decrypted = options.safeStorage.decryptString(Buffer.from(encrypted, "base64"))
-      } catch {
-        throw new Error("The saved credential could not be decrypted.")
-      }
-
-      try {
-        const envelope = freezeEnvelope(normalizeEnvelope(JSON.parse(decrypted)))
-        cache.set(reference, envelope)
-        return envelope
-      } catch {
-        throw new Error("The saved credential is invalid.")
-      }
+      const envelope = decrypt(encrypted)
+      cache.set(reference, envelope)
+      return envelope
     },
     write(reference, value) {
       assertReference(reference)

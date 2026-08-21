@@ -237,7 +237,9 @@ export const DialogModelProfile: Component<{
                 appearance="large"
                 value={form.apiKeyValue()}
                 placeholder={
-                  form.state.apiKeyPresent
+                  form.state.credentialRecoveryRequired
+                    ? language.t("settings.modelCenter.field.apiKeyReentry")
+                    : form.state.apiKeyPresent
                     ? language.t("settings.modelCenter.field.apiKeySaved")
                     : language.t("settings.modelCenter.field.apiKeyOptional")
                 }
@@ -245,7 +247,13 @@ export const DialogModelProfile: Component<{
                 autocomplete="new-password"
                 onInput={(event) => form.setApiKey(event.currentTarget.value)}
               />
-              <small>{language.t("settings.modelCenter.field.apiKeyDescription")}</small>
+              <small>
+                {language.t(
+                  form.state.credentialRecoveryRequired
+                    ? "settings.modelCenter.field.credentialRecovery"
+                    : "settings.modelCenter.field.apiKeyDescription",
+                )}
+              </small>
             </label>
           </div>
 
@@ -256,7 +264,7 @@ export const DialogModelProfile: Component<{
                 size="small"
                 variant="neutral"
                 icon="reset"
-                disabled={form.state.discovering || busy()}
+                disabled={form.state.credentialRecoveryRequired || form.state.discovering || busy()}
                 onClick={() => void discover(() => form.discover())}
               >
                 {form.state.discovering
@@ -366,7 +374,9 @@ export const DialogModelProfile: Component<{
               <ButtonV2
                 size="normal"
                 variant="neutral"
-                disabled={!form.state.selectedModelID || form.state.testing || busy()}
+                disabled={
+                  form.state.credentialRecoveryRequired || !form.state.selectedModelID || form.state.testing || busy()
+                }
                 onClick={() => void form.test().catch(() => undefined)}
               >
                 {form.state.testing
@@ -402,7 +412,9 @@ export const DialogModelProfile: Component<{
                         type={header.sensitive ? "password" : "text"}
                         value={form.headerValue(index())}
                         placeholder={
-                          header.sensitive && header.hasValue
+                          header.sensitive && form.state.credentialRecoveryRequired
+                            ? language.t("settings.modelCenter.headers.valueReentry")
+                            : header.sensitive && header.hasValue
                             ? language.t("settings.modelCenter.headers.valueSaved")
                             : language.t("settings.modelCenter.headers.value")
                         }

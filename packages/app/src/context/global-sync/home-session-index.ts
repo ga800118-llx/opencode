@@ -73,11 +73,11 @@ export function homeSessionIndexSessions(index: HomeSessionIndex | undefined, ev
     .reduce((sessions, entry) => applyHomeSessionEvent(sessions, entry.event), index.sessions)
 }
 
-export function homeSessionIndexRefresh(event: Event["type"], connected: boolean) {
+export function homeSessionIndexRefresh(event: Event["type"] | "session.next.title.generated", connected: boolean) {
   if (event === "server.connected") return { connected: true, refetch: connected }
   return {
     connected,
-    refetch: event === "global.disposed" || event === "session.next.moved",
+    refetch: event === "global.disposed" || event === "session.next.moved" || event === "session.next.title.generated",
   }
 }
 

@@ -98,6 +98,7 @@ export async function setupTimeline(
     deviceScaleFactor?: number
     seedHistory?: boolean
     protocol?: "v1" | "v2"
+    openapi?: unknown
   } = {},
 ) {
   const sessions = input.sessions ?? [session()]
@@ -116,6 +117,7 @@ export async function setupTimeline(
   })
   await mockOpenCodeServer(page, {
     protocol: input.protocol,
+    openapi: input.openapi,
     directory,
     project: project(),
     provider: provider(),

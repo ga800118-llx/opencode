@@ -27,6 +27,7 @@ test("desktop runtime replaces inherited persistence paths", () => {
     XDG_STATE_HOME: join("~", ".local", "state"),
     OPENCODE_DB: join("~", ".local", "share", "opencode", "opencode.db"),
     OPENCODE_CONFIG: join("~", ".config", "opencode", "opencode.json"),
+    OPENCODE_DESKTOP_MODEL_CONFIG: join("~", ".config", "opencode", "inherited-model-policy.json"),
     OPENCODE_CONFIG_DIR: join("~", ".config", "opencode"),
     OPENCODE_CONFIG_CONTENT: '{"provider":{"shared":{}}}',
   })
@@ -50,6 +51,7 @@ test("desktop runtime replaces inherited persistence paths", () => {
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DESKTOP_MODEL_CONFIG: paths.modelConfig,
     OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect("UNDEFINED_VALUE" in environment).toBe(false)
@@ -75,6 +77,7 @@ test("installing desktop runtime deletes inherited config overrides", () => {
     XDG_STATE_HOME: paths.state,
     OPENCODE_DB: paths.database,
     OPENCODE_CONFIG: paths.modelConfig,
+    OPENCODE_DESKTOP_MODEL_CONFIG: paths.modelConfig,
     OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: "1",
   })
   expect("OPENCODE_CONFIG_DIR" in environment).toBe(false)

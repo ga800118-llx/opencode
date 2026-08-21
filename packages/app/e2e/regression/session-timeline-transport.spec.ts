@@ -21,6 +21,21 @@ test("keeps one connection open while delivering multiple events", async ({ page
   expect(await timeline.transport.acknowledgements()).toHaveLength(2)
 })
 
+test("uses the global event stream advertised by a V2 compatibility server", async ({ page }) => {
+  const timeline = await setupTimeline(page, {
+    protocol: "v2",
+    openapi: {
+      paths: {
+        "/global/event": { get: {} },
+      },
+    },
+  })
+
+  expect((await timeline.transport.connections())[0]?.path).toBe("/global/event")
+  await timeline.transport.send(partUpdated(textPart("prt_transport_global", "global event")))
+  await timeline.waitForPart("prt_transport_global")
+})
+
 test("delivers a burst from one stream chunk", async ({ page }) => {
   const timeline = await setupTimeline(page)
   const acknowledgements = await timeline.transport.burst([

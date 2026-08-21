@@ -43,6 +43,19 @@ type PermissionModeSwitchedCurrentEvent = {
   readonly location?: { readonly directory: string; readonly workspaceID?: string }
   readonly data: { readonly timestamp: number; readonly sessionID: string; readonly mode: Permission.Mode }
 }
+type TitleGeneratedCurrentEvent = {
+  readonly id: string
+  readonly metadata?: Readonly<Record<string, unknown>>
+  readonly type: "session.next.title.generated"
+  readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+  readonly location?: { readonly directory: string; readonly workspaceID?: string }
+  readonly data: {
+    readonly timestamp: number
+    readonly sessionID: string
+    readonly previousTitle: string
+    readonly title: string
+  }
+}
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const permissionModeRisk = { restricted: 0, standard: 1, auto: 2 } as const
@@ -285,6 +298,7 @@ export function createServerSession(
   const optimistic = new Map<string, Map<string, OptimisticItem>>()
   const v2 = createV2SessionReducer()
   const messageLoads = new Map<string, MessageLoadState>()
+  const pendingMessageRepairs = new Set<string>()
   const pendingParts = new Map<string, Map<string, Set<string>>>()
   const orphanParts = new Map<string, Set<string>>()
   const removedMessages = new Map<string, Set<string>>()
@@ -584,6 +598,7 @@ export function createServerSession(
       inflight.delete(sessionID)
       inflightTodo.delete(sessionID)
       messageLoads.delete(sessionID)
+      pendingMessageRepairs.delete(sessionID)
       v2.clear(sessionID)
       pendingParts.delete(sessionID)
       orphanParts.delete(sessionID)
@@ -926,20 +941,35 @@ export function createServerSession(
       }
       if (messageLoads.get(sessionID) === load) messageLoads.delete(sessionID)
       if (generations.get(sessionID) === active) setMeta("loading", sessionID, false)
+      if (pendingMessageRepairs.delete(sessionID)) void repairMessages(sessionID).catch(() => {})
     }
   }
 
-  const sync = (sessionID: string, options?: { force?: boolean; messageLimit?: number }) => {
+  const sync = (sessionID: string, request?: { force?: boolean; messageLimit?: number }) => {
     touch(sessionID)
     return runInflight(inflight, sessionID, async () => {
       const cached = data.message[sessionID] !== undefined && meta.limit[sessionID] !== undefined
-      if (cached && data.info[sessionID] && !options?.force) return
+      if (cached && data.info[sessionID] && !request?.force) return
       await Promise.all([
-        resolve(sessionID, options),
-        cached && !options?.force
+        resolve(sessionID, request),
+        cached && !request?.force
           ? Promise.resolve()
-          : loadMessages(sessionID, options?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
+          : loadMessages(sessionID, request?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
       ])
+    })
+  }
+
+  const repairMessages = async (sessionID: string) => {
+    const active = generation(sessionID)
+    await inflight.get(sessionID)?.catch(() => {})
+    if (generations.get(sessionID) !== active) return
+    if (meta.loading[sessionID]) {
+      pendingMessageRepairs.add(sessionID)
+      return
+    }
+    await sync(sessionID, {
+      force: true,
+      messageLimit: Math.max(meta.limit[sessionID] ?? 0, initialMessagePageSize),
     })
   }
 
@@ -1038,11 +1068,21 @@ export function createServerSession(
       .catch(() => {})
   }
 
-  const applyV2 = (event: OpenCodeEvent | PermissionModeSwitchedCurrentEvent) => {
+  const applyV2 = (event: OpenCodeEvent | PermissionModeSwitchedCurrentEvent | TitleGeneratedCurrentEvent) => {
     if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
     const activityAt = activityEventTime(event)
     markActivity(sessionID, activityAt)
+    if (event.type === "session.next.title.generated") {
+      const info = data.info[sessionID]
+      if (!info || info.title !== event.data.previousTitle) return
+      remember({
+        ...info,
+        title: event.data.title,
+        time: { ...info.time, updated: Math.max(info.time.updated, event.data.timestamp) },
+      })
+      return
+    }
     if (event.type === "session.next.permission-mode.switched") {
       const info = data.info[sessionID]
       if (!info || event.data.timestamp < info.time.updated) return
@@ -1090,8 +1130,10 @@ export function createServerSession(
       event.type === "session.execution.succeeded" ||
       event.type === "session.execution.failed" ||
       event.type === "session.execution.interrupted"
-    )
+    ) {
       set("session_status", sessionID, { type: "idle" })
+      void repairMessages(sessionID).catch(() => {})
+    }
     if (event.type === "session.retry.scheduled")
       set("session_status", sessionID, {
         type: "retry",
@@ -1469,6 +1511,9 @@ export function createServerSession(
         if (!items)
           optimistic.set(input.sessionID, new Map([[input.message.id, { ...input, parts, confirmedParts: [] }]]))
         setData("message", input.sessionID, (messages = []) => merge(messages, [input.message]))
+        setData("session_message", input.sessionID, (messages = []) =>
+          merge(messages, legacyMessageSource([{ info: input.message, parts }])),
+        )
         setData(
           "part_text_accum_delta",
           produce((draft) => {
@@ -1502,6 +1547,9 @@ export function createServerSession(
           return
         }
         setData("message", input.sessionID, (messages) => messages?.filter((message) => message.id !== input.messageID))
+        setData("session_message", input.sessionID, (messages) =>
+          messages?.filter((message) => message.id !== input.messageID),
+        )
         setData(produce((draft) => deleteMessageParts(draft, input.messageID)))
       },
     },

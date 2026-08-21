@@ -72,6 +72,9 @@ export const Flag = {
   get OPENCODE_CONFIG_DIR() {
     return process.env["OPENCODE_CONFIG_DIR"]
   },
+  get OPENCODE_DESKTOP_MODEL_CONFIG() {
+    return process.env["OPENCODE_DESKTOP_MODEL_CONFIG"]
+  },
   get OPENCODE_PURE() {
     return truthy("OPENCODE_PURE")
   },

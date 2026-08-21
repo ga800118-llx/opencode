@@ -103,6 +103,98 @@ describe("createProfileRepository", () => {
     expect(JSON.stringify(fake.values.get("state"))).not.toContain("Bearer secret-header")
   })
 
+  test("selects the first model of the first usable profile even when its profile default differs", () => {
+    const fake = fixture()
+    fake.repository.save({ ...base, name: "Empty", models: [], defaultModelID: undefined })
+    const profile = fake.repository.save({
+      ...base,
+      name: "Usable",
+      models: [
+        { id: "coder", name: "Coder", source: "manual" },
+        { id: "reasoner", name: "Reasoner", source: "manual" },
+      ],
+      defaultModelID: "reasoner",
+    })
+
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: profile.id, modelID: "coder" })
+    expect(fake.values.get("state")).toMatchObject({
+      default: { profileID: profile.id, modelID: "coder" },
+    })
+  })
+
+  test("uses the first model when the first usable profile has no valid profile default", () => {
+    const fake = fixture()
+    const profile = fake.repository.save({
+      ...base,
+      models: [
+        { id: "reasoner", name: "Reasoner", source: "manual" },
+        { id: "coder", name: "Coder", source: "manual" },
+      ],
+      defaultModelID: undefined,
+    })
+
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: profile.id, modelID: "reasoner" })
+  })
+
+  test("preserves a valid default when newer profiles are saved", () => {
+    const fake = fixture()
+    const first = fake.repository.save(base)
+    const second = fake.repository.save({
+      ...base,
+      name: "Second",
+      models: [{ id: "reasoner", name: "Reasoner", source: "manual" }],
+      defaultModelID: "reasoner",
+    })
+    fake.repository.save({ ...base, id: second.id, name: "Second Updated" })
+
+    expect(fake.repository.list()[0]?.id).toBe(second.id)
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: first.id, modelID: "coder" })
+  })
+
+  test("repairs an invalidated selected-profile model to its first remaining model", () => {
+    const fake = fixture()
+    const selected = fake.repository.save({
+      ...base,
+      models: [...base.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+    })
+    fake.repository.save({ ...base, name: "Remaining" })
+
+    fake.repository.save({
+      ...base,
+      id: selected.id,
+      models: [
+        { id: "reasoner", name: "Reasoner", source: "manual" },
+        { id: "reviewer", name: "Reviewer", source: "manual" },
+      ],
+      defaultModelID: "reviewer",
+    })
+
+    expect(fake.repository.list()[0]?.id).toBe(selected.id)
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: selected.id, modelID: "reasoner" })
+    expect(fake.values.get("state")).toMatchObject({
+      default: { profileID: selected.id, modelID: "reasoner" },
+    })
+  })
+
+  test("falls back to the first model of the next usable profile when an edit empties the selected profile", () => {
+    const fake = fixture()
+    const selected = fake.repository.save(base)
+    const remaining = fake.repository.save({
+      ...base,
+      name: "Remaining",
+      models: [
+        { id: "fallback", name: "Fallback", source: "manual" },
+        { id: "preferred", name: "Preferred", source: "manual" },
+      ],
+      defaultModelID: "preferred",
+    })
+
+    fake.repository.save({ ...base, id: selected.id, models: [], defaultModelID: undefined })
+
+    expect(fake.repository.list()[0]?.id).toBe(selected.id)
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: remaining.id, modelID: "fallback" })
+  })
+
   test("updates in place, preserves creation identity, and orders by update time", () => {
     const fake = fixture()
     const first = fake.repository.save(base)
@@ -142,7 +234,74 @@ describe("createProfileRepository", () => {
       "store unavailable",
     )
     expect(fake.repository.get(profile.id)?.defaultModelID).toBe("coder")
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: profile.id, modelID: "coder" })
+  })
+
+  test("keeps memory and storage empty when first-save auto-selection persistence fails", () => {
+    const fake = fixture()
+    fake.failNextWrite()
+
+    expect(() => fake.repository.save(base)).toThrow("store unavailable")
+    expect(fake.repository.list()).toEqual([])
     expect(fake.repository.defaultSelection()).toBeUndefined()
+    expect(fake.values.has("state")).toBe(false)
+    expect(fake.writes).toEqual([])
+  })
+
+  test("keeps the previous profile, default, and store when edit fallback persistence fails", () => {
+    const fake = fixture()
+    const selected = fake.repository.save({
+      ...base,
+      models: [...base.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+    })
+    fake.repository.save({ ...base, name: "Remaining" })
+    const profiles = fake.repository.list()
+    const stored = fake.values.get("state")
+    fake.failNextWrite()
+
+    expect(() =>
+      fake.repository.save({
+        ...base,
+        id: selected.id,
+        models: [{ id: "reasoner", name: "Reasoner", source: "manual" }],
+        defaultModelID: undefined,
+      }),
+    ).toThrow("store unavailable")
+    expect(fake.repository.list()).toEqual(profiles)
+    expect(fake.repository.get(selected.id)?.models.map((model) => model.id)).toEqual(["coder", "reasoner"])
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: selected.id, modelID: "coder" })
+    expect(fake.values.get("state")).toBe(stored)
+    expect(fake.writes).toHaveLength(2)
+  })
+
+  test("keeps the previous profiles, default, and store when removal fallback persistence fails", () => {
+    const fake = fixture()
+    const selected = fake.repository.save(base)
+    fake.repository.save({ ...base, name: "Remaining" })
+    const profiles = fake.repository.list()
+    const stored = fake.values.get("state")
+    fake.failNextWrite()
+
+    expect(() => fake.repository.remove(selected.id)).toThrow("store unavailable")
+    expect(fake.repository.list()).toEqual(profiles)
+    expect(fake.repository.get(selected.id)).toBeDefined()
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: selected.id, modelID: "coder" })
+    expect(fake.values.get("state")).toBe(stored)
+    expect(fake.writes).toHaveLength(2)
+  })
+
+  test("rolls explicit default selection back to the persisted auto-selected default", () => {
+    const fake = fixture()
+    const profile = fake.repository.save({
+      ...base,
+      models: [...base.models, { id: "reasoner", name: "Reasoner", source: "manual" }],
+    })
+    const transaction = fake.repository.selectDefaultTransaction({ profileID: profile.id, modelID: "reasoner" })
+
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: profile.id, modelID: "reasoner" })
+    transaction.rollback()
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: profile.id, modelID: "coder" })
+    expect(fake.repository.get(profile.id)?.defaultModelID).toBe("coder")
   })
 
   test("preserves a capability report when saving an unchanged tested profile", () => {
@@ -156,11 +315,24 @@ describe("createProfileRepository", () => {
 
   test("removes profiles and repairs the selected default", () => {
     const fake = fixture()
-    const profile = fake.repository.save(base)
-    fake.repository.selectDefault({ profileID: profile.id, modelID: "coder" })
+    const selected = fake.repository.save(base)
+    const fallback = fake.repository.save({
+      ...base,
+      name: "Fallback",
+      models: [
+        { id: "first", name: "First", source: "manual" },
+        { id: "second", name: "Second", source: "manual" },
+      ],
+      defaultModelID: undefined,
+    })
+    const empty = fake.repository.save({ ...base, name: "Empty", models: [], defaultModelID: undefined })
 
-    expect(fake.repository.remove(profile.id)?.id).toBe(profile.id)
-    expect(fake.repository.remove(profile.id)).toBeUndefined()
+    expect(fake.repository.remove(selected.id)?.id).toBe(selected.id)
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: fallback.id, modelID: "first" })
+    expect(fake.values.get("state")).toMatchObject({ default: { profileID: fallback.id, modelID: "first" } })
+    expect(fake.repository.remove(selected.id)).toBeUndefined()
+    expect(fake.repository.remove(fallback.id)?.id).toBe(fallback.id)
+    expect(fake.repository.remove(empty.id)?.id).toBe(empty.id)
     expect(fake.repository.defaultSelection()).toBeUndefined()
   })
 
@@ -170,6 +342,11 @@ describe("createProfileRepository", () => {
       id: "legacy-one",
       providerID: "agent-profile-legacy-one",
       hasApiKey: false,
+      models: [
+        { id: "first", name: "First", source: "manual" },
+        { id: "legacy-default", name: "Legacy Default", source: "manual" },
+      ],
+      defaultModelID: "legacy-default",
       settings: { ...base.settings, timeoutMs: Number.MAX_SAFE_INTEGER },
       createdAt: 10,
       updatedAt: 20,
@@ -180,7 +357,7 @@ describe("createProfileRepository", () => {
     })
 
     expect(fake.repository.list().map((profile) => profile.id)).toEqual(["legacy-one"])
-    expect(fake.repository.defaultSelection()).toEqual({ profileID: "legacy-one", modelID: "coder" })
+    expect(fake.repository.defaultSelection()).toEqual({ profileID: "legacy-one", modelID: "legacy-default" })
     expect(fake.writes).toHaveLength(1)
     expect(fake.values.get("state")).toMatchObject({ version: 1 })
     expect(fake.repository.list()[0]?.settings).not.toHaveProperty("timeoutMs")
@@ -188,23 +365,45 @@ describe("createProfileRepository", () => {
     expect(JSON.stringify(fake.values.get("state"))).not.toContain("sk-test-secret")
   })
 
-  test("repairs corrupt version one defaults without replacing valid profiles", () => {
-    const valid = {
+  test("repairs and persists absent or corrupt version one defaults deterministically", () => {
+    const older = {
       ...base,
-      id: "valid-one",
-      providerID: "agent-profile-valid-one",
+      id: "older",
+      providerID: "agent-profile-older",
       hasApiKey: false,
       createdAt: 10,
       updatedAt: 20,
     }
-    const fake = fixture({
-      version: 1,
-      profiles: [valid],
-      default: { profileID: "missing", modelID: "coder" },
-    })
+    const newer = {
+      ...base,
+      id: "newer",
+      providerID: "agent-profile-newer",
+      hasApiKey: false,
+      models: [
+        { id: "first", name: "First", source: "manual" },
+        { id: "preferred", name: "Preferred", source: "manual" },
+      ],
+      defaultModelID: "preferred",
+      createdAt: 20,
+      updatedAt: 30,
+    }
 
-    expect(fake.repository.list()).toHaveLength(1)
-    expect(fake.repository.defaultSelection()).toBeUndefined()
-    expect(fake.writes).toHaveLength(1)
+    for (const initial of [
+      { version: 1, profiles: [older, newer] },
+      { version: 1, profiles: [older, newer], default: { profileID: "missing", modelID: "coder" } },
+    ]) {
+      const fake = fixture(initial)
+
+      expect(fake.repository.list().map((profile) => profile.id)).toEqual(["newer", "older"])
+      expect(fake.repository.defaultSelection()).toEqual({ profileID: "newer", modelID: "first" })
+      expect(fake.values.get("state")).toMatchObject({
+        default: { profileID: "newer", modelID: "first" },
+      })
+      expect(fake.writes).toHaveLength(1)
+
+      const reopened = fixture(fake.values.get("state"))
+      expect(reopened.repository.defaultSelection()).toEqual({ profileID: "newer", modelID: "first" })
+      expect(reopened.writes).toHaveLength(0)
+    }
   })
 })

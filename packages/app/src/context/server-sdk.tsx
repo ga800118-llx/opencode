@@ -25,6 +25,7 @@ const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
 
 const isStreamClosed = (error: unknown, signal?: AbortSignal) => isAbortError(error) || signal?.aborted === true
+const EVENT_CONNECT_TIMEOUT_MS = 10_000
 export type ServerEvent = Event & { current?: OpenCodeEvent }
 type QueuedServerEvent = { directory: string; payload: ServerEvent }
 type CurrentDelta = Extract<
@@ -175,6 +176,19 @@ export function resumeStreamAfterPageShow(event: PageTransitionEvent, start: () 
   start()
 }
 
+export function createEventStreamFetch(fetcher: typeof globalThis.fetch) {
+  let attempt = 0
+  return Object.assign(
+    (input: URL | RequestInfo, init?: RequestInit) => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      url.searchParams.set("_event", String(++attempt))
+      return fetcher(new Request(url, request))
+    },
+    { preconnect: fetcher.preconnect },
+  )
+}
+
 type ServerEventEmitter = ReturnType<typeof createGlobalEmitter<{ [key: string]: ServerEvent }>>
 type ServerSDKBase = {
   server: ServerConnection.Any
@@ -215,10 +229,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     }
   })()
 
-  const eventApi = createApiForServer({ server: server.http, fetch: eventFetch })
+  const streamFetch = createEventStreamFetch(eventFetch ?? globalThis.fetch)
+  const eventApi = createApiForServer({ server: server.http, fetch: streamFetch })
   const eventSdk = createSdkForServer({
     signal: abort.signal,
-    fetch: eventFetch,
+    fetch: streamFetch,
     server: server.http,
   })
   const protocol = detectServerProtocol(server.http, platform.fetch ?? globalThis.fetch)
@@ -289,16 +304,19 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
       // oxlint-disable-next-line no-unmodified-loop-condition -- `started` is set to false by stop() which also aborts; both flags are checked to allow graceful exit
       while (!abort.signal.aborted && started && generation === active) {
         attempt = new AbortController()
+        const connection = attempt
+        const connectTimeout = setTimeout(() => connection.abort(), EVENT_CONNECT_TIMEOUT_MS)
         const onAbort = () => {
-          attempt?.abort()
+          connection.abort()
         }
         abort.signal.addEventListener("abort", onAbort)
         try {
-          const kind = await protocol
+          const capabilities = await apiCapabilities
           const events =
-            kind === "v1"
-              ? (await eventSdk.global.event({ signal: attempt.signal })).stream
-              : eventApi.event.subscribe({ signal: attempt.signal })
+            capabilities.event === "global"
+              ? (await eventSdk.global.event({ signal: connection.signal })).stream
+              : eventApi.event.subscribe({ signal: connection.signal })
+          clearTimeout(connectTimeout)
           let yielded = Date.now()
           for await (const event of events) {
             streamErrorLogged = false
@@ -313,7 +331,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             await wait(0)
           }
         } catch (error) {
-          if (!isStreamClosed(error, attempt?.signal) && !streamErrorLogged) {
+          if (!isStreamClosed(error, connection.signal) && !streamErrorLogged) {
             streamErrorLogged = true
             console.error("[global-sdk] event stream failed", {
               url: server.http.url,
@@ -322,8 +340,9 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             })
           }
         } finally {
+          clearTimeout(connectTimeout)
           abort.signal.removeEventListener("abort", onAbort)
-          attempt = undefined
+          if (attempt === connection) attempt = undefined
         }
 
         if (abort.signal.aborted || !started || generation !== active) return

@@ -309,7 +309,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const mode = input.mode()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      if (input.working()) void abort()
       return
     }
 
@@ -317,7 +316,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const currentModel = modelSelection.current()
     const currentAgent = local.agent.current()
     const variant = modelSelection.variant.current()
-    if (!currentModel || !currentAgent) {
+    if (!currentModel) {
+      showToast({
+        title: language.t("workflow.modelSetup.action"),
+        description: language.t("workflow.modelSetup.description"),
+      })
+      return
+    }
+    if (!currentAgent) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),

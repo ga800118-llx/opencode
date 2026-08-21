@@ -95,6 +95,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
     define: {
       "import.meta.env.GUAI_CODE_BUILD_COMMIT": JSON.stringify(process.env.GUAI_CODE_BUILD_COMMIT ?? ""),
     },
+    optimizeDeps: { include: ["@opencode-ai/app > @opencode-ai/session-ui > @shikijs/stream"] },
     plugins: [appPlugin, sentry],
     publicDir: "../../../app/public",
     root: "src/renderer",

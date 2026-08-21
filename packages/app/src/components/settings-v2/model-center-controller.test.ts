@@ -39,6 +39,13 @@ const profile = {
   updatedAt: 2,
 } satisfies ProductProviderProfile
 
+const recoveryProfile = {
+  ...profile,
+  credentialRef: "model-profile:private-one",
+  hasApiKey: false,
+  headers: profile.headers.map((header) => (header.sensitive ? { ...header, hasValue: false } : header)),
+} satisfies ProductProviderProfile
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -99,9 +106,15 @@ describe("createModelProfileFormController", () => {
     expect(form.state.settings).not.toHaveProperty("timeoutMs")
     expect(form.input().settings).not.toHaveProperty("timeoutMs")
 
+    form.setApiKey("temporary-key")
+    form.addHeader({ name: "X-Temporary", value: "temporary-header", sensitive: true })
+    const revision = form.state.credentialInputRevision
     form.setKind("ollama")
     expect(form.state.name).toBe("Ollama")
     expect(form.state.baseURL).toBe("http://127.0.0.1:11434")
+    expect(form.apiKeyValue()).toBe("")
+    expect(form.state.headers).toEqual([])
+    expect(form.state.credentialInputRevision).toBe(revision + 1)
 
     const candidate = {
       id: "lm-studio",
@@ -122,6 +135,7 @@ describe("createModelProfileFormController", () => {
     expect(form.state.mode).toBe("edit")
     expect(form.state.apiKey).toBe("")
     expect(form.state.apiKeyPresent).toBe(true)
+    expect(form.state.credentialRecoveryRequired).toBe(false)
     expect(form.state.headers[1]).toEqual({
       name: "X-Secret",
       value: "",
@@ -137,6 +151,169 @@ describe("createModelProfileFormController", () => {
       headers: { "X-Secret": "replacement-header" },
     })
     expect(JSON.stringify(form.state)).not.toContain("replacement-key")
+  })
+
+  test("requires one-time replacement when saved credentials are unavailable", () => {
+    const { form } = fixture({ profile: recoveryProfile })
+
+    expect(form.state.apiKeyPresent).toBe(false)
+    expect(form.state.credentialRecoveryRequired).toBe(true)
+
+    form.setApiKey("replacement-key")
+    expect(form.state.credentialRecoveryRequired).toBe(false)
+    form.setApiKey("")
+    expect(form.state.credentialRecoveryRequired).toBe(true)
+
+    form.setHeader(1, { value: "replacement-header" })
+    expect(form.state.credentialRecoveryRequired).toBe(false)
+    form.setHeader(1, { value: "" })
+    expect(form.state.credentialRecoveryRequired).toBe(true)
+
+    form.setApiKey("replacement-key")
+    form.setHeader(1, { value: "replacement-header" })
+    form.setApiKey("")
+    expect(form.state.credentialRecoveryRequired).toBe(false)
+
+    form.setHeader(1, { value: "" })
+    expect(form.state.credentialRecoveryRequired).toBe(true)
+    expect(JSON.stringify(form.state)).not.toContain("replacement-key")
+    expect(JSON.stringify(form.state)).not.toContain("replacement-header")
+  })
+
+  test("requires a replacement credential before saving a recovery profile", () => {
+    const { form } = fixture({ profile: recoveryProfile })
+
+    expect(form.state.models).toHaveLength(1)
+    expect(form.canSave()).toBe(false)
+
+    form.setApiKey("replacement-key")
+    expect(form.canSave()).toBe(true)
+
+    form.setApiKey("")
+    expect(form.canSave()).toBe(false)
+
+    form.setHeader(1, { value: "replacement-header" })
+    expect(form.canSave()).toBe(true)
+  })
+
+  test("does not accept an unnamed sensitive header as a recovery replacement", () => {
+    const { form } = fixture({ profile: recoveryProfile })
+
+    form.addHeader({ value: "replacement-header", sensitive: true })
+    expect(form.state.credentialRecoveryRequired).toBe(true)
+    expect(form.canSave()).toBe(false)
+    expect(form.input()).not.toHaveProperty("credentials")
+
+    form.setHeader(2, { name: "X-Replacement" })
+    expect(form.state.credentialRecoveryRequired).toBe(false)
+    expect(form.canSave()).toBe(true)
+    expect(form.input().credentials).toEqual({ headers: { "X-Replacement": "replacement-header" } })
+  })
+
+  test("drops cleared sensitive replacements from profile and discovery inputs", async () => {
+    let discoveryHasCredentials = false
+    const { form } = fixture({
+      profile: recoveryProfile,
+      discover: async (input) => {
+        discoveryHasCredentials = Boolean(input.draft?.credentials)
+        return { models: [], requestID: "req-cleared-header" }
+      },
+    })
+
+    form.setHeader(1, { value: "replacement-header" })
+    expect(form.state.headers[1]?.hasValue).toBe(true)
+    form.setHeader(1, { value: "" })
+
+    expect(form.headerValue(1)).toBe("")
+    expect(form.state.headers[1]?.hasValue).toBe(false)
+    expect(form.input()).not.toHaveProperty("credentials")
+    expect(form.input().headers[1]?.hasValue).toBe(false)
+
+    await form.discover()
+    expect(discoveryHasCredentials).toBe(false)
+  })
+
+  test("restores persisted sensitive flags and does not reuse them after a header rename", () => {
+    const savedHeaderProfile = {
+      ...profile,
+      credentialRef: "model-profile:private-one",
+      hasApiKey: false,
+    } satisfies ProductProviderProfile
+    const { form } = fixture({ profile: savedHeaderProfile })
+
+    form.setHeader(1, { value: "replacement-header" })
+    form.setHeader(1, { value: "" })
+    expect(form.state.headers[1]?.hasValue).toBe(true)
+    expect(form.input()).not.toHaveProperty("credentials")
+
+    form.setHeader(1, { name: "X-Renamed" })
+    expect(form.state.headers[1]?.hasValue).toBe(false)
+    expect(form.input().headers[1]).toMatchObject({ name: "X-Renamed", sensitive: true, hasValue: false })
+
+    form.setHeader(1, { name: "X-Secret" })
+    expect(form.state.headers[1]?.hasValue).toBe(true)
+  })
+
+  test("adopts saved credential flags and clears transient replacements", async () => {
+    const saved = fixture({ profile: recoveryProfile })
+    saved.form.setApiKey("replacement-key")
+    saved.form.setHeader(1, { value: "replacement-header" })
+    const revision = saved.form.state.credentialInputRevision
+
+    const pending = saved.form.save()
+    saved.resolveSave()
+    await pending
+
+    expect(saved.form.apiKeyValue()).toBe("")
+    expect(saved.form.headerValue(1)).toBe("")
+    expect(saved.form.state.apiKeyPresent).toBe(true)
+    expect(saved.form.state.headers[1]?.hasValue).toBe(true)
+    expect(saved.form.state.credentialRecoveryRequired).toBe(false)
+    expect(saved.form.state.credentialInputRevision).toBe(revision + 1)
+    expect(saved.form.input()).not.toHaveProperty("credentials")
+  })
+
+  test("does not request recovery when any saved credential remains available", () => {
+    const keyProfile = {
+      ...profile,
+      credentialRef: "model-profile:private-one",
+      headers: profile.headers.map((header) =>
+        header.sensitive ? { ...header, hasValue: false } : header,
+      ),
+    } satisfies ProductProviderProfile
+    const headerProfile = {
+      ...profile,
+      credentialRef: "model-profile:private-one",
+      hasApiKey: false,
+    } satisfies ProductProviderProfile
+
+    expect(fixture({ profile: keyProfile }).form.state.credentialRecoveryRequired).toBe(false)
+    expect(fixture({ profile: headerProfile }).form.state.credentialRecoveryRequired).toBe(false)
+  })
+
+  test("clears unsaved credentials before applying a detected local endpoint", () => {
+    const { form } = fixture()
+    form.setApiKey("temporary-key")
+    form.addHeader({ name: "X-Secret", value: "temporary-header", sensitive: true })
+    form.addHeader({ name: "X-Team", value: "desktop", sensitive: false })
+    const revision = form.state.credentialInputRevision
+
+    form.applyLocalCandidate({
+      id: "lm-studio",
+      kind: "lm-studio",
+      name: "LM Studio",
+      baseURL: "http://127.0.0.1:1234/v1",
+      available: true,
+      models: [{ id: "local-coder", name: "Local coder", source: "discovered" }],
+    })
+
+    expect(form.apiKeyValue()).toBe("")
+    expect(form.state.apiKeyPresent).toBe(false)
+    expect(form.state.headers).toEqual([
+      { name: "X-Team", value: "desktop", sensitive: false, hasValue: true },
+    ])
+    expect(form.state.credentialInputRevision).toBe(revision + 1)
+    expect(form.input()).not.toHaveProperty("credentials")
   })
 
   test("only restores capability information for the initially selected model", () => {
@@ -842,6 +1019,9 @@ describe("createModelProfileFormController", () => {
       expect(form.state.error).not.toContain("sk-private")
       expect(form.state.profileID).toBe(profile.id)
       expect(form.state.mode).toBe("edit")
+      expect(form.apiKeyValue()).toBe("")
+      expect(form.state.apiKeyPresent).toBe(true)
+      expect(form.input()).not.toHaveProperty("credentials")
       expect(form.canSelectDefault()).toBe(true)
       expect(saves[0]).not.toHaveProperty("id")
       expect(stored).toHaveLength(1)

@@ -15,7 +15,6 @@ import { MODEL_PROBE_TIMEOUT_MS, type ModelProbe, type ModelProbeTarget } from "
 import { createProfileRepository } from "./profiles"
 import { createProductRuntimeConfigCoordinator } from "./runtime-config"
 import { createModelCenterService } from "./service"
-import { SYSTEM_MODEL_IDS, SYSTEM_PROVIDER_ID } from "./system-models"
 
 const temporaryDirectories: string[] = []
 
@@ -64,6 +63,8 @@ function fixture(
     randomUUID: () => `profile-${++uuid}`,
   })
   const credentialValues = new Map<string, ProductCredentialEnvelope>()
+  let credentialReadFailure = false
+  let credentialHasFailure = false
   const credentials: ProductCredentialService = {
     capabilities: () => ({
       namespace: "dev.agent.desktop.credentials",
@@ -71,8 +72,11 @@ function fixture(
       available: true,
       operations: { read: true, write: true, delete: true },
     }),
-    has: (reference) => credentialValues.has(reference),
-    read: (reference) => credentialValues.get(reference),
+    has: (reference) => !credentialHasFailure && credentialValues.has(reference),
+    read: (reference) => {
+      if (credentialReadFailure) throw new Error("credential backend changed")
+      return credentialValues.get(reference)
+    },
     write(reference, value) {
       if (input.failCredentialWrite) throw new Error("raw credential write failure")
       credentialValues.set(reference, value)
@@ -128,6 +132,8 @@ function fixture(
     targets,
     candidates,
     reloads: () => reloads,
+    failCredentialReads: (value = true) => (credentialReadFailure = value),
+    hideStoredCredentials: (value = true) => (credentialHasFailure = value),
     failNextProfileWrite: (error = new Error("profile store unavailable")) => (profileWriteFailure = error),
   }
 }
@@ -226,6 +232,155 @@ describe("createModelCenterService", () => {
     expect(headerChanged.test).toBeUndefined()
   })
 
+  test("allows an unavailable stored credential to be replaced explicitly", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    fake.failCredentialReads()
+
+    const replacement = { ...draft, id: profile.id, credentials: { apiKey: "sk-replacement" } }
+    expect((await fake.service.discover({ draft: replacement })).models).toHaveLength(1)
+    const saved = await fake.service.save(replacement)
+
+    fake.failCredentialReads(false)
+    expect(saved.hasApiKey).toBe(true)
+    expect(fake.credentialValues.get(profile.credentialRef!)?.apiKey).toBe("sk-replacement")
+  })
+
+  test.each([
+    ["empty API key", { apiKey: "" }],
+    ["empty sensitive header", { headers: { "X-Secret": "" } }],
+    ["null API key", { apiKey: null }],
+    ["null sensitive header", { headers: { "X-Secret": null } }],
+  ] as const)("rejects an unavailable stored credential when given %s", async (_name, credentials) => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    fake.failCredentialReads()
+    const replacement = { ...draft, id: profile.id, credentials }
+
+    await expect(fake.service.discover({ draft: replacement })).rejects.toThrow(
+      "The saved model credentials are unavailable.",
+    )
+    await expect(fake.service.save(replacement)).rejects.toThrow("The saved model credentials are unavailable.")
+  })
+
+  test("rejects missing stored credentials when profile metadata still requires them", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    const metadata = fake.profiles.get(profile.id)
+    const targets = fake.targets.length
+    fake.hideStoredCredentials()
+
+    await expect(fake.service.discover({ profileID: profile.id })).rejects.toThrow(
+      "The saved model credentials are unavailable.",
+    )
+    expect(fake.targets).toHaveLength(targets)
+
+    for (const credentials of [
+      undefined,
+      { apiKey: "" },
+      { apiKey: null },
+      { headers: { "X-Secret": "" } },
+      { headers: { "X-Secret": null } },
+    ] as const) {
+      const replacement = { ...draft, id: profile.id, credentials }
+      await expect(fake.service.discover({ draft: replacement })).rejects.toThrow(
+        "The saved model credentials are unavailable.",
+      )
+      expect(fake.targets).toHaveLength(targets)
+      await expect(fake.service.save(replacement)).rejects.toThrow(
+        "The saved model credentials are unavailable.",
+      )
+      expect(fake.profiles.get(profile.id)).toEqual(metadata)
+    }
+    expect(fake.credentialValues.get(profile.credentialRef!)).toEqual(draft.credentials)
+  })
+
+  test("replaces missing stored credentials with a valid non-empty envelope", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    fake.hideStoredCredentials()
+    const replacement = {
+      ...draft,
+      id: profile.id,
+      credentials: { apiKey: "sk-replacement", headers: { "X-Secret": "Bearer replacement" } },
+    }
+
+    expect((await fake.service.discover({ draft: replacement })).models).toHaveLength(1)
+    expect(fake.targets.at(-1)).toMatchObject({
+      apiKey: "sk-replacement",
+      headers: { "X-Tenant": "alpha", "X-Secret": "Bearer replacement" },
+    })
+    const saved = await fake.service.save(replacement)
+
+    fake.hideStoredCredentials(false)
+    expect(saved.hasApiKey).toBe(true)
+    expect(saved.headers[1]?.hasValue).toBe(true)
+    expect(fake.credentialValues.get(profile.credentialRef!)).toEqual(replacement.credentials)
+  })
+
+  test.each([
+    ["unrelated header", { headers: { "X-Unrelated": "Bearer unrelated" } }],
+    ["declared non-sensitive header", { headers: { "X-Tenant": "Bearer tenant" } }],
+  ] as const)("rejects a missing stored credential when replacement uses %s", async (_name, credentials) => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    const metadata = fake.profiles.get(profile.id)
+    const targets = fake.targets.length
+    fake.hideStoredCredentials()
+    const replacement = { ...draft, id: profile.id, credentials }
+
+    await expect(fake.service.discover({ draft: replacement })).rejects.toThrow(
+      "The saved model credentials are unavailable.",
+    )
+    expect(fake.targets).toHaveLength(targets)
+    await expect(fake.service.save(replacement)).rejects.toThrow("The saved model credentials are unavailable.")
+    expect(fake.profiles.get(profile.id)).toEqual(metadata)
+    expect(fake.credentialValues.get(profile.credentialRef!)).toEqual(draft.credentials)
+  })
+
+  test("matches a declared sensitive replacement header case-insensitively", async () => {
+    const fake = fixture()
+    const profile = await fake.service.save(draft)
+    fake.hideStoredCredentials()
+    const replacement = {
+      ...draft,
+      id: profile.id,
+      credentials: { headers: { "x-secret": "Bearer replacement" } },
+    }
+
+    expect((await fake.service.discover({ draft: replacement })).models).toHaveLength(1)
+    expect(fake.targets.at(-1)).toMatchObject({
+      headers: { "X-Tenant": "alpha", "X-Secret": "Bearer replacement" },
+    })
+    const saved = await fake.service.save(replacement)
+
+    fake.hideStoredCredentials(false)
+    expect(saved.hasApiKey).toBe(false)
+    expect(saved.headers[1]?.hasValue).toBe(true)
+    expect(fake.credentialValues.get(profile.credentialRef!)).toEqual({
+      headers: { "X-Secret": "Bearer replacement" },
+    })
+  })
+
+  test("allows profiles that do not require credentials when storage has no matching entry", async () => {
+    const fake = fixture()
+    const publicDraft = {
+      ...draft,
+      headers: draft.headers.map((header) =>
+        header.sensitive ? { ...header, hasValue: false } : header,
+      ),
+      credentials: undefined,
+    }
+    const profile = await fake.service.save(publicDraft)
+    fake.hideStoredCredentials()
+
+    expect((await fake.service.discover({ profileID: profile.id })).models).toHaveLength(1)
+    await expect(fake.service.save({ ...publicDraft, id: profile.id })).resolves.toMatchObject({
+      id: profile.id,
+      hasApiKey: false,
+    })
+  })
+
   test("supports inline discovery, local detection, default selection, reload, and delete", async () => {
     const fake = fixture()
     const inline = await fake.service.discover({ draft })
@@ -306,7 +461,7 @@ describe("createModelCenterService", () => {
     expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBe(`${profile.providerID}/coder`)
   })
 
-  test("restores an absent default after retrying a failed compensating restart", async () => {
+  test("restores the auto-selected default after retrying a failed compensating restart", async () => {
     const paths = await serviceRuntimePaths()
     let reloadRuntime: () => Promise<void> = async () => undefined
     const fake = fixture({ reloadCredentials: () => reloadRuntime() })
@@ -340,7 +495,7 @@ describe("createModelCenterService", () => {
       `${profile.providerID}/coder`,
       `${profile.providerID}/coder`,
     ])
-    expect(fake.profiles.defaultSelection()).toBeUndefined()
+    expect(fake.profiles.defaultSelection()).toEqual({ profileID: profile.id, modelID: "coder" })
     expect(fake.profiles.get(profile.id)?.defaultModelID).toBe("coder")
     expect(JSON.parse(await readFile(paths.modelConfig, "utf8")).model).toBe(`${profile.providerID}/coder`)
     expect(JSON.parse(await readFile(paths.manifest, "utf8")).selectedModel).toBe(`${profile.providerID}/coder`)
@@ -598,11 +753,11 @@ describe("createModelCenterService", () => {
     expect(fake.profiles.get(tested.id)?.test).toEqual(report)
     const overlay = JSON.parse(await readFile(paths.modelConfig, "utf8"))
     expect(Object.keys(overlay.provider).sort()).toEqual(
-      [SYSTEM_PROVIDER_ID, selected.providerID, saved.providerID, tested.providerID].sort(),
+      [selected.providerID, saved.providerID, tested.providerID].sort(),
     )
     expect(overlay.model).toBe(`${selected.providerID}/coder`)
     expect(JSON.parse(await readFile(paths.manifest, "utf8"))).toMatchObject({
-      counts: { profiles: 3, providers: 4, models: SYSTEM_MODEL_IDS.length + 4 },
+      counts: { profiles: 3, providers: 3, models: 4 },
       selectedModel: `${selected.providerID}/coder`,
     })
     expect(restarts).toBe(3)

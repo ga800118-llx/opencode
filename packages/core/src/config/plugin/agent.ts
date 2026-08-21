@@ -18,8 +18,10 @@ import type { ReadTool } from "../../tool/read"
 import type { EditTool } from "../../tool/edit"
 
 const legacySources = [
-  { pattern: "{agent,agents}/**/*.md", primary: false },
-  { pattern: "{mode,modes}/*.md", primary: true },
+  { directory: "agent", pattern: "**/*.md", primary: false },
+  { directory: "agents", pattern: "**/*.md", primary: false },
+  { directory: "mode", pattern: "*.md", primary: true },
+  { directory: "modes", pattern: "*.md", primary: true },
 ] as const
 const decodeAgent = Schema.decodeUnknownOption(ConfigAgent.Info)
 const decodeLegacyAgent = Schema.decodeUnknownOption(ConfigAgentV1.Info)
@@ -140,7 +142,12 @@ function expandHome(resource: string, home: string) {
 function discover(fs: FSUtil.Interface, directory: string) {
   return Effect.forEach(legacySources, (source) =>
     fs
-      .glob(source.pattern, { cwd: directory, absolute: true, dot: true, symlink: true })
+      .glob(source.pattern, {
+        cwd: path.join(directory, source.directory),
+        absolute: true,
+        dot: true,
+        symlink: true,
+      })
       .pipe(
         Effect.map((files) => files.toSorted().map((filepath) => ({ directory, filepath, primary: source.primary }))),
       ),

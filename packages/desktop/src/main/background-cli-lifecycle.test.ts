@@ -148,6 +148,7 @@ function runtimeEnvironment(token: string) {
     XDG_STATE_HOME: join(root, "state"),
     OPENCODE_DB: join(root, "data", "opencode.db"),
     OPENCODE_CONFIG: join(root, "config", "model-profiles.json"),
+    OPENCODE_DESKTOP_MODEL_CONFIG: join(root, "config", "model-profiles.json"),
     AGENT_PROFILE_PROFILE_ONE_API_KEY: token,
   }
 }
