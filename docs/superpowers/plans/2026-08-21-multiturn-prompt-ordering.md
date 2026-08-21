@@ -16,15 +16,15 @@
 - Modify: `packages/app/src/context/server-session.ts:1470-1520`
 - Test: `packages/app/src/context/server-session.test.ts:1140-1210`
 
-- [ ] **Step 1: Add a failing streaming-order test**
+- [x] **Step 1: Add a failing streaming-order test**
 
 Create an existing user turn, add a second optimistic user, then apply a V2 assistant step and text event. Assert that `session_message` keeps the optimistic user before the assistant and that the normalized assistant parent is the optimistic user ID.
 
-- [ ] **Step 2: Add a failing rollback test**
+- [x] **Step 2: Add a failing rollback test**
 
 Add an optimistic user and remove it before any confirmation event. Assert that the user is removed from `message`, `part`, and `session_message`.
 
-- [ ] **Step 3: Run the focused test**
+- [x] **Step 3: Run the focused test**
 
 Run from `packages/app`:
 
@@ -34,13 +34,13 @@ bun test --conditions=solid --only-failures --preload ./happydom.ts ./src/contex
 
 Expected: the new source-order and rollback assertions fail.
 
-- [ ] **Step 4: Project and roll back the optimistic source entry**
+- [x] **Step 4: Project and roll back the optimistic source entry**
 
 In `optimistic.add`, convert `{ info: input.message, parts }` through `legacyMessageSource` and merge it into `data.session_message[input.sessionID]`.
 
 In `optimistic.remove`, remove the matching source entry only when `item.confirmedMessage` is false. Preserve confirmed source entries exactly as confirmed normalized messages are preserved today.
 
-- [ ] **Step 5: Run the focused session tests**
+- [x] **Step 5: Run the focused session tests**
 
 Expected: all `server-session.test.ts` tests pass.
 
@@ -50,11 +50,11 @@ Expected: all `server-session.test.ts` tests pass.
 - Modify: `packages/app/src/components/prompt-input/submit.ts:296-318`
 - Test: `packages/app/src/components/prompt-input/submit.test.ts:380-440`
 
-- [ ] **Step 1: Add a failing duplicate-submit test**
+- [x] **Step 1: Add a failing duplicate-submit test**
 
 Set the prompt to an empty text part and `working: () => true`. Call `handleSubmit` and assert that `interruptInputs` remains empty.
 
-- [ ] **Step 2: Run the focused submit test**
+- [x] **Step 2: Run the focused submit test**
 
 Run from `packages/app`:
 
@@ -64,11 +64,11 @@ bun test --conditions=solid --only-failures --preload ./happydom.ts ./src/compon
 
 Expected: the new test fails because `handleSubmit` calls `abort()`.
 
-- [ ] **Step 3: Remove implicit stop from the blank-submit branch**
+- [x] **Step 3: Remove implicit stop from the blank-submit branch**
 
 Change the blank branch to return without checking `input.working()`. Do not change `abort`, the stop button, `Escape`, or `Ctrl+G` handling.
 
-- [ ] **Step 4: Run the focused submit tests**
+- [x] **Step 4: Run the focused submit tests**
 
 Expected: all `submit.test.ts` tests pass.
 
@@ -79,7 +79,7 @@ Expected: all `submit.test.ts` tests pass.
 - Verify: `packages/app/src/components/prompt-input/submit.ts`
 - Verify: their focused tests
 
-- [ ] **Step 1: Run combined affected tests**
+- [x] **Step 1: Run combined affected tests**
 
 ```bash
 bun test --conditions=solid --only-failures --preload ./happydom.ts ./src/context/server-session.test.ts ./src/components/prompt-input/submit.test.ts ./src/pages/session/timeline/rows-current.test.ts
@@ -87,7 +87,7 @@ bun test --conditions=solid --only-failures --preload ./happydom.ts ./src/contex
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Type-check the application**
+- [x] **Step 2: Type-check the application**
 
 ```bash
 bun typecheck
@@ -95,7 +95,7 @@ bun typecheck
 
 Expected: exit code 0.
 
-- [ ] **Step 3: Check the scoped diff**
+- [x] **Step 3: Check the scoped diff**
 
 ```bash
 git diff --check -- packages/app/src/context/server-session.ts packages/app/src/context/server-session.test.ts packages/app/src/components/prompt-input/submit.ts packages/app/src/components/prompt-input/submit.test.ts
@@ -103,6 +103,6 @@ git diff --check -- packages/app/src/context/server-session.ts packages/app/src/
 
 Expected: no whitespace errors.
 
-- [ ] **Step 4: Test three real turns**
+- [x] **Step 4: Test three real turns**
 
 Restart the development app, create a new task, and send three short prompts with Enter. During each stream, verify the user row is already above the assistant row. Confirm all three executions produce assistant messages and no `session.execution.interrupted` event occurs without an explicit stop action.
