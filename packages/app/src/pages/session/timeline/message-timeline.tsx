@@ -79,6 +79,7 @@ import { createTimelineProjection } from "./projection"
 import { MessageComment, SummaryDiff, TimelineRow, TimelineRowMap } from "./rows"
 import { filterVirtualIndexes } from "./virtual-items"
 import { projectActivity } from "./activity-watchdog"
+import { calculateTurnDuration } from "./model"
 
 const emptyMessages: MessageType[] = []
 const emptyParts: PartType[] = []
@@ -995,18 +996,14 @@ export function MessageTimeline(props: {
   const turnDurationMs = (userMessageID: string) => {
     const message = messageByID().get(userMessageID)
     if (!message || message.role !== "user") return
-    const end = (assistantMessagesByParent().get(userMessageID) ?? emptyAssistantMessages).reduce<number | undefined>(
-      (max, item) => {
-        const completed = item.time.completed
-        if (typeof completed !== "number") return max
-        if (max === undefined) return completed
-        return Math.max(max, completed)
-      },
-      undefined,
-    )
-    if (typeof end === "number" && end >= message.time.created) return end - message.time.created
-    if (!workingTurn(userMessageID)) return
-    return Math.max(0, clock() - message.time.created)
+    return calculateTurnDuration({
+      created: message.time.created,
+      completed: (assistantMessagesByParent().get(userMessageID) ?? emptyAssistantMessages).map(
+        (item) => item.time.completed,
+      ),
+      working: workingTurn(userMessageID),
+      now: clock(),
+    })
   }
 
   const durationNumberFormat = createMemo(() => new Intl.NumberFormat(language.intl()))

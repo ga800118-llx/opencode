@@ -1,11 +1,44 @@
 import { describe, expect, test } from "bun:test"
 import type { AssistantMessage, Message, UserMessage } from "@opencode-ai/sdk/v2"
-import { isTimelineReady, loadOlderTimeline, selectUserMessages, selectVisibleUserMessages } from "./model"
+import {
+  calculateTurnDuration,
+  isTimelineReady,
+  loadOlderTimeline,
+  selectUserMessages,
+  selectVisibleUserMessages,
+} from "./model"
 
 const user = (id: string) => ({ id, role: "user" }) as UserMessage
 const assistant = (id: string) => ({ id, role: "assistant" }) as AssistantMessage
 
 describe("timeline model", () => {
+  test("keeps a working turn moving past intermediate assistant completions", () => {
+    expect(
+      calculateTurnDuration({
+        created: 1_000,
+        completed: [3_000],
+        working: true,
+        now: 9_000,
+      }),
+    ).toBe(8_000)
+  })
+
+  test("freezes an idle turn at the latest assistant completion", () => {
+    expect(
+      calculateTurnDuration({
+        created: 1_000,
+        completed: [3_000, undefined, 7_000],
+        working: false,
+        now: 9_000,
+      }),
+    ).toBe(6_000)
+  })
+
+  test("ignores invalid idle completion timestamps", () => {
+    expect(calculateTurnDuration({ created: 2_000, completed: [], working: false, now: 9_000 })).toBeUndefined()
+    expect(calculateTurnDuration({ created: 2_000, completed: [1_000], working: false, now: 9_000 })).toBeUndefined()
+  })
+
   test("selects users and applies the revert boundary", () => {
     const messages: Message[] = [user("msg_1"), assistant("msg_2"), user("msg_3"), user("msg_5")]
     const users = selectUserMessages(messages)

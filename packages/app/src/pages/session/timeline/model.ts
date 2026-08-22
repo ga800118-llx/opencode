@@ -7,6 +7,20 @@ import { same } from "@/utils/same"
 const emptyUserMessages: UserMessage[] = []
 const sessionFreshness = 15_000
 
+export function calculateTurnDuration(input: {
+  created: number
+  completed: readonly (number | undefined)[]
+  working: boolean
+  now: number
+}) {
+  if (input.working) return Math.max(0, input.now - input.created)
+  const completed = input.completed.filter((value): value is number => typeof value === "number")
+  if (completed.length === 0) return
+  const end = Math.max(...completed)
+  if (end < input.created) return
+  return end - input.created
+}
+
 export function createTimelineModel(input: {
   sessionID: Accessor<string | undefined>
   revertMessageID: Accessor<string | undefined>
