@@ -18,12 +18,12 @@
 - Modify: `packages/app/src/context/permission.tsx`
 - Modify: `packages/app/src/context/permission-mode.test.ts`
 
-- [ ] Add a failing compatibility test that switches permission mode against V2 and expects `/api/session/ses_1/permission-mode` with `{ "mode": "auto" }`.
-- [ ] Route V2 `switchPermissionMode` through `legacy().v2.session.switchPermissionMode` in the compatibility adapter.
-- [ ] Remove the permission context's runtime method assertion and call the compatible API directly.
-- [ ] Add a failing state test proving a rejected existing-task switch restores the previous project default and does not answer pending permissions.
-- [ ] Implement guarded rollback only for the latest failed switch.
-- [ ] Run `bun test --conditions=solid --preload ./happydom.ts ./src/utils/server-compat.test.ts ./src/context/permission-mode.test.ts` from `packages/app`.
+- [x] Add a failing compatibility test that switches permission mode against V2 and expects `/api/session/ses_1/permission-mode` with `{ "mode": "auto" }`.
+- [x] Route V2 `switchPermissionMode` through `legacy().v2.session.switchPermissionMode` in the compatibility adapter.
+- [x] Remove the permission context's runtime method assertion and call the compatible API directly.
+- [x] Add a failing state test proving a rejected existing-task switch restores the previous project default and does not answer pending permissions.
+- [x] Implement guarded rollback only for the latest failed switch.
+- [x] Run `bun test --conditions=solid --preload ./happydom.ts ./src/utils/server-compat.test.ts ./src/context/permission-mode.test.ts` from `packages/app`.
 
 ### Task 2: Keep Active Turn Time Moving
 
@@ -32,10 +32,10 @@
 - Modify: `packages/app/src/pages/session/timeline/model.test.ts`
 - Modify: `packages/app/src/pages/session/timeline/message-timeline.tsx`
 
-- [ ] Add failing pure tests for a working turn with an intermediate completed assistant message and for an idle completed turn.
-- [ ] Add a pure `calculateTurnDuration` function that uses the live clock while working and the latest completion only after idle.
-- [ ] Replace the inline duration reduction in the timeline component with the tested function.
-- [ ] Run `bun test --conditions=solid --preload ./happydom.ts ./src/pages/session/timeline/model.test.ts` from `packages/app`.
+- [x] Add failing pure tests for a working turn with an intermediate completed assistant message and for an idle completed turn.
+- [x] Add a pure `calculateTurnDuration` function that uses the live clock while working and the latest completion only after idle.
+- [x] Replace the inline duration reduction in the timeline component with the tested function.
+- [x] Run `bun test --conditions=solid --preload ./happydom.ts ./src/pages/session/timeline/model.test.ts` from `packages/app`.
 
 ### Task 3: Guarantee A Post-Mutation Model Refresh
 
@@ -44,10 +44,10 @@
 - Modify: `packages/app/src/context/server-sync.test.ts`
 - Modify: `packages/app/src/components/settings-v2/model-center.tsx`
 
-- [ ] Add failing controller tests proving `fresh: true` starts one trailing run behind an active refresh and concurrent fresh requests share it.
-- [ ] Implement a trailing refresh queue that runs after the active request settles, including after an earlier failure.
-- [ ] Make Model Center runtime refreshes request `fresh: true`.
-- [ ] Run `bun test --conditions=solid --preload ./happydom.ts ./src/context/server-sync.test.ts` from `packages/app`.
+- [x] Add failing controller tests proving `fresh: true` starts one trailing run behind an active refresh and concurrent fresh requests share it.
+- [x] Implement a trailing refresh queue that runs after the active request settles, including after an earlier failure.
+- [x] Make Model Center runtime refreshes request `fresh: true`.
+- [x] Run `bun test --conditions=solid --preload ./happydom.ts ./src/context/server-sync.test.ts` from `packages/app`.
 
 ### Task 4: Verify The Combined Repair
 
@@ -55,8 +55,8 @@
 - Verify all files modified in Tasks 1-3.
 - Update: `docs/product/internal-beta-issues.md`
 
-- [ ] Run all focused application tests from Tasks 1-3 together.
-- [ ] Run `bun typecheck` from `packages/app`.
-- [ ] Run the focused permission endpoint and persistence tests from `packages/opencode`.
-- [ ] Run `git diff --check` and inspect the final diff for unrelated changes.
-- [ ] Mark the recorded permission issue fixed and add the model-refresh and timer issues with their verification status.
+- [x] Run all focused application tests from Tasks 1-3 together.
+- [x] Run `bun typecheck` from `packages/app`.
+- [x] Run the focused permission endpoint and persistence tests from `packages/opencode`.
+- [x] Run `git diff --check` and inspect the final diff for unrelated changes.
+- [x] Mark the recorded permission issue fixed and add the model-refresh and timer issues with their verification status.
