@@ -264,6 +264,14 @@ describe("createCompatibleApi", () => {
     expect(await requests[0]!.json()).toEqual({ mode: "restricted" })
   })
 
+  test("routes V2 permission mode switches through the generated SDK", async () => {
+    const { api, requests } = setup("v2")
+    await api.session.switchPermissionMode({ sessionID: "ses_1", mode: "auto" })
+
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/permission-mode")
+    expect(await requests[0]!.json()).toEqual({ mode: "auto" })
+  })
+
   test("preserves the operation ID when running a V1 shell command", async () => {
     const { api, requests } = setup("v1")
     await api.session.shell({

@@ -40,10 +40,6 @@ type PermissionRespondFn = (input: {
   directory?: string
 }) => void
 
-type PermissionModeSessionApi = {
-  switchPermissionMode(input: { sessionID: string; mode: Permission.Mode }): Promise<unknown>
-}
-
 function isNonAllowRule(rule: unknown) {
   if (!rule) return false
   if (typeof rule === "string") return rule !== "allow"
@@ -317,6 +313,7 @@ export function createServerPermissionState(
   const enableVersion = new Map<string, number>()
   const modeSwitch = new Map<string, number>()
   const modeQueue = new Map<string, Promise<void>>()
+  const projectModeVersion = new Map<string, number>()
   const meta = { disposed: false }
 
   function pruneResponded(now: number) {
@@ -514,7 +511,11 @@ export function createServerPermissionState(
 
   function setMode(value: { sessionID?: string; directory: string; mode: Permission.Mode }) {
     if (meta.disposed) return Promise.resolve()
-    setStore("mode", directoryAcceptKey(value.directory), value.mode)
+    const projectKey = directoryAcceptKey(value.directory)
+    const previousProjectMode = projectMode(value.directory)
+    const projectVersion = (projectModeVersion.get(projectKey) ?? 0) + 1
+    projectModeVersion.set(projectKey, projectVersion)
+    setStore("mode", projectKey, value.mode)
     if (!value.sessionID || !supportsModes()) return Promise.resolve()
 
     const sessionID = value.sessionID
@@ -525,7 +526,7 @@ export function createServerPermissionState(
       .catch(() => undefined)
       .then(async () => {
         if (meta.disposed) return
-        await (input.sdk.api.session as typeof input.sdk.api.session & PermissionModeSessionApi).switchPermissionMode({
+        await input.sdk.api.session.switchPermissionMode({
           sessionID,
           mode: value.mode,
         })
@@ -550,6 +551,9 @@ export function createServerPermissionState(
         (error: unknown) => {
           if (modeSwitch.get(sessionID) !== version) throw error
           modeSwitch.delete(sessionID)
+          if (projectModeVersion.get(projectKey) === projectVersion && projectMode(value.directory) === value.mode) {
+            setStore("mode", projectKey, previousProjectMode)
+          }
           if (!meta.disposed && mode(sessionID, value.directory) === "auto") {
             void respondPendingForMode(sessionID, value.directory, key, enableVersion.get(key) ?? version)
           }

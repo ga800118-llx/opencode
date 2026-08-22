@@ -111,7 +111,7 @@ describe("V2 permission mode state", () => {
     expect(harness.state.mode("session", "/project")).toBe("auto")
   })
 
-  test("keeps the confirmed task mode after an API failure", async () => {
+  test("restores the project default and keeps the confirmed task mode after an API failure", async () => {
     const harness = setup({
       permissionMode: "restricted",
       switchMode: () => Promise.reject(new Error("switch failed")),
@@ -122,6 +122,7 @@ describe("V2 permission mode state", () => {
     expect(harness.state.projectMode("/project")).toBe("auto")
     expect(harness.state.mode("session", "/project")).toBe("restricted")
     await expect(changing).rejects.toThrow("switch failed")
+    expect(harness.state.projectMode("/project")).toBe("standard")
     expect(harness.state.mode("session", "/project")).toBe("restricted")
   })
 
@@ -211,6 +212,7 @@ describe("V2 permission mode state", () => {
     await expect(auto).rejects.toThrow("latest switch failed")
     await Bun.sleep(0)
 
+    expect(harness.state.projectMode("/project")).toBe("restricted")
     expect(harness.state.mode("session", "/project")).toBe("restricted")
     expect(harness.replies).toEqual([])
   })

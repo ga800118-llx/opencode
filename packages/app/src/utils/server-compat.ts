@@ -102,7 +102,7 @@ export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   return lazyApi(
     routing.then(([protocol, routing]) => {
       if (protocol === "v1") return v1
-      const v2 = createV2Api(current)
+      const v2 = createV2Api(current, input.legacy)
       return {
         ...v2,
         project: routing.project === "v1" ? v1.project : current.project,
@@ -113,11 +113,17 @@ export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   )
 }
 
-function createV2Api(current: CompatibleApi): CompatibleApi {
+function createV2Api(current: CompatibleApi, sdkFor: LegacyFor): CompatibleApi {
   return {
     ...current,
     session: {
       ...current.session,
+      async switchPermissionMode(value) {
+        await sdkFor().v2.session.switchPermissionMode({
+          sessionID: value.sessionID,
+          mode: value.mode,
+        })
+      },
       async prompt(value) {
         if (value.agent) {
           await current.session.switchAgent({ sessionID: value.sessionID, agent: value.agent })
