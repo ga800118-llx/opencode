@@ -305,6 +305,7 @@ export function createRuntimeRefreshController(input: {
   readonly session: RuntimeRefreshSession
 }) {
   let inflight: Promise<void> | undefined
+  let trailing: { after: Promise<void>; request: Promise<void> } | undefined
 
   const run = async () => {
     const rendererNonIdle = Object.entries(input.session.data.session_status)
@@ -381,13 +382,29 @@ export function createRuntimeRefreshController(input: {
     if (failedResolution?.status === "rejected") throw failedResolution.reason
   }
 
+  const start = () => {
+    const request = run().finally(() => {
+      if (inflight !== request || trailing?.after === request) return
+      inflight = undefined
+    })
+    inflight = request
+    return request
+  }
+
   return {
-    refreshRuntime() {
-      if (inflight) return inflight
-      const request = run().finally(() => {
-        if (inflight === request) inflight = undefined
-      })
-      inflight = request
+    refreshRuntime(options: { readonly fresh?: boolean } = {}) {
+      if (!inflight) return start()
+      if (!options.fresh) return inflight
+      if (trailing?.after === inflight) return trailing.request
+
+      const active = inflight
+      const request = active
+        .catch(() => undefined)
+        .then(start)
+        .finally(() => {
+          if (trailing?.request === request) trailing = undefined
+        })
+      trailing = { after: active, request }
       return request
     },
     isRefreshing: () => inflight !== undefined,

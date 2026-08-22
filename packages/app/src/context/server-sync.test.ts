@@ -529,6 +529,48 @@ describe("active session query", () => {
     expect(calls).toBe(2)
   })
 
+  test("runs one fresh refresh after an active refresh settles", async () => {
+    const requests = [deferred<ActiveSessionStatuses>(), deferred<ActiveSessionStatuses>()]
+    let calls = 0
+    const controller = runtimeController(runtimeSession().session, () => requests[calls++]!.promise)
+
+    const active = controller.refreshRuntime()
+    await Promise.resolve()
+    const fresh = controller.refreshRuntime({ fresh: true })
+    const joined = controller.refreshRuntime({ fresh: true })
+
+    expect(fresh).toBe(joined)
+    expect(calls).toBe(1)
+
+    requests[0]!.resolve({})
+    await active
+    expect(controller.isRefreshing()).toBe(true)
+    await Bun.sleep(0)
+    expect(calls).toBe(2)
+
+    requests[1]!.resolve({})
+    await fresh
+    expect(calls).toBe(2)
+  })
+
+  test("runs a fresh refresh after an overlapping refresh fails", async () => {
+    const requests = [deferred<ActiveSessionStatuses>(), deferred<ActiveSessionStatuses>()]
+    let calls = 0
+    const controller = runtimeController(runtimeSession().session, () => requests[calls++]!.promise)
+
+    const active = controller.refreshRuntime()
+    const failure = active.catch((error: unknown) => error)
+    const fresh = controller.refreshRuntime({ fresh: true })
+
+    requests[0]!.reject(new Error("stale refresh failed"))
+    await Bun.sleep(0)
+    await expect(failure).resolves.toMatchObject({ message: "stale refresh failed" })
+    expect(calls).toBe(2)
+
+    requests[1]!.resolve({})
+    await expect(fresh).resolves.toBeUndefined()
+  })
+
   test("applies active reconciliation before slower runtime refreshes settle", async () => {
     const config = deferred<void>()
     const runtime = runtimeSession()
