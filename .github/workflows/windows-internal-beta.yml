@@ -57,7 +57,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $packagePath = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\package.json"
           $version = [string]((Get-Content -LiteralPath $packagePath -Raw -Encoding utf8 | ConvertFrom-Json).version)
-          if ($version -cne "0.1.0-alpha.4") {
+          if ($version -cne "0.1.0-alpha.5") {
             throw "Unexpected Desktop internal beta version: $version"
           }
           $deliveryDirectory = Join-Path $env:GITHUB_WORKSPACE "packages\desktop\dist\internal-beta\$version\windows-x64"
