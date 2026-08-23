@@ -76,6 +76,10 @@ describe("message file references", () => {
       relativePath: "report.pdf",
       absolutePath: "C:\\report.pdf",
     })
+    expect(resolveMessageFileReference({ path: "output\\report.pdf" }, "C:/project")).toEqual({
+      relativePath: "output/report.pdf",
+      absolutePath: "C:/project/output/report.pdf",
+    })
   })
 
   test("rejects paths outside the active workspace", () => {

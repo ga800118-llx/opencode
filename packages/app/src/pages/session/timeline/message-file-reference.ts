@@ -58,9 +58,9 @@ export function resolveMessageFileReference(reference: MessageFileReference, dir
   const relativePath = normalizeRelativePath(relativeInput)
   if (!relativePath) return
 
-  const separator = windows ? "\\" : "/"
+  const separator = windows && root.includes("\\") ? "\\" : "/"
   const absolutePath = `${root}${root.endsWith(separator) ? "" : separator}${
-    windows ? relativePath.replace(/\//g, "\\") : relativePath
+    windows ? relativePath.replace(/\//g, separator) : relativePath
   }`
   return {
     relativePath,
