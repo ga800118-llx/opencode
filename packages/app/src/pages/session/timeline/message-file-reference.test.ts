@@ -72,6 +72,10 @@ describe("message file references", () => {
       relativePath: "folder/file.bin",
       absolutePath: "\\\\server\\share\\project\\folder\\file.bin",
     })
+    expect(resolveMessageFileReference({ path: "C:\\report.pdf" }, "C:\\")).toEqual({
+      relativePath: "report.pdf",
+      absolutePath: "C:\\report.pdf",
+    })
   })
 
   test("rejects paths outside the active workspace", () => {
@@ -79,5 +83,6 @@ describe("message file references", () => {
     expect(resolveMessageFileReference({ path: "/Users/kdtc/project-old/report.pdf" }, "/Users/kdtc/project")).toBeUndefined()
     expect(resolveMessageFileReference({ path: "/etc/passwd" }, "/Users/kdtc/project")).toBeUndefined()
     expect(resolveMessageFileReference({ path: "D:\\other\\file.txt" }, "C:\\work\\repo")).toBeUndefined()
+    expect(resolveMessageFileReference({ path: "C:\\work\\repo-old\\file.txt" }, "C:\\work\\repo")).toBeUndefined()
   })
 })

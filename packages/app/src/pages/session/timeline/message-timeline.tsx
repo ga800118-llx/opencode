@@ -80,6 +80,7 @@ import { MessageComment, SummaryDiff, TimelineRow, TimelineRowMap } from "./rows
 import { filterVirtualIndexes } from "./virtual-items"
 import { projectActivity } from "./activity-watchdog"
 import { calculateTurnDuration } from "./model"
+import { useMessageFileActions } from "./message-file-actions"
 
 const emptyMessages: MessageType[] = []
 const emptyParts: PartType[] = []
@@ -277,6 +278,7 @@ export function MessageTimeline(props: {
   const initialMeasurements = cached?.measurements
   const coldBottomMount = !initialMeasurements?.length && props.shouldAnchorBottom()
   const platform = usePlatform()
+  const fileActions = useMessageFileActions()
   const activityObservedAt = createMemo(on(sessionKey, () => Date.now()))
 
   const [listRoot, setListRoot] = createSignal<HTMLDivElement>()
@@ -1496,6 +1498,7 @@ export function MessageTimeline(props: {
           </button>
         </Show>
       </div>
+      {fileActions.menu()}
       <ScrollView
         viewportRef={bindListRoot}
         onWheel={handleListWheel}
@@ -1507,7 +1510,13 @@ export function MessageTimeline(props: {
         onPointerMove={handleListPointerMove}
         onKeyDown={handleListKeyDown}
         onScroll={handleListScroll}
-        onClick={props.onAutoScrollInteraction}
+        onClick={(event) => {
+          props.onAutoScrollInteraction(event)
+          fileActions.click(event)
+        }}
+        onDblClick={fileActions.doubleClick}
+        onPointerOver={fileActions.hover}
+        onContextMenu={fileActions.contextMenu}
         class="relative min-w-0 w-full h-full"
         style={{
           "--sticky-accordion-top": showHeader() ? "48px" : "0px",

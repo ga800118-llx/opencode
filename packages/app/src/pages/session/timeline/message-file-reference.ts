@@ -41,7 +41,7 @@ export function parseMessageFileReference(href: string) {
 }
 
 export function resolveMessageFileReference(reference: MessageFileReference, directory: string) {
-  const root = directory.replace(/[\\/]+$/, "")
+  const root = trimDirectoryRoot(directory)
   if (!root) return
 
   const windows = windowsDrivePattern.test(root) || windowsUncPattern.test(root)
@@ -59,7 +59,9 @@ export function resolveMessageFileReference(reference: MessageFileReference, dir
   if (!relativePath) return
 
   const separator = windows ? "\\" : "/"
-  const absolutePath = `${root}${separator}${windows ? relativePath.replace(/\//g, "\\") : relativePath}`
+  const absolutePath = `${root}${root.endsWith(separator) ? "" : separator}${
+    windows ? relativePath.replace(/\//g, "\\") : relativePath
+  }`
   return {
     relativePath,
     absolutePath,
@@ -103,8 +105,14 @@ function containedRelativePath(root: string, input: string, windows: boolean) {
   const compareRoot = windows ? root.toLowerCase() : root
   const compareInput = windows ? input.toLowerCase() : input
   if (compareInput === compareRoot) return ""
-  if (!compareInput.startsWith(`${compareRoot}/`)) return
-  return input.slice(root.length + 1)
+  const prefix = compareRoot.endsWith("/") ? compareRoot : `${compareRoot}/`
+  if (!compareInput.startsWith(prefix)) return
+  return input.slice(prefix.length)
+}
+
+function trimDirectoryRoot(input: string) {
+  if (input === "/" || /^[A-Za-z]:[\\/]$/.test(input)) return input
+  return input.replace(/[\\/]+$/, "")
 }
 
 function normalizeRelativePath(input: string) {
