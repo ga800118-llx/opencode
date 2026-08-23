@@ -25,6 +25,26 @@
 }
 
 @layer components {
+  .session-turn-activity-label {
+    animation: session-turn-activity-label-in 160ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .session-turn-activity-label {
+      animation: none;
+    }
+  }
+
+  @keyframes session-turn-activity-label-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
   [data-message-file-reference="true"] {
     cursor: pointer;
     transition: color 120ms ease;

@@ -275,7 +275,11 @@ describe("current session timeline rows", () => {
       normalized.messages.filter((message) => message.role === "user"),
     )
 
-    expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_user", "assistant-process:msg_user"])
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-activity:msg_user",
+    ])
     expect(result.rows[1]).toMatchObject({
       _tag: "AssistantProcess",
       items: [{ type: "part", group: { key: "msg_interrupted:text:0" } }, { type: "interrupted" }],
@@ -386,7 +390,7 @@ describe("current session timeline rows", () => {
     })
   })
 
-  test("does not add a second thinking row when a busy hidden-reasoning turn has process content", () => {
+  test("adds one live activity row after busy hidden-reasoning process content", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
       {
@@ -425,7 +429,11 @@ describe("current session timeline rows", () => {
       normalized.messages.filter((message) => message.role === "user"),
     )
 
-    expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_user", "assistant-process:msg_user"])
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-activity:msg_user",
+    ])
   })
 
   test("derives turns and tagged rows from chronological current messages", () => {
@@ -469,6 +477,7 @@ describe("current session timeline rows", () => {
       "turn-gap:msg_3",
       "user-message:msg_3",
       "assistant-process:msg_3",
+      "assistant-activity:msg_3",
     ])
   })
 
@@ -500,6 +509,95 @@ describe("current session timeline rows", () => {
 
     expect(result.activeMessageID).toBe("msg_shell")
     expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_shell", "assistant-process:msg_shell"])
+  })
+
+  test("keeps one live activity row after a streaming answer and removes it when idle", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "streaming answer" }],
+        time: { created: 2 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+    const construct = (status: "busy" | "idle") =>
+      Timeline.constructSessionMessageRows(
+        source,
+        (messageID) => messages.get(messageID),
+        (messageID) => normalized.parts.get(messageID) ?? [],
+        true,
+        status,
+        true,
+        normalized.messages.filter((message) => message.role === "user"),
+      )
+
+    const busy = construct("busy")
+    expect(busy.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+      "assistant-activity:msg_user",
+    ])
+    expect(busy.rows.at(-1)).toMatchObject({ _tag: "AssistantActivity", userMessageID: "msg_user" })
+
+    expect(construct("idle").rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+    ])
+  })
+
+  test("reports only the most recent pending or running tool in the live activity row", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          {
+            type: "tool",
+            id: "call_shell",
+            name: "shell",
+            state: { status: "running", input: {}, metadata: {} },
+            time: { created: 2, ran: 3 },
+          },
+          {
+            type: "tool",
+            id: "call_todowrite",
+            name: "todowrite",
+            state: { status: "running", input: {}, metadata: {} },
+            time: { created: 4, ran: 5 },
+          },
+          { type: "text", text: "continuing answer" },
+        ],
+        time: { created: 2 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "busy",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "assistant-process:msg_user",
+      "assistant-part:msg_user:msg_assistant:text:0",
+      "assistant-activity:msg_user",
+    ])
+    expect(result.rows.at(-1)).toMatchObject({ _tag: "AssistantActivity", tool: "todowrite" })
   })
 
   test("keeps a projected parent missing from the source page before newer turns", () => {
@@ -574,7 +672,7 @@ describe("current session timeline rows", () => {
       "user-message:msg_1",
       "turn-gap:msg_2",
       "user-message:msg_2",
-      "thinking:msg_2",
+      "assistant-activity:msg_2",
     ])
   })
 })

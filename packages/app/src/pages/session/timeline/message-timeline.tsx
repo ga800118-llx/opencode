@@ -23,6 +23,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Card } from "@opencode-ai/ui/card"
 import {
   ContextToolGroup,
+  getToolInfo,
   Message,
   MessageDivider,
   Part as MessagePart,
@@ -133,10 +134,12 @@ const markBoundaryGesture = (input: {
   }
 }
 
-function TimelineThinkingRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
+function TimelineActivityRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
   return (
     <div data-slot="session-turn-thinking">
-      <TextShimmer text={props.label} />
+      <Show when={props.label} keyed>
+        {(label) => <TextShimmer text={label} class="session-turn-activity-label" />}
+      </Show>
       <Show when={!props.showReasoningSummaries}>
         <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
       </Show>
@@ -1033,6 +1036,11 @@ export function MessageTimeline(props: {
     return label
   }
 
+  const assistantActivityLabel = (tool?: string) => {
+    if (!tool) return language.t("ui.sessionTurn.status.processing")
+    return language.t("ui.sessionTurn.status.callingTool", { tool: getToolInfo(tool).title })
+  }
+
   const assistantCopyPartID = (userMessageID: string) => {
     if (workingTurn(userMessageID)) return null
     const messages = assistantMessagesByParent().get(userMessageID) ?? emptyAssistantMessages
@@ -1325,14 +1333,14 @@ export function MessageTimeline(props: {
           </TimelineRowFrame>
         )
       }
-      case "Thinking": {
-        const thinkingRow = row as Accessor<TimelineRowByTag<"Thinking">>
+      case "AssistantActivity": {
+        const activityRow = row as Accessor<TimelineRowByTag<"AssistantActivity">>
         return (
-          <TimelineRowFrame row={thinkingRow}>
+          <TimelineRowFrame row={activityRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <TimelineThinkingRow
-                label={processLabel(thinkingRow().userMessageID)}
-                reasoningHeading={thinkingRow().reasoningHeading}
+              <TimelineActivityRow
+                label={assistantActivityLabel(activityRow().tool)}
+                reasoningHeading={activityRow().tool ? undefined : activityRow().reasoningHeading}
                 showReasoningSummaries={settings.general.showReasoningSummaries()}
               />
             </div>
