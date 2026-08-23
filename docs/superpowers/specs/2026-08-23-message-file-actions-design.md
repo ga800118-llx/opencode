@@ -21,7 +21,7 @@ The existing file viewer remains authoritative for internal preview. Text, sourc
 
 ### Reference Parsing
 
-Add a pure message-file-reference module under the session timeline. It parses the raw `href` attribute from links inside rendered message Markdown and rejects `http`, `https`, `mailto`, fragments, and unsupported URI schemes.
+Add a pure message-file-reference module under the session timeline. It parses the raw `href` attribute from links and the text of inline code classified by the Markdown renderer as a path, then rejects `http`, `https`, `mailto`, fragments, and unsupported URI schemes.
 
 The parser accepts relative paths, POSIX absolute paths, Windows drive and UNC paths, `file://` URLs, percent-encoded names, Unicode names, spaces, files without extensions, and optional line suffixes. Resolution is lexical and workspace-contained: relative references are resolved below the active session directory, and absolute references are accepted only when they are inside that directory. `..` traversal outside the workspace is rejected.
 
@@ -29,7 +29,7 @@ The parser accepts relative paths, POSIX absolute paths, Windows drive and UNC p
 
 Add a focused SolidJS controller for the message timeline. Event delegation stays on the existing timeline scroll surface so the streaming Markdown renderer and every message part do not need new props or lifecycle work.
 
-The controller will only react when an event target is inside `[data-component="markdown"] a[href]` and the raw link resolves to a workspace file. It will:
+The controller will only react when an event target is inside `[data-component="markdown"] a[href]` or `[data-inline-code-kind="path"]` and the raw reference resolves to a workspace file. It will:
 
 - use `useFile`, `useSessionLayout`, and `createOpenSessionFileTab` for internal tabs;
 - use `platform.openPath` for the default application or a selected installed editor;

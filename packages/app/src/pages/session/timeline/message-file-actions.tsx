@@ -35,10 +35,10 @@ export function createMessageFileActionController(input: MessageFileActionContro
   const resolve = (event: Event, reportInvalid: boolean) => {
     const target = messageFileReferenceFromTarget(event.target, input.directory())
     if (!target) return
-    if (target.resolved) return { anchor: target.anchor, reference: target.reference, resolved: target.resolved }
+    if (target.resolved) return { element: target.element, reference: target.reference, resolved: target.resolved }
     event.preventDefault()
     if (reportInvalid) input.onInvalid?.(target.reference.path)
-    return { anchor: target.anchor, reference: target.reference, invalid: true as const }
+    return { element: target.element, reference: target.reference, invalid: true as const }
   }
 
   const run = (action: Promise<unknown> | undefined) => {
@@ -97,7 +97,7 @@ export function createMessageFileActionController(input: MessageFileActionContro
     hover(event: MouseEvent) {
       const target = resolve(event, false)
       if (!target || "invalid" in target) return false
-      target.anchor.title = target.resolved.absolutePath
+      target.element.title = target.resolved.absolutePath
       return true
     },
     openInternal,

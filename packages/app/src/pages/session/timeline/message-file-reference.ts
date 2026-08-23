@@ -72,14 +72,16 @@ export function resolveMessageFileReference(reference: MessageFileReference, dir
 
 export function messageFileReferenceFromTarget(target: EventTarget | null, directory: string) {
   if (!(target instanceof Element)) return
-  const anchor = target.closest('[data-component="markdown"] a[href]')
-  if (!(anchor instanceof HTMLAnchorElement)) return
+  const element = target.closest(
+    '[data-component="markdown"] a[href], [data-component="markdown"] [data-inline-code-kind="path"]',
+  )
+  if (!(element instanceof HTMLElement)) return
 
-  const href = anchor.getAttribute("href")
-  if (!href) return
-  const reference = parseMessageFileReference(href)
+  const value = element instanceof HTMLAnchorElement ? element.getAttribute("href") : element.textContent
+  if (!value) return
+  const reference = parseMessageFileReference(value)
   if (!reference) return
-  return { anchor, reference, resolved: resolveMessageFileReference(reference, directory) }
+  return { element, reference, resolved: resolveMessageFileReference(reference, directory) }
 }
 
 function pathFromFileURL(input: string) {

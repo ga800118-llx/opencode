@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createMessageFileActionController } from "./message-file-actions"
 
-function target(href: string) {
+function linkTarget(href: string) {
   const markdown = document.createElement("div")
   markdown.dataset.component = "markdown"
   const anchor = document.createElement("a")
@@ -10,6 +10,17 @@ function target(href: string) {
   markdown.appendChild(anchor)
   document.body.appendChild(markdown)
   return anchor
+}
+
+function inlinePathTarget(path: string) {
+  const markdown = document.createElement("div")
+  markdown.dataset.component = "markdown"
+  const code = document.createElement("code")
+  code.dataset.inlineCodeKind = "path"
+  code.textContent = path
+  markdown.appendChild(code)
+  document.body.appendChild(markdown)
+  return code
 }
 
 function mouseEvent(type: string, element: Element) {
@@ -26,14 +37,28 @@ describe("message file actions", () => {
       local: () => true,
       openInternal: (path) => opened.push(path),
     })
-    const fileEvent = mouseEvent("click", target("output/report.pdf"))
-    const webEvent = mouseEvent("click", target("https://example.com/report.pdf"))
+    const fileEvent = mouseEvent("click", linkTarget("output/report.pdf"))
+    const webEvent = mouseEvent("click", linkTarget("https://example.com/report.pdf"))
 
     expect(controller.click(fileEvent)).toBe(true)
     expect(fileEvent.defaultPrevented).toBe(true)
     expect(opened).toEqual(["output/report.pdf"])
     expect(controller.click(webEvent)).toBe(false)
     expect(webEvent.defaultPrevented).toBe(false)
+  })
+
+  test("opens a rendered inline path internally", () => {
+    const opened: string[] = []
+    const controller = createMessageFileActionController({
+      directory: () => "/project",
+      local: () => true,
+      openInternal: (path) => opened.push(path),
+    })
+    const event = mouseEvent("click", inlinePathTarget("软件开发注意事项.md"))
+
+    expect(controller.click(event)).toBe(true)
+    expect(event.defaultPrevented).toBe(true)
+    expect(opened).toEqual(["软件开发注意事项.md"])
   })
 
   test("blocks an escaping path without opening it", () => {
@@ -45,7 +70,7 @@ describe("message file actions", () => {
       openInternal: (path) => opened.push(path),
       onInvalid: (path) => invalid.push(path),
     })
-    const event = mouseEvent("click", target("../secret.txt"))
+    const event = mouseEvent("click", linkTarget("../secret.txt"))
 
     expect(controller.click(event)).toBe(true)
     expect(event.defaultPrevented).toBe(true)
@@ -63,7 +88,7 @@ describe("message file actions", () => {
         opened.push([path, app])
       },
     })
-    const event = mouseEvent("dblclick", target("output/report.pdf"))
+    const event = mouseEvent("dblclick", linkTarget("output/report.pdf"))
 
     expect(controller.doubleClick(event)).toBe(true)
     await Promise.resolve()
@@ -81,7 +106,7 @@ describe("message file actions", () => {
         opened.push(path)
       },
     })
-    const event = mouseEvent("dblclick", target("output/report.pdf"))
+    const event = mouseEvent("dblclick", linkTarget("output/report.pdf"))
 
     expect(controller.doubleClick(event)).toBe(true)
     await Promise.resolve()
@@ -105,7 +130,7 @@ describe("message file actions", () => {
         calls.push(`copy:${path}`)
       },
     })
-    const reference = controller.context(mouseEvent("contextmenu", target("output\\report.docx")))
+    const reference = controller.context(mouseEvent("contextmenu", inlinePathTarget("output\\report.docx")))
     expect(reference?.absolutePath).toBe("C:\\project\\output\\report.docx")
 
     await controller.openWith(reference!, "code")
@@ -128,14 +153,14 @@ describe("message file actions", () => {
       revealPath: async () => false,
       onMissing: (path) => missing.push(path),
     })
-    const reference = controller.context(mouseEvent("contextmenu", target("missing.pdf")))
+    const reference = controller.context(mouseEvent("contextmenu", linkTarget("missing.pdf")))
 
     await controller.reveal(reference!)
     expect(missing).toEqual(["/project/missing.pdf"])
   })
 
   test("sets the resolved absolute path as the hover title", () => {
-    const anchor = target("folder/file-without-extension")
+    const anchor = linkTarget("folder/file-without-extension")
     const controller = createMessageFileActionController({
       directory: () => "/project",
       local: () => true,
