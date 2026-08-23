@@ -66,3 +66,18 @@
 - [ ] Run `git diff --check` and inspect `git diff --stat` plus `git status --short` for unrelated changes.
 - [ ] Open the latest development app for manual Mac testing without packaging or modifying user data.
 - [ ] Commit verification documentation with `docs(app): record message file actions` only if verification notes require an update.
+
+### Task 5: Add Minimal File Reference Hover Feedback
+
+**Files:**
+- Modify: `packages/app/src/pages/session/timeline/message-file-actions.tsx`
+- Modify: `packages/app/src/pages/session/timeline/message-file-actions.test.tsx`
+- Modify: `packages/app/src/index.css`
+
+- [ ] Extend the hover interaction test to require a marker only on a valid resolved file reference.
+- [ ] Run the focused interaction test and verify it fails because the marker is absent.
+- [ ] Mark resolved file-reference elements inside the existing delegated controller without changing click, double-click, or context-menu behavior.
+- [ ] Add marker-scoped CSS for a pointer cursor, accent-hover color, underline, and a short color transition.
+- [ ] Run the focused message-file tests and `bun typecheck` from `packages/app`.
+- [ ] Verify the hover state in the running desktop app and confirm ordinary Markdown code remains unchanged.
+- [ ] Commit with `fix(app): clarify file link hover state`.

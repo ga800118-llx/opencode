@@ -169,5 +169,6 @@ describe("message file actions", () => {
 
     expect(controller.hover(mouseEvent("pointerover", anchor))).toBe(true)
     expect(anchor.title).toBe("/project/folder/file-without-extension")
+    expect(anchor.dataset.messageFileReference).toBe("true")
   })
 })

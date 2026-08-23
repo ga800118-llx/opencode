@@ -25,6 +25,17 @@
 }
 
 @layer components {
+  [data-message-file-reference="true"] {
+    cursor: pointer;
+    transition: color 120ms ease;
+  }
+
+  [data-message-file-reference="true"]:hover {
+    color: var(--v2-text-text-accent-hover);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   [data-component="getting-started"] {
     container-type: inline-size;
     container-name: getting-started;

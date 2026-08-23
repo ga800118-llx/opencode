@@ -97,6 +97,7 @@ export function createMessageFileActionController(input: MessageFileActionContro
     hover(event: MouseEvent) {
       const target = resolve(event, false)
       if (!target || "invalid" in target) return false
+      target.element.dataset.messageFileReference = "true"
       target.element.title = target.resolved.absolutePath
       return true
     },
