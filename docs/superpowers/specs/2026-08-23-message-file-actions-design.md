@@ -11,6 +11,7 @@ All file types are eligible. Markdown is only the transport used by the reply to
 - A single click opens the referenced file in the existing Guai Code file panel.
 - A double click opens the file with the operating system's default application.
 - A context menu offers internal open, default open, installed editor choices, reveal in Finder/File Explorer, and copy path.
+- The context menu translates viewport pointer coordinates into its trigger's containing block so it opens beside the pointer in every desktop layout.
 - Hovering a valid reference uses a pointer cursor, brightens the text, and adds an underline; the resolved full path remains available as the native title.
 - Web links continue to open as web links.
 - Missing, malformed, or out-of-workspace paths never execute a desktop action.

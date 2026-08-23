@@ -31,6 +31,16 @@ type MessageFileActionControllerInput = {
 
 const editorApps = new Set(["vscode", "cursor", "zed", "textmate", "antigravity", "xcode", "android-studio", "sublime-text"])
 
+export function messageFileMenuPosition(
+  point: { x: number; y: number },
+  origin?: { left: number; top: number },
+) {
+  return {
+    x: point.x - (origin?.left ?? 0),
+    y: point.y - (origin?.top ?? 0),
+  }
+}
+
 export function createMessageFileActionController(input: MessageFileActionControllerInput) {
   const resolve = (event: Event, reportInvalid: boolean) => {
     const target = messageFileReferenceFromTarget(event.target, input.directory())
@@ -123,6 +133,7 @@ export function useMessageFileActions() {
   })
   const [apps, setApps] = createSignal<Array<{ id: string; label: string; openWith: string }>>([])
   let appsLoaded = false
+  let menuTrigger: HTMLButtonElement | undefined
 
   const openTab = createOpenSessionFileTab({
     normalizeTab: file.tab,
@@ -174,7 +185,14 @@ export function useMessageFileActions() {
   const contextMenu = (event: MouseEvent) => {
     const reference = controller.context(event)
     if (!reference) return false
-    setMenu({ open: true, x: event.clientX, y: event.clientY, reference })
+    setMenu({
+      open: true,
+      ...messageFileMenuPosition(
+        { x: event.clientX, y: event.clientY },
+        menuTrigger?.offsetParent?.getBoundingClientRect(),
+      ),
+      reference,
+    })
     loadApps()
     return true
   }
@@ -188,6 +206,7 @@ export function useMessageFileActions() {
       gutter={2}
     >
       <MenuV2.Trigger
+        ref={menuTrigger}
         as="button"
         type="button"
         tabindex={-1}

@@ -81,3 +81,16 @@
 - [ ] Run the focused message-file tests and `bun typecheck` from `packages/app`.
 - [ ] Verify the hover state in the running desktop app and confirm ordinary Markdown code remains unchanged.
 - [ ] Commit with `fix(app): clarify file link hover state`.
+
+### Task 6: Align The Context Menu With The Pointer
+
+**Files:**
+- Modify: `packages/app/src/pages/session/timeline/message-file-actions.tsx`
+- Modify: `packages/app/src/pages/session/timeline/message-file-actions.test.tsx`
+
+- [ ] Add a failing coordinate test for a pointer inside a containing block with non-zero left and top offsets.
+- [ ] Add a pure coordinate conversion that subtracts the trigger containing block's viewport origin.
+- [ ] Capture the hidden trigger element and apply the converted coordinates when opening the file context menu.
+- [ ] Run the focused message-file tests and `bun typecheck` from `packages/app`.
+- [ ] Dispatch a context-menu event at known viewport coordinates and verify the live menu opens within the configured gutter of that point.
+- [ ] Commit with `fix(app): align file menu with pointer`.

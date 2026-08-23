@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createMessageFileActionController } from "./message-file-actions"
+import { createMessageFileActionController, messageFileMenuPosition } from "./message-file-actions"
 
 function linkTarget(href: string) {
   const markdown = document.createElement("div")
@@ -30,6 +30,11 @@ function mouseEvent(type: string, element: Element) {
 }
 
 describe("message file actions", () => {
+  test("translates pointer coordinates into the menu trigger containing block", () => {
+    expect(messageFileMenuPosition({ x: 500, y: 400 }, { left: 120, top: 36 })).toEqual({ x: 380, y: 364 })
+    expect(messageFileMenuPosition({ x: 500, y: 400 })).toEqual({ x: 500, y: 400 })
+  })
+
   test("opens a workspace file internally and leaves an HTTPS link untouched", () => {
     const opened: string[] = []
     const controller = createMessageFileActionController({
