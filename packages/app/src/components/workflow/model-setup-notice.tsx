@@ -63,7 +63,7 @@ export function ModelSetupNotice(props: {
   const controller = createModelSetupNoticeController(showSettings)
 
   return (
-    <Show when={notice()}>
+    <Show when={notice()} keyed>
       {(current) => (
         <div
           data-component="model-setup-notice"
@@ -74,7 +74,7 @@ export function ModelSetupNotice(props: {
           <div class="flex min-w-0 flex-1 items-start gap-2">
             <IconV2 name="models" size="small" class="mt-0.5 shrink-0 text-v2-icon-icon-muted" />
             <p class="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-5 text-v2-text-text-muted">
-              {language.t(current().description)}
+              {language.t(current.description)}
             </p>
           </div>
           <ButtonV2
@@ -84,7 +84,7 @@ export function ModelSetupNotice(props: {
             class="shrink-0"
             onClick={() => controller.open(props.readiness())}
           >
-            {language.t(current().action)}
+            {language.t(current.action)}
           </ButtonV2>
         </div>
       )}

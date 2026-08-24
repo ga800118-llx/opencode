@@ -447,7 +447,9 @@ const main = Effect.gen(function* () {
     defaultSelection: profileRepository.defaultSelection,
     presentProfile: credentialProxy.presentProfile,
   })
+  let selectedRuntimeModel: string | null = null
   const logProductRuntimeConfig = (result: Awaited<ReturnType<typeof runtimeConfigCoordinator.write>>) => {
+    selectedRuntimeModel = result.selectedModel
     logger.log("model runtime config refreshed", {
       modelConfig: runtimePaths.modelConfig,
       manifest: runtimePaths.manifest,
@@ -604,7 +606,10 @@ const main = Effect.gen(function* () {
         }),
       )
       yield* Effect.promise(() =>
-        waitForSidecarReadiness(sidecar.url, sidecar.password, { directory: runtimePaths.root }),
+        waitForSidecarReadiness(sidecar.url, sidecar.password, {
+          directory: runtimePaths.root,
+          expectedModel: selectedRuntimeModel,
+        }),
       )
       logger.log("sidecar provider readiness passed")
       const readyAt = Date.now()
@@ -669,7 +674,10 @@ const main = Effect.gen(function* () {
           },
           readiness: {
             wait: health.then(async () => {
-              await waitForSidecarReadiness(url, password, { directory: runtimePaths.root })
+              await waitForSidecarReadiness(url, password, {
+                directory: runtimePaths.root,
+                expectedModel: selectedRuntimeModel,
+              })
               logger.log("sidecar provider readiness passed")
             }),
           },

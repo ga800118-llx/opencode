@@ -76,54 +76,54 @@ export function SidecarRecoveryNotice() {
     })
 
   return (
-    <Show when={notice()}>
+    <Show when={notice()} keyed>
       {(current) => (
         <section
           data-component="sidecar-recovery-notice"
-          data-state={current().kind}
-          role={current().role}
-          aria-live={current().kind === "progress" ? current().live : undefined}
+          data-state={current.kind}
+          role={current.role}
+          aria-live={current.kind === "progress" ? current.live : undefined}
           class="flex w-full min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-v2-border-border-base bg-v2-background-bg-layer-02 px-3 py-2 sm:px-4"
         >
           <div class="flex min-w-0 flex-1 basis-full items-start gap-2 md:basis-auto">
             <IconV2
-              name={current().kind === "failure" ? "warning" : "outline-reset"}
+              name={current.kind === "failure" ? "warning" : "outline-reset"}
               size="small"
               class="mt-0.5 shrink-0 text-v2-icon-icon-muted"
             />
             <p class="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-5 text-v2-text-text-muted">
-              {language.t(current().description)}
+              {language.t(current.description)}
             </p>
           </div>
-          <Show when={current().kind === "failure" ? current().restart : undefined}>
+          <Show when={current.kind === "failure" ? current.restart : undefined} keyed>
             {(action) => (
               <ButtonV2
                 data-action="restart-agent-service"
                 size="small"
                 variant="warning"
                 icon="outline-reset"
-                disabled={action().pending}
-                aria-busy={action().pending ? "true" : undefined}
+                disabled={action.pending}
+                aria-busy={action.pending ? "true" : undefined}
                 class="shrink-0"
                 onClick={() => void recovery.restart()}
               >
-                {language.t(action().label)}
+                {language.t(action.label)}
               </ButtonV2>
             )}
           </Show>
-          <Show when={current().kind === "failure" ? current().diagnostics : undefined}>
+          <Show when={current.kind === "failure" ? current.diagnostics : undefined} keyed>
             {(action) => (
               <ButtonV2
                 data-action="export-agent-diagnostics"
                 size="small"
                 variant="neutral"
                 icon="arrow-down-to-line"
-                disabled={action().pending}
-                aria-busy={action().pending ? "true" : undefined}
+                disabled={action.pending}
+                aria-busy={action.pending ? "true" : undefined}
                 class="shrink-0"
                 onClick={() => void recovery.exportDiagnostics()}
               >
-                {language.t(action().label)}
+                {language.t(action.label)}
               </ButtonV2>
             )}
           </Show>

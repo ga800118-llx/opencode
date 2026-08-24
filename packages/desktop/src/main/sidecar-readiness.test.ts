@@ -35,6 +35,37 @@ test("waitForSidecarReadiness retries until the authenticated provider catalog i
   expect(directory).toBe("/isolated/readiness")
 })
 
+test("waitForSidecarReadiness waits for the selected provider model", async () => {
+  let attempts = 0
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch() {
+      attempts += 1
+      if (attempts === 1) return Response.json({ all: [], default: {}, connected: [] })
+      const models = attempts === 2 ? { other: { id: "other" } } : { "team/coder-v1": { id: "team/coder-v1" } }
+      return Response.json({
+        all: [{ id: "private", models }],
+        default: {},
+        connected: ["private"],
+      })
+    },
+  })
+
+  try {
+    await waitForSidecarReadiness(`http://${server.hostname}:${server.port}`, null, {
+      expectedModel: "private/team/coder-v1",
+      timeoutMs: 1_000,
+      requestTimeoutMs: 100,
+      retryDelayMs: 1,
+    })
+  } finally {
+    server.stop(true)
+  }
+
+  expect(attempts).toBe(3)
+})
+
 test("waitForSidecarReadiness rejects malformed provider responses", async () => {
   const server = Bun.serve({
     hostname: "127.0.0.1",
