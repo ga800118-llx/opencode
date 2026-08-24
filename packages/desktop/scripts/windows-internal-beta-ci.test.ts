@@ -20,7 +20,7 @@ describe("Windows internal beta CI safety contracts", () => {
     expect(section(source, "start\nbody", "\nend")).toBe("start\nbody")
   })
 
-  test("stamps the Alpha 6 package build with the workflow source commit", async () => {
+  test("stamps the Alpha 7 package build with the workflow source commit", async () => {
     const workflow = await Bun.file(workflowPath).text()
     const version = section(workflow, "      - name: Resolve internal beta version", "      - name: Setup Bun")
     const packageStep = section(
@@ -31,7 +31,7 @@ describe("Windows internal beta CI safety contracts", () => {
     const revisionAssignment = "$env:GUAI_CODE_BUILD_COMMIT = $env:GITHUB_SHA"
     const packageCommand = "bun run package:win:internal"
 
-    expect(version).toContain('$version -cne "0.1.0-alpha.6"')
+    expect(version).toContain('$version -cne "0.1.0-alpha.7"')
     expect(packageStep).toContain(revisionAssignment)
     expect(packageStep.indexOf(revisionAssignment)).toBeLessThan(packageStep.indexOf(packageCommand))
   })

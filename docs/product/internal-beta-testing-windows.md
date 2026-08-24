@@ -2,7 +2,7 @@
 
 ## 版本与范围
 
-- 版本：`0.1.0-alpha.6`
+- 版本：`0.1.0-alpha.7`
 - 目标测试系统：Windows 11 x64（64 位 Intel/AMD 电脑）
 - 自动化验证环境：GitHub Windows Server 2025 x64；Windows 11 实机安装和界面验证仍待完成
 - 定位：少量可信测试者使用的内部 Alpha，不是正式发布版本
@@ -16,13 +16,13 @@
 优先使用单文件安装器：
 
 ```text
-Guai-Code-Beta-0.1.0-alpha.6-win-x64.exe
+Guai-Code-Beta-0.1.0-alpha.7-win-x64.exe
 ```
 
 安装器按当前 Windows 用户安装，不要求管理员权限。便携 ZIP 是安装器无法使用时的备用方案：
 
 ```text
-Guai-Code-Beta-0.1.0-alpha.6-win-x64-portable.zip
+Guai-Code-Beta-0.1.0-alpha.7-win-x64-portable.zip
 ```
 
 使用 ZIP 时，应把整个压缩包解压到独立目录，再运行其中的 `Guai Code Beta.exe`；不要只取出 EXE。便携版仍会把个人配置和任务数据写入用户数据目录，并不是完全无痕模式。
@@ -33,8 +33,8 @@ Guai-Code-Beta-0.1.0-alpha.6-win-x64-portable.zip
 
 ```powershell
 Set-Location "C:\Users\你的用户名\Downloads\Guai-Code-Beta-Windows"
-Get-FileHash -Algorithm SHA256 -LiteralPath ".\Guai-Code-Beta-0.1.0-alpha.6-win-x64.exe"
-Get-FileHash -Algorithm SHA256 -LiteralPath ".\Guai-Code-Beta-0.1.0-alpha.6-win-x64-portable.zip"
+Get-FileHash -Algorithm SHA256 -LiteralPath ".\Guai-Code-Beta-0.1.0-alpha.7-win-x64.exe"
+Get-FileHash -Algorithm SHA256 -LiteralPath ".\Guai-Code-Beta-0.1.0-alpha.7-win-x64-portable.zip"
 Get-Content -LiteralPath ".\SHA256SUMS.txt"
 ```
 
@@ -42,7 +42,7 @@ Get-Content -LiteralPath ".\SHA256SUMS.txt"
 
 ## 安装与 SmartScreen
 
-1. 双击 `Guai-Code-Beta-0.1.0-alpha.6-win-x64.exe`。这是单文件、一键、按用户安装器。
+1. 双击 `Guai-Code-Beta-0.1.0-alpha.7-win-x64.exe`。这是单文件、一键、按用户安装器。
 2. 如果 SmartScreen 出现“Windows 已保护你的电脑”，先确认文件来源和 SHA-256 已通过校验。
 3. 如果“更多信息”（`More info`）可用，点击后确认应用名称为 Guai Code Beta。
 4. 确认无误后，如果“仍要运行”（`Run anyway`）可用，可选择“仍要运行”；如果任一选项不可用，或文件来源、应用名称、SHA-256 有任何疑问，停止安装并联系维护者。
