@@ -1386,10 +1386,13 @@ async function packageInternalMac() {
         throw new Error(`Installed Electron runtime is required: ${sourceElectronDist}`)
       }
       const sourceElectronSha256 = await sha256Directory(sourceElectronDist)
-      await runCommand([buildBunExecutable, "install", "--frozen-lockfile", "--backend=copyfile"], {
-        cwd: isolatedRoot,
-        env: buildEnvironment,
-      })
+      await runCommand(
+        [buildBunExecutable, "install", "--prefer-offline", "--frozen-lockfile", "--backend=copyfile"],
+        {
+          cwd: isolatedRoot,
+          env: buildEnvironment,
+        },
+      )
       await rm(getInternalMacElectronDist(isolatedPackageDir), { recursive: true, force: true })
       await cp(sourceElectronDist, getInternalMacElectronDist(isolatedPackageDir), {
         recursive: true,

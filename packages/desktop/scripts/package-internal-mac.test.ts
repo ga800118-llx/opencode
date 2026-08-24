@@ -527,7 +527,9 @@ describe("internal Mac package", () => {
     const source = await Bun.file(path.join(import.meta.dir, "package-internal-mac.ts")).text()
 
     expect(source).toContain("copyFile(process.execPath, buildBunExecutable)")
-    expect(source).toContain('[buildBunExecutable, "install", "--frozen-lockfile", "--backend=copyfile"]')
+    expect(source).toContain(
+      '[buildBunExecutable, "install", "--prefer-offline", "--frozen-lockfile", "--backend=copyfile"]',
+    )
     expect(source).toContain("bunExecutable: buildBunExecutable")
     expect(source).toContain("normalizeInternalMacTimestamps(modelsSnapshot, buildTimestamp)")
     expect(source).toContain("normalizeInternalMacTimestamps(bundledGitDirectory, buildTimestamp)")
