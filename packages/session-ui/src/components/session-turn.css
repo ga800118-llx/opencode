@@ -114,12 +114,16 @@
     cursor: pointer;
   }
 
-  [data-slot="session-turn-process-trigger"]:hover,
-  [data-slot="session-turn-process-trigger"]:focus-visible {
+  [data-slot="session-turn-process-trigger"][data-static] {
+    cursor: default;
+  }
+
+  [data-slot="session-turn-process-trigger"]:not([data-static]):hover,
+  [data-slot="session-turn-process-trigger"]:not([data-static]):focus-visible {
     color: var(--text-base);
   }
 
-  [data-slot="session-turn-process-trigger"]:focus-visible {
+  [data-slot="session-turn-process-trigger"]:not([data-static]):focus-visible {
     outline: 1px solid var(--border-focus);
     outline-offset: 2px;
   }

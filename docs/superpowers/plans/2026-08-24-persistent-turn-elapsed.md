@@ -4,7 +4,7 @@
 
 **Goal:** Keep one persistent `Elapsed <duration>` process row above every assistant answer and one independent live status row below only the active answer.
 
-**Architecture:** Project `AssistantProcess` for every turn and remove the temporary `Thinking` row. Render an interactive process trigger only when details exist, while retaining the same elapsed label and divider for text-only turns. Keep `AssistantActivity` last and derive its tool label only from pending or running tool parts.
+**Architecture:** Project `AssistantProcess` for every reply-bearing turn and the active busy turn, then remove the temporary `Thinking` row. Render an interactive process trigger only when details exist, while retaining the same elapsed label and divider for text-only turns. Keep `AssistantActivity` last and derive its tool label only from pending or running tool parts.
 
 **Tech Stack:** TypeScript, SolidJS, Effect tagged rows, CSS, Bun test runner.
 
@@ -13,6 +13,7 @@
 ### Task 1: Lock The Timeline Ordering
 
 **Files:**
+
 - Test: `packages/app/src/pages/session/timeline/rows-current.test.ts`
 
 - [ ] **Step 1: Change the text-only assertion to require a persistent process row**
@@ -61,6 +62,7 @@ Expected: text-only, empty busy, streaming, and historical turn assertions fail 
 ### Task 2: Make The Elapsed Row Persistent
 
 **Files:**
+
 - Modify: `packages/app/src/pages/session/timeline/timeline-row.ts`
 - Modify: `packages/app/src/pages/session/timeline/rows.ts`
 
@@ -68,15 +70,17 @@ Expected: text-only, empty busy, streaming, and historical turn assertions fail 
 
 Delete `Thinking` from the tagged row classes, union, key switch, and `TimelineRowMap`.
 
-- [ ] **Step 2: Project `AssistantProcess` unconditionally after the user message and turn divider**
+- [ ] **Step 2: Project `AssistantProcess` after the user message and turn divider for reply-bearing or active busy turns**
 
 ```ts
-rows.push(
-  new TimelineRow.AssistantProcess({
-    userMessageID: userMessage.id,
-    items: processItems,
-  }),
-)
+if (assistantMessages.length > 0 || (isActive && status === "busy")) {
+  rows.push(
+    new TimelineRow.AssistantProcess({
+      userMessageID: userMessage.id,
+      items: processItems,
+    }),
+  )
+}
 ```
 
 Remove the busy/no-items block that creates `Thinking`. Keep `AssistantActivity` creation after final-answer items so it remains the last active row.
@@ -94,6 +98,7 @@ Expected: all timeline row ordering and tool-state assertions pass.
 ### Task 3: Restore Elapsed Wording And Empty-Detail Presentation
 
 **Files:**
+
 - Modify: `packages/app/src/pages/session/timeline/message-timeline.tsx`
 - Modify: `packages/session-ui/src/components/session-turn.css`
 
@@ -120,6 +125,7 @@ Use `data-static` to remove pointer and focus affordances from the empty process
 ### Task 4: Verify The Scoped Fix
 
 **Files:**
+
 - Verify: `packages/app/src/pages/session/timeline/rows-current.test.ts`
 - Verify: `packages/app/src/pages/session/timeline/model.test.ts`
 

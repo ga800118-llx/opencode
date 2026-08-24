@@ -46,7 +46,6 @@ import { SessionRetry } from "@opencode-ai/session-ui/session-retry"
 import { isScrollKeyTarget, scrollKey, scrollKeyOwner, ScrollView } from "@opencode-ai/ui/scroll-view"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextShimmer } from "@opencode-ai/ui/text-shimmer"
 import type {
   AssistantMessage,
@@ -132,17 +131,6 @@ const markBoundaryGesture = (input: {
   ) {
     input.onMarkScrollGesture(input.root)
   }
-}
-
-function TimelineThinkingRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
-  return (
-    <div data-slot="session-turn-thinking">
-      <TextShimmer text={props.label} />
-      <Show when={!props.showReasoningSummaries}>
-        <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
-      </Show>
-    </div>
-  )
 }
 
 function TimelineActivityRow(props: { label: string }) {
@@ -1033,10 +1021,7 @@ export function MessageTimeline(props: {
   const processLabel = (userMessageID: string) => {
     const duration = formatDuration(turnDurationMs(userMessageID))
     const label = duration
-      ? language.t(
-          workingTurn(userMessageID) ? "ui.sessionTurn.process.processing" : "ui.sessionTurn.process.elapsed",
-          { duration },
-        )
+      ? language.t("ui.sessionTurn.process.elapsed", { duration })
       : language.t("ui.sessionTurn.process.details")
     const activity = turnActivity(userMessageID)
     if (activity === "slow") return `${label} · ${language.t("ui.sessionTurn.process.slow")}`
@@ -1304,6 +1289,7 @@ export function MessageTimeline(props: {
       case "AssistantProcess": {
         const assistantProcessRow = row as Accessor<TimelineRowByTag<"AssistantProcess">>
         const openKey = () => `process:${assistantProcessRow().userMessageID}`
+        const hasItems = () => assistantProcessRow().items.length > 0
         const open = createMemo(() => toolOpen[openKey()] === true)
         const contentID = () => `assistant-process-${assistantProcessRow().userMessageID}`
         const toggle = () => {
@@ -1315,21 +1301,32 @@ export function MessageTimeline(props: {
           <TimelineRowFrame row={assistantProcessRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <div data-component="session-turn-process" data-expanded={open() || undefined}>
-                <button
-                  type="button"
-                  data-slot="session-turn-process-trigger"
-                  aria-expanded={open()}
-                  aria-controls={contentID()}
-                  onClick={toggle}
+                <Show
+                  when={hasItems()}
+                  fallback={
+                    <div data-slot="session-turn-process-trigger" data-static>
+                      <span data-slot="session-turn-process-label">
+                        {processLabel(assistantProcessRow().userMessageID)}
+                      </span>
+                    </div>
+                  }
                 >
-                  <span data-slot="session-turn-process-label">
-                    {processLabel(assistantProcessRow().userMessageID)}
-                  </span>
-                  <span data-slot="session-turn-process-chevron" aria-hidden="true">
-                    <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" />
-                  </span>
-                </button>
-                <Show when={open()}>
+                  <button
+                    type="button"
+                    data-slot="session-turn-process-trigger"
+                    aria-expanded={open()}
+                    aria-controls={contentID()}
+                    onClick={toggle}
+                  >
+                    <span data-slot="session-turn-process-label">
+                      {processLabel(assistantProcessRow().userMessageID)}
+                    </span>
+                    <span data-slot="session-turn-process-chevron" aria-hidden="true">
+                      <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" />
+                    </span>
+                  </button>
+                </Show>
+                <Show when={hasItems() && open()}>
                   <div id={contentID()} data-slot="session-turn-process-content">
                     <Index each={assistantProcessRow().items}>
                       {(item) => renderAssistantProcessItem(assistantProcessRow().userMessageID, item, onSizeChange)}
@@ -1337,20 +1334,6 @@ export function MessageTimeline(props: {
                   </div>
                 </Show>
               </div>
-            </div>
-          </TimelineRowFrame>
-        )
-      }
-      case "Thinking": {
-        const thinkingRow = row as Accessor<TimelineRowByTag<"Thinking">>
-        return (
-          <TimelineRowFrame row={thinkingRow}>
-            <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <TimelineThinkingRow
-                label={processLabel(thinkingRow().userMessageID)}
-                reasoningHeading={thinkingRow().reasoningHeading}
-                showReasoningSummaries={settings.general.showReasoningSummaries()}
-              />
             </div>
           </TimelineRowFrame>
         )

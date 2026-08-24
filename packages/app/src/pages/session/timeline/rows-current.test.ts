@@ -69,7 +69,7 @@ describe("current session timeline rows", () => {
     })
   })
 
-  test("does not create a process disclosure for a text-only answer", () => {
+  test("keeps a process disclosure for a text-only answer", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
       {
@@ -96,8 +96,10 @@ describe("current session timeline rows", () => {
 
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_user",
+      "assistant-process:msg_user",
       "assistant-part:msg_user:msg_assistant:text:0",
     ])
+    expect(result.rows[1]).toMatchObject({ _tag: "AssistantProcess", items: [] })
   })
 
   test("keeps an interrupted final answer outside the process disclosure", () => {
@@ -280,6 +282,7 @@ describe("current session timeline rows", () => {
       "assistant-process:msg_user",
       "assistant-activity:msg_user",
     ])
+    expect(result.rows.at(-1)).toMatchObject({ _tag: "AssistantActivity", tool: undefined })
     expect(result.rows[1]).toMatchObject({
       _tag: "AssistantProcess",
       items: [{ type: "part", group: { key: "msg_interrupted:text:0" } }, { type: "interrupted" }],
@@ -434,6 +437,7 @@ describe("current session timeline rows", () => {
       "assistant-process:msg_user",
       "assistant-activity:msg_user",
     ])
+    expect(result.rows.at(-1)).toMatchObject({ _tag: "AssistantActivity", tool: undefined })
   })
 
   test("derives turns and tagged rows from chronological current messages", () => {
@@ -473,6 +477,7 @@ describe("current session timeline rows", () => {
     expect(result.activeMessageID).toBe("msg_3")
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_1",
+      "assistant-process:msg_1",
       "assistant-part:msg_1:msg_2:text:0",
       "turn-gap:msg_3",
       "user-message:msg_3",
@@ -511,7 +516,7 @@ describe("current session timeline rows", () => {
     expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_shell", "assistant-process:msg_shell"])
   })
 
-  test("keeps the original thinking timer before the live activity row while waiting for content", () => {
+  test("keeps the elapsed process row before the live activity row while waiting for content", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
     ] satisfies SessionMessageInfo[]
@@ -530,9 +535,10 @@ describe("current session timeline rows", () => {
 
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_user",
-      "thinking:msg_user",
+      "assistant-process:msg_user",
       "assistant-activity:msg_user",
     ])
+    expect(result.rows[1]).toMatchObject({ _tag: "AssistantProcess", items: [] })
   })
 
   test("keeps one live activity row after a streaming answer and removes it when idle", () => {
@@ -563,6 +569,7 @@ describe("current session timeline rows", () => {
     const busy = construct("busy")
     expect(busy.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_user",
+      "assistant-process:msg_user",
       "assistant-part:msg_user:msg_assistant:text:0",
       "assistant-activity:msg_user",
     ])
@@ -570,6 +577,7 @@ describe("current session timeline rows", () => {
 
     expect(construct("idle").rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_user",
+      "assistant-process:msg_user",
       "assistant-part:msg_user:msg_assistant:text:0",
     ])
   })
@@ -660,14 +668,16 @@ describe("current session timeline rows", () => {
 
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_user_1",
+      "assistant-process:msg_user_1",
       "assistant-part:msg_user_1:msg_assistant_1:text:0",
       "turn-gap:msg_user_2",
       "user-message:msg_user_2",
+      "assistant-process:msg_user_2",
       "assistant-part:msg_user_2:msg_assistant_2:text:0",
     ])
   })
 
-  test("renders an optimistic user turn and thinking before the protocol message arrives", () => {
+  test("renders an optimistic user turn and elapsed process row before the protocol message arrives", () => {
     const source = [
       { id: "msg_1", type: "user", text: "existing", time: { created: 1 } },
     ] satisfies SessionMessageInfo[]
@@ -696,7 +706,7 @@ describe("current session timeline rows", () => {
       "user-message:msg_1",
       "turn-gap:msg_2",
       "user-message:msg_2",
-      "thinking:msg_2",
+      "assistant-process:msg_2",
       "assistant-activity:msg_2",
     ])
   })

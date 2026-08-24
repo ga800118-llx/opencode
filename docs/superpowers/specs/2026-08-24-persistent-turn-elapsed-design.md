@@ -6,7 +6,7 @@ Restore the original persistent `Elapsed <duration>` disclosure at the top of ev
 
 ## Behavior
 
-- Every assistant turn has one process row immediately after the user message and any turn divider.
+- Every turn that has an assistant reply, plus the currently active busy turn, has one process row immediately after the user message and any turn divider.
 - The process row always uses the elapsed-time wording, including while the turn is active. It never changes to `Processing <duration>`.
 - The elapsed time continues to update while the turn is active and freezes at the latest assistant completion time when the turn becomes idle.
 - The process row remains visible after completion, including for text-only answers with no tool call.
@@ -17,7 +17,7 @@ Restore the original persistent `Elapsed <duration>` disclosure at the top of ev
 
 ## Architecture
 
-Use `AssistantProcess` as the sole owner of the top elapsed label and collapsible process history. Project it for every turn instead of only when process items exist. Remove the temporary `Thinking` row because it duplicates the timer and disappears as soon as assistant content arrives.
+Use `AssistantProcess` as the sole owner of the top elapsed label and collapsible process history. Project it for every reply-bearing turn and the active busy turn instead of only when process items exist. Remove the temporary `Thinking` row because it duplicates the timer and disappears as soon as assistant content arrives.
 
 Keep `AssistantActivity` independent and last. Its tool selection continues to inspect all current assistant parts and selects the most recently emitted part whose state is `pending` or `running`.
 

@@ -29,7 +29,6 @@ export type TimelineRowMap = {
     userMessageID: string
     items: AssistantProcessItem[]
   }
-  Thinking: { userMessageID: string; reasoningHeading?: string }
   AssistantActivity: { userMessageID: string; tool?: string }
   Retry: { userMessageID: string }
   DiffSummary: { userMessageID: string; diffs: SummaryDiff[] }
@@ -197,7 +196,7 @@ export namespace Timeline {
       )
     }
 
-    if (processItems.length > 0) {
+    if (assistantMessages.length > 0 || (isActive && status === "busy")) {
       rows.push(
         new TimelineRow.AssistantProcess({
           userMessageID: userMessage.id,
@@ -206,31 +205,18 @@ export namespace Timeline {
       )
     }
 
-    finalAnswerItems.forEach((item, index) => {
+    finalAnswerItems.forEach((item) => {
       rows.push(
         new TimelineRow.AssistantPart({
           userMessageID: userMessage.id,
           group: item.group,
-          previousAssistantPart: processItems.length > 0 || index > 0,
+          previousAssistantPart: true,
         }),
       )
     })
 
     if (isActive && status === "busy" && !error) {
       const activeParts = assistantMessages.flatMap((message) => getMessageParts(message.id))
-      if (assistantItems.length === 0) {
-        const heading = activeParts
-          .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
-          .find((value): value is string => !!value)
-
-        rows.push(
-          new TimelineRow.Thinking({
-            userMessageID: userMessage.id,
-            reasoningHeading: heading,
-          }),
-        )
-      }
-
       const activeTool = activeParts.findLast(
         (part) => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
       )
@@ -268,41 +254,6 @@ export namespace Timeline {
     }
 
     return rows
-  }
-
-  function reasoningHeading(text: string) {
-    const markdown = text.replace(/\r\n?/g, "\n")
-    const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)
-    if (html?.[1]) {
-      const value = cleanHeading(html[1].replace(/<[^>]+>/g, " "))
-      if (value) return value
-    }
-
-    const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m)
-    if (atx?.[1]) {
-      const value = cleanHeading(atx[1])
-      if (value) return value
-    }
-
-    const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m)
-    if (setext?.[1]) {
-      const value = cleanHeading(setext[1])
-      if (value) return value
-    }
-
-    const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m)
-    if (strong?.[1]) {
-      const value = cleanHeading(strong[1])
-      if (value) return value
-    }
-  }
-
-  function cleanHeading(value: string) {
-    return value
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/[*_~]+/g, "")
-      .trim()
   }
 
   function unwrapErrorMessage(message: string) {

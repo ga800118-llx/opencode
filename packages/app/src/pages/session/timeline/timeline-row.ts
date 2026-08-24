@@ -30,10 +30,6 @@ export namespace TimelineRow {
     userMessageID: string
     items: AssistantProcessItem[]
   }> {}
-  export class Thinking extends Data.TaggedClass("Thinking")<{
-    userMessageID: string
-    reasoningHeading?: string
-  }> {}
   export class AssistantActivity extends Data.TaggedClass("AssistantActivity")<{
     userMessageID: string
     tool?: string
@@ -57,7 +53,6 @@ export namespace TimelineRow {
     | TurnDivider
     | AssistantPart
     | AssistantProcess
-    | Thinking
     | AssistantActivity
     | DiffSummary
     | Error
@@ -77,8 +72,6 @@ export namespace TimelineRow {
         return `assistant-part:${row.userMessageID}:${row.group.key}`
       case "AssistantProcess":
         return `assistant-process:${row.userMessageID}`
-      case "Thinking":
-        return `thinking:${row.userMessageID}`
       case "AssistantActivity":
         return `assistant-activity:${row.userMessageID}`
       case "DiffSummary":
