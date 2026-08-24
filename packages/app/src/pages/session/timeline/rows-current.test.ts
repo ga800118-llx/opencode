@@ -511,6 +511,30 @@ describe("current session timeline rows", () => {
     expect(result.rows.map(TimelineRow.key)).toEqual(["user-message:msg_shell", "assistant-process:msg_shell"])
   })
 
+  test("keeps the original thinking timer before the live activity row while waiting for content", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "busy",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map(TimelineRow.key)).toEqual([
+      "user-message:msg_user",
+      "thinking:msg_user",
+      "assistant-activity:msg_user",
+    ])
+  })
+
   test("keeps one live activity row after a streaming answer and removes it when idle", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
@@ -672,6 +696,7 @@ describe("current session timeline rows", () => {
       "user-message:msg_1",
       "turn-gap:msg_2",
       "user-message:msg_2",
+      "thinking:msg_2",
       "assistant-activity:msg_2",
     ])
   })

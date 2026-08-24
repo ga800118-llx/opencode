@@ -134,14 +134,22 @@ const markBoundaryGesture = (input: {
   }
 }
 
-function TimelineActivityRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
+function TimelineThinkingRow(props: { label: string; reasoningHeading?: string; showReasoningSummaries: boolean }) {
+  return (
+    <div data-slot="session-turn-thinking">
+      <TextShimmer text={props.label} />
+      <Show when={!props.showReasoningSummaries}>
+        <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
+      </Show>
+    </div>
+  )
+}
+
+function TimelineActivityRow(props: { label: string }) {
   return (
     <div data-slot="session-turn-thinking">
       <Show when={props.label} keyed>
         {(label) => <TextShimmer text={label} class="session-turn-activity-label" />}
-      </Show>
-      <Show when={!props.showReasoningSummaries}>
-        <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
       </Show>
     </div>
   )
@@ -1333,16 +1341,26 @@ export function MessageTimeline(props: {
           </TimelineRowFrame>
         )
       }
+      case "Thinking": {
+        const thinkingRow = row as Accessor<TimelineRowByTag<"Thinking">>
+        return (
+          <TimelineRowFrame row={thinkingRow}>
+            <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+              <TimelineThinkingRow
+                label={processLabel(thinkingRow().userMessageID)}
+                reasoningHeading={thinkingRow().reasoningHeading}
+                showReasoningSummaries={settings.general.showReasoningSummaries()}
+              />
+            </div>
+          </TimelineRowFrame>
+        )
+      }
       case "AssistantActivity": {
         const activityRow = row as Accessor<TimelineRowByTag<"AssistantActivity">>
         return (
           <TimelineRowFrame row={activityRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <TimelineActivityRow
-                label={assistantActivityLabel(activityRow().tool)}
-                reasoningHeading={activityRow().tool ? undefined : activityRow().reasoningHeading}
-                showReasoningSummaries={settings.general.showReasoningSummaries()}
-              />
+              <TimelineActivityRow label={assistantActivityLabel(activityRow().tool)} />
             </div>
           </TimelineRowFrame>
         )

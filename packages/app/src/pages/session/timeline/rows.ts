@@ -29,7 +29,8 @@ export type TimelineRowMap = {
     userMessageID: string
     items: AssistantProcessItem[]
   }
-  AssistantActivity: { userMessageID: string; tool?: string; reasoningHeading?: string }
+  Thinking: { userMessageID: string; reasoningHeading?: string }
+  AssistantActivity: { userMessageID: string; tool?: string }
   Retry: { userMessageID: string }
   DiffSummary: { userMessageID: string; diffs: SummaryDiff[] }
   Error: { userMessageID: string; text: string }
@@ -217,9 +218,19 @@ export namespace Timeline {
 
     if (isActive && status === "busy" && !error) {
       const activeParts = assistantMessages.flatMap((message) => getMessageParts(message.id))
-      const heading = activeParts
-        .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
-        .find((value): value is string => !!value)
+      if (assistantItems.length === 0) {
+        const heading = activeParts
+          .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
+          .find((value): value is string => !!value)
+
+        rows.push(
+          new TimelineRow.Thinking({
+            userMessageID: userMessage.id,
+            reasoningHeading: heading,
+          }),
+        )
+      }
+
       const activeTool = activeParts.findLast(
         (part) => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
       )
@@ -228,7 +239,6 @@ export namespace Timeline {
         new TimelineRow.AssistantActivity({
           userMessageID: userMessage.id,
           tool: activeTool?.type === "tool" ? activeTool.tool : undefined,
-          reasoningHeading: heading,
         }),
       )
     }
