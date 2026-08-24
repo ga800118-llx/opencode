@@ -32,7 +32,7 @@ export function NewHome() {
   const sessions = createHomeSessionsController(home)
   const search = createHomeSessionSearchController(home, sessions)
   const scroll = createHomeScrollController(sessions.data.groups)
-  const modelReadiness = useModelReadiness()
+  const modelReadiness = useModelReadiness({ directory: () => home.project.newSession()?.worktree })
   return (
     <>
       <Show when={rightMount()}>

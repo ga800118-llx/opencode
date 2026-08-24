@@ -15,10 +15,11 @@ import { useLayout } from "@/context/layout"
 import { tabKey, useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsSkillsV2 } from "./skills"
-import { settingsDirectory, settingsSkillDirectory } from "@/components/settings-directory"
+import { settingsDirectory, settingsModelDirectory, settingsSkillDirectory } from "@/components/settings-directory"
 import { useSettings } from "@/context/settings"
 import { useServer } from "@/context/server"
 import { createRunLocationPresentation } from "@/product/workflow"
+import { ModelsProvider } from "@/context/models"
 
 export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers" | "skills"
 
@@ -54,6 +55,9 @@ export const DialogSettings: Component<{
   )
   const skillDirectory = createMemo(() =>
     settingsSkillDirectory(directory(), serverSync().data.path.config || undefined),
+  )
+  const modelDirectory = createMemo(() =>
+    settingsModelDirectory(directory(), server.projects.last(), server.projects.list()),
   )
 
   createEffect(() => {
@@ -146,7 +150,9 @@ export const DialogSettings: Component<{
           <SettingsProvidersV2 directory={directory} onBack={showProviders} />
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
-          <SettingsModelsV2 onOpenProviders={() => setTab("providers")} />
+          <ModelsProvider directory={modelDirectory}>
+            <SettingsModelsV2 onOpenProviders={() => setTab("providers")} />
+          </ModelsProvider>
         </TabsV2.Content>
         <TabsV2.Content value="skills" class="settings-v2-panel">
           <SettingsSkillsV2 directory={skillDirectory()} />

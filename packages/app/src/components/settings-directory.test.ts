@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ServerConnection } from "@/context/server"
 import type { SessionTab } from "@/context/tabs"
-import { settingsDirectory, settingsSkillDirectory } from "./settings-directory"
+import { settingsDirectory, settingsModelDirectory, settingsSkillDirectory } from "./settings-directory"
 
 describe("settingsDirectory", () => {
   test("resolves direct project routes", () => {
@@ -60,5 +60,23 @@ describe("settingsSkillDirectory", () => {
 
   test("uses the global config directory from Home", () => {
     expect(settingsSkillDirectory(undefined, "/home/test/.config/opencode")).toBe("/home/test/.config/opencode")
+  })
+})
+
+describe("settingsModelDirectory", () => {
+  test("prefers the active task directory", () => {
+    expect(settingsModelDirectory("/active", "/recent", [{ worktree: "/first" }])).toBe("/active")
+  })
+
+  test("uses the recent project from Home", () => {
+    expect(settingsModelDirectory(undefined, "/recent", [{ worktree: "/first" }])).toBe("/recent")
+  })
+
+  test("falls back to the first project", () => {
+    expect(settingsModelDirectory(undefined, undefined, [{ worktree: "/first" }])).toBe("/first")
+  })
+
+  test("leaves model scope global when no project exists", () => {
+    expect(settingsModelDirectory(undefined, undefined, [])).toBeUndefined()
   })
 })

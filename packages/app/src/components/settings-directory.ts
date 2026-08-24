@@ -27,3 +27,11 @@ export function settingsDirectory(
 export function settingsSkillDirectory(directory: string | undefined, globalConfig: string | undefined) {
   return directory ?? globalConfig
 }
+
+export function settingsModelDirectory(
+  directory: string | undefined,
+  recent: string | undefined,
+  projects: ReadonlyArray<{ worktree: string }>,
+) {
+  return directory ?? recent ?? projects[0]?.worktree
+}

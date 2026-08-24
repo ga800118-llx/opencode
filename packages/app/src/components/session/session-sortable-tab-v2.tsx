@@ -30,11 +30,6 @@ export function SortableTabV2(props: {
     },
   })
   const path = createMemo(() => file.pathFromTab(props.tab))
-  const content = createMemo(() => {
-    const value = path()
-    if (!value) return
-    return <FileVisual path={value} temporary={props.temporary} />
-  })
   return (
     <div ref={sortable.ref} class="h-full flex items-center">
       <div class="relative">
@@ -66,7 +61,9 @@ export function SortableTabV2(props: {
           onMiddleClick={() => props.onTabClose(props.tab)}
           onDblClick={() => props.onTabDoubleClick?.(props.tab)}
         >
-          <Show when={content()}>{(value) => value()}</Show>
+          <Show when={path()} keyed>
+            {(value) => <FileVisual path={value} temporary={props.temporary} />}
+          </Show>
         </Tabs.Trigger>
       </div>
     </div>

@@ -40,11 +40,6 @@ export function SortableTab(props: {
   const command = useCommand()
   const sortable = createSortable(props.tab)
   const path = createMemo(() => file.pathFromTab(props.tab))
-  const content = createMemo(() => {
-    const value = path()
-    if (!value) return
-    return <FileVisual path={value} temporary={props.temporary} />
-  })
   return (
     <div use:sortable class="h-full flex items-center" classList={{ "opacity-0": sortable.isActiveDraggable }}>
       <div class="relative">
@@ -70,7 +65,9 @@ export function SortableTab(props: {
           onMiddleClick={() => props.onTabClose(props.tab)}
           onDblClick={() => props.onTabDoubleClick?.(props.tab)}
         >
-          <Show when={content()}>{(value) => value()}</Show>
+          <Show when={path()} keyed>
+            {(value) => <FileVisual path={value} temporary={props.temporary} />}
+          </Show>
         </Tabs.Trigger>
       </div>
     </div>
