@@ -4,11 +4,13 @@
 
 **Goal:** Make every project expose the configured private model catalog deterministically and make restored task tabs display the project identified by their current directory.
 
-**Architecture:** Add a narrow readiness barrier shared by the V2 provider and model handlers so they cannot read the catalog before the configuration-provider plugin finishes its first load. Change the existing session-to-project resolver to prefer normalized directory and sandbox matches, retaining project ID only as a fallback.
+**Architecture:** Add a narrow readiness barrier shared by the V2 provider and model handlers so they cannot read the catalog before the complete location plugin boot batch has materialized its state. Change the existing session-to-project resolver to prefer normalized directory and sandbox matches, retaining project ID only as a fallback.
 
 **Tech Stack:** TypeScript, Effect, Bun tests, SolidJS.
 
 ---
+
+> **Implementation review revision:** Waiting for `config-provider` alone can resume inside the outer `State.batch` before catalog materialization, and can wait forever if an earlier boot plugin fails. The implemented repair therefore exposes `PluginInternal.Service.wait()`, which joins the complete background boot fiber. Task 1 below records the original red-green sequence; the final implementation is completed by Task 1A.
 
 ### Task 1: Gate V2 Catalog Reads On Configuration Readiness
 
@@ -111,6 +113,20 @@ Expected: the focused test and package typecheck both pass.
 git add packages/server/src/handlers/catalog-readiness.ts packages/server/src/handlers/catalog-readiness.test.ts packages/server/src/handlers/provider.ts packages/server/src/handlers/model.ts
 git commit -m "fix(server): wait for model catalog readiness"
 ```
+
+### Task 1A: Join The Complete Plugin Boot Batch
+
+**Files:**
+- Modify: `packages/core/src/plugin/internal.ts`
+- Modify: `packages/core/test/location-layer.test.ts`
+- Modify: `packages/server/src/handlers/catalog-readiness.ts`
+- Modify: `packages/server/src/handlers/catalog-readiness.test.ts`
+
+- [x] Expose a location-scoped `PluginInternal.Service` whose `wait()` joins the existing background boot fiber.
+- [x] Make the server readiness barrier wait for this service instead of one plugin ID.
+- [x] Prove a request remains pending until boot completes and propagates a boot defect.
+- [x] Prove the real location catalog resolves a configured model after readiness without manual reloads.
+- [x] Run focused core/server tests and both package typechecks.
 
 ### Task 2: Resolve Restored Sessions By Directory First
 

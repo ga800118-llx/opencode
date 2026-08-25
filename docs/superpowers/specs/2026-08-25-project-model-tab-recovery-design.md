@@ -19,7 +19,7 @@ Historical `game` sessions have the correct session directory but a stale projec
 
 ### Catalog Readiness Barrier
 
-Use the existing location plugin wait mechanism in the V2 provider and model handlers. Catalog reads must wait for the configuration-provider plugin to finish its initial load before returning available providers or models. This makes the first successful response authoritative without adding an arbitrary frontend delay.
+Expose the existing location-scoped internal plugin boot fiber as a readiness service and use it in the V2 provider and model handlers. Catalog reads must wait for the complete boot batch, including catalog and integration materialization, before returning available providers or models. This makes the first successful response authoritative without adding an arbitrary frontend delay.
 
 The barrier applies only to V2 catalog reads. It does not rewrite configuration, restart the Sidecar, preload every project, or change legacy protocol behavior. A truly unconfigured installation still returns an empty catalog after initialization finishes.
 
@@ -37,13 +37,14 @@ This preserves valid historical sessions while preventing stale IDs from overrid
 
 ## Error Handling
 
-- If configuration-provider initialization fails, the catalog request fails through the existing server error path instead of returning a false empty success.
+- If internal plugin initialization fails, the boot fiber failure reaches the catalog request through the existing server error path instead of returning a false empty success or waiting forever.
 - If no private model is configured, initialization completes and the existing model setup notice remains available.
 - If no project matches a session directory, project-ID and directory-name fallbacks continue to provide a usable tab label and avatar.
 
 ## Testing
 
-- Add a focused server test proving provider/model reads wait for configuration-provider readiness and cannot expose the pre-initialization empty catalog.
+- Add focused server tests proving provider/model reads wait for internal boot readiness and propagate boot failure.
+- Use the real location service in a core integration test to prove readiness includes catalog materialization without manual reloads.
 - Add a project-resolution test where a stale project ID points to Default Project while the session directory belongs to `game`; `game` must win.
 - Run focused package tests and `bun typecheck` from each affected package.
 - Open the latest local desktop build and verify both projects expose the same configured private models and each restored tab uses its own project avatar.
