@@ -1,34 +1,42 @@
-import { ConfigProviderPlugin } from "@opencode-ai/core/config/plugin/provider"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { PluginInternal } from "@opencode-ai/core/plugin/internal"
 import { expect, test } from "bun:test"
-import { Deferred, Effect, Fiber, Option } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect"
 import { waitForCatalogReady } from "./catalog-readiness"
 
-test("waits for the config provider plugin", async () => {
+test("waits for internal plugin boot", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void, never>()
-      const requested: PluginV2.ID[] = []
-      const plugin = PluginV2.Service.of({
-        add: () => Effect.void,
-        remove: () => Effect.void,
-        wait: (id) =>
-          Effect.sync(() => requested.push(id)).pipe(
-            Effect.andThen(Deferred.await(gate)),
-            Effect.asVoid,
-          ),
+      const called = yield* Deferred.make<void, never>()
+      const plugin = PluginInternal.Service.of({
+        wait: () => Deferred.succeed(called, undefined).pipe(Effect.andThen(Deferred.await(gate))),
       })
       const waiting = yield* waitForCatalogReady.pipe(
-        Effect.provideService(PluginV2.Service, plugin),
+        Effect.provideService(PluginInternal.Service, plugin),
         Effect.forkChild,
       )
 
-      yield* Effect.yieldNow
-      expect(requested).toEqual([PluginV2.ID.make(ConfigProviderPlugin.Plugin.id)])
-      expect(Option.isNone(yield* Fiber.await(waiting).pipe(Effect.timeoutOption("10 millis")))).toBe(true)
+      yield* Deferred.await(called)
+      expect(waiting.pollUnsafe()).toBeUndefined()
 
       yield* Deferred.succeed(gate, undefined)
       yield* Fiber.join(waiting)
     }),
   )
+})
+
+test("propagates internal plugin boot defects", async () => {
+  const defect = new Error("plugin boot failed")
+  const exit = await Effect.runPromise(
+    waitForCatalogReady.pipe(
+      Effect.provideService(
+        PluginInternal.Service,
+        PluginInternal.Service.of({ wait: () => Effect.die(defect) }),
+      ),
+      Effect.exit,
+    ),
+  )
+
+  expect(Exit.isFailure(exit)).toBe(true)
+  if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(defect)
 })

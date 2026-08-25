@@ -3,7 +3,7 @@ export * as PluginInternal from "./internal"
 import { makeLocationNode } from "../effect/app-node"
 import { httpClient } from "../effect/app-node-platform"
 import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
-import { Effect, Layer, Scope } from "effect"
+import { Context, Effect, Fiber, Layer, Scope } from "effect"
 import { AgentV2 } from "../agent"
 import { Catalog } from "../catalog"
 import { CommandV2 } from "../command"
@@ -56,11 +56,18 @@ export interface Plugin<R = never> {
   readonly effect: (context: PluginContext) => Effect.Effect<void, never, R | Scope.Scope>
 }
 
+export interface Interface {
+  readonly wait: () => Effect.Effect<void>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@opencode/v2/PluginInternal") {}
+
 export function define<R>(plugin: Plugin<R>) {
   return plugin
 }
 
-const layer = Layer.effectDiscard(
+const layer = Layer.effect(
+  Service,
   Effect.gen(function* () {
     const catalog = yield* Catalog.Service
     const commands = yield* CommandV2.Service
@@ -112,7 +119,7 @@ const layer = Layer.effectDiscard(
       }),
     ).pipe(Effect.withSpan("PluginInternal.skillBoot"))
 
-    yield* State.batch(
+    const boot = yield* State.batch(
       Effect.gen(function* () {
         yield* add(ConfigReferencePlugin.Plugin)
         yield* add(AgentPlugin.Plugin)
@@ -126,6 +133,8 @@ const layer = Layer.effectDiscard(
         yield* add(VariantPlugin.Plugin)
       }),
     ).pipe(Effect.withSpan("PluginInternal.boot"), Effect.forkScoped({ startImmediately: true }))
+
+    return Service.of({ wait: () => Fiber.join(boot) })
   }),
 )
 
@@ -135,7 +144,7 @@ export const locationLayer = layer.pipe(
 )
 
 export const node = makeLocationNode({
-  name: "plugin-internal",
+  service: Service,
   layer,
   deps: [
     Catalog.node,

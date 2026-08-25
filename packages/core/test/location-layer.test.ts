@@ -10,8 +10,8 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { Location } from "@opencode-ai/core/location"
-import { Integration } from "@opencode-ai/core/integration"
 import { PluginV2 } from "@opencode-ai/core/plugin"
+import { PluginInternal } from "@opencode-ai/core/plugin/internal"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -252,10 +252,8 @@ describe("LocationServiceMap", () => {
           )
 
           const resolved = yield* Effect.gen(function* () {
-            const plugin = yield* PluginV2.Service
-            yield* plugin.wait(PluginV2.ID.make("config-provider"))
-            yield* (yield* Integration.Service).reload()
-            yield* (yield* Catalog.Service).reload()
+            const plugin = yield* PluginInternal.Service
+            yield* plugin.wait()
             return yield* SessionRunnerModel.Service.use((models) =>
               models.resolve(
                 SessionV2.Info.make({
