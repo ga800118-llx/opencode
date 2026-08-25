@@ -33,9 +33,7 @@ function includeDesktopModelProfiles(
   global: NormalizedProviderListResponse,
 ) {
   const connected = new Set(directory.connected)
-  const ids = global.connected.filter(
-    (id) => id.startsWith("agent-profile-") && global.all.has(id) && !connected.has(id),
-  )
+  const ids = global.connected.filter((id) => id.startsWith("agent-profile-") && global.all.has(id))
   if (ids.length === 0) return directory
 
   const all = new Map(directory.all)
@@ -47,7 +45,7 @@ function includeDesktopModelProfiles(
     all.set(id, provider)
     connected.add(id)
     const model = global.default[id]
-    if (model) defaults[id] = model
+    if (model !== undefined) defaults[id] = model
   })
 
   return { all, connected: [...connected], default: defaults }

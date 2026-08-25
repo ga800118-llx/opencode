@@ -81,6 +81,65 @@ test("keeps a connected desktop private model available in every project", () =>
   expect(result.all.get("agent-profile-private")?.models["private-model"]?.name).toBe("Private Model")
 })
 
+test("repairs a connected desktop private provider missing from the directory catalog", () => {
+  const directory: NormalizedProviderListResponse = {
+    all: new Map(),
+    connected: ["agent-profile-private"],
+    default: {},
+  }
+  const global = privateCatalog(true)
+
+  const result = selectProviderCatalog({
+    explicit: true,
+    directory: "/project-b",
+    catalog: { ready: true, providers: directory },
+    global,
+  })
+
+  expect(result).not.toBe(directory)
+  expect(result.all.get("agent-profile-private")).toBe(global.all.get("agent-profile-private"))
+  expect(result.default).toEqual({ "agent-profile-private": "private-model" })
+})
+
+test("replaces a stale desktop private provider and default model", () => {
+  const directory = catalog("agent-profile-private")
+  const global = privateCatalog(true)
+
+  const result = selectProviderCatalog({
+    explicit: true,
+    directory: "/project-b",
+    catalog: { ready: true, providers: directory },
+    global,
+  })
+
+  expect(result).not.toBe(directory)
+  expect(result.all.get("agent-profile-private")).toBe(global.all.get("agent-profile-private"))
+  expect(result.all.get("agent-profile-private")?.models["private-model"]?.name).toBe("Private Model")
+  expect(result.default).toEqual({ "agent-profile-private": "private-model" })
+})
+
+test("preserves unrelated directory providers and defaults while repairing a desktop private provider", () => {
+  const directory = catalog("directory")
+  directory.connected.push("agent-profile-private")
+  const global = privateCatalog(true)
+  const globalDirectory = catalog("directory")
+  global.all.set("directory", globalDirectory.all.get("directory")!)
+  global.connected.push("directory")
+  global.default.directory = "global-directory-model"
+
+  const result = selectProviderCatalog({
+    explicit: true,
+    directory: "/project-b",
+    catalog: { ready: true, providers: directory },
+    global,
+  })
+
+  expect(result.all.get("directory")).toBe(directory.all.get("directory"))
+  expect(result.connected).toEqual(["directory", "agent-profile-private"])
+  expect(result.default.directory).toBe("directory-model")
+  expect(result.default["agent-profile-private"]).toBe("private-model")
+})
+
 test("returns an empty catalog while an explicit directory is unresolved", () => {
   expect(selectProviderCatalog({ explicit: true })).toEqual({ all: new Map(), connected: [], default: {} })
   expect(
