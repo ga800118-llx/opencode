@@ -69,6 +69,40 @@ describe("current session timeline rows", () => {
     })
   })
 
+  test("keeps reasoning in the elapsed disclosure when reasoning summaries are disabled", () => {
+    const source = [
+      { id: "msg_user", type: "user", text: "question", time: { created: 1 } },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [
+          { type: "reasoning", text: "thinking" },
+          { type: "text", text: "final answer" },
+        ],
+        time: { created: 2, completed: 3 },
+      },
+    ] satisfies SessionMessageInfo[]
+    const normalized = normalizeSessionMessages("ses_1", source)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      source,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      false,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows[1]).toMatchObject({
+      _tag: "AssistantProcess",
+      items: [{ type: "part", group: { key: "msg_assistant:reasoning:0" } }],
+    })
+  })
+
   test("keeps a process disclosure for a text-only answer", () => {
     const source = [
       { id: "msg_user", type: "user", text: "question", time: { created: 1 } },

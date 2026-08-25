@@ -126,7 +126,7 @@ export namespace Timeline {
 
     const assistantPartRefs = assistantMessages.flatMap((message, messageIndex) =>
       getMessageParts(message.id)
-        .filter((part) => renderable(part, showReasoning))
+        .filter((part) => part.type === "reasoning" || renderable(part, showReasoning))
         .map((part) => ({ messageID: message.id, messageIndex, part })),
     )
     const assistantItems: AssistantProcessItem[] =

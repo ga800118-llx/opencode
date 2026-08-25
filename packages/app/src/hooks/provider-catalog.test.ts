@@ -8,6 +8,50 @@ const catalog = (id: string): NormalizedProviderListResponse => ({
   default: { [id]: `${id}-model` },
 })
 
+const privateCatalog = (connected: boolean): NormalizedProviderListResponse => {
+  const id = "agent-profile-private"
+  const model = {
+    id: "private-model",
+    providerID: id,
+    api: { id: "private-model", url: "", npm: id },
+    name: "Private Model",
+    family: "private",
+    capabilities: {
+      temperature: false,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 128_000, output: 8_192 },
+    status: "active" as const,
+    options: {},
+    headers: {},
+    release_date: "2026-08-25",
+    variants: {},
+  }
+  return {
+    all: new Map([
+      [
+        id,
+        {
+          id,
+          name: "Private endpoint",
+          source: "api",
+          env: [],
+          options: {},
+          models: { [model.id]: model },
+        },
+      ],
+    ]),
+    connected: connected ? [id] : [],
+    default: connected ? { [id]: model.id } : {},
+  }
+}
+
 test("selects the ready catalog for an explicit directory", () => {
   const directory = catalog("directory")
 
@@ -16,8 +60,25 @@ test("selects the ready catalog for an explicit directory", () => {
       explicit: true,
       directory: "/repo",
       catalog: { ready: true, providers: directory },
+      global: catalog("global"),
     }),
   ).toBe(directory)
+})
+
+test("keeps a connected desktop private model available in every project", () => {
+  const directory = privateCatalog(false)
+  const global = privateCatalog(true)
+
+  const result = selectProviderCatalog({
+    explicit: true,
+    directory: "/project-b",
+    catalog: { ready: true, providers: directory },
+    global,
+  })
+
+  expect(result.connected).toEqual(["agent-profile-private"])
+  expect(result.default).toEqual({ "agent-profile-private": "private-model" })
+  expect(result.all.get("agent-profile-private")?.models["private-model"]?.name).toBe("Private Model")
 })
 
 test("returns an empty catalog while an explicit directory is unresolved", () => {
