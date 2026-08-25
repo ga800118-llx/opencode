@@ -4,6 +4,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { ProviderNotFoundError } from "@opencode-ai/protocol/errors"
 import { response } from "../location"
+import { waitForCatalogReady } from "./catalog-readiness"
 
 export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (handlers) =>
   Effect.gen(function* () {
@@ -11,6 +12,7 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
       .handle(
         "provider.list",
         Effect.fn(function* () {
+          yield* waitForCatalogReady
           const catalog = yield* Catalog.Service
           return yield* response(catalog.provider.available())
         }),
@@ -18,6 +20,7 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
       .handle(
         "provider.get",
         Effect.fn(function* (ctx) {
+          yield* waitForCatalogReady
           const catalog = yield* Catalog.Service
           const provider = yield* catalog.provider.get(ctx.params.providerID)
           if (!provider)
