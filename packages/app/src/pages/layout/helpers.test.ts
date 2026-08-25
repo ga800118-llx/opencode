@@ -19,6 +19,7 @@ import {
   homeProjectDirectories,
   homeSessionServerStatus,
   latestRootSession,
+  projectForSession,
   toggleHomeProjectSelection,
 } from "./helpers"
 import { pathKey } from "@/utils/path-key"
@@ -246,6 +247,28 @@ describe("layout workspace helpers", () => {
     expect(displayName({ worktree: "/tmp/app" })).toBe("app")
     expect(displayName({ worktree: "/tmp/app", name: "My App" })).toBe("My App")
     expect(displayName({ worktree: "/" })).toBe("/")
+  })
+
+  test("resolves a restored session project by directory before stale project ID", () => {
+    const projects = [
+      { id: "default", worktree: "/projects/default" },
+      { id: "game", worktree: "/projects/game" },
+    ]
+
+    expect(
+      projectForSession(session({ id: "session", projectID: "default", directory: "/projects/game" }), projects),
+    ).toBe(projects[1])
+  })
+
+  test("falls back to project ID when the session directory is unknown", () => {
+    const projects = [
+      { id: "default", worktree: "/projects/default" },
+      { id: "game", worktree: "/projects/game" },
+    ]
+
+    expect(
+      projectForSession(session({ id: "session", projectID: "default", directory: "/projects/unknown" }), projects),
+    ).toBe(projects[0])
   })
 
   test("scopes home project selection by server", () => {
