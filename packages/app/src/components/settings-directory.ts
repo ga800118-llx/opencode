@@ -1,5 +1,6 @@
 import type { LayoutRoute } from "@/context/layout"
 import type { DraftTab, Tab, TabInfo } from "@/context/tabs"
+import { pathKey } from "@/utils/path-key"
 
 export function settingsDirectory(
   route: LayoutRoute,
@@ -24,8 +25,22 @@ export function settingsDirectory(
   return undefined
 }
 
-export function settingsSkillDirectory(directory: string | undefined, globalConfig: string | undefined) {
-  return directory ?? globalConfig
+export function settingsSkillDirectories(
+  active: string | undefined,
+  recent: string | undefined,
+  projects: ReadonlyArray<{ worktree: string }>,
+  globalConfig: string | undefined,
+) {
+  const seen = new Set<string>()
+  return [active, recent, ...projects.map((project) => project.worktree), globalConfig].filter(
+    (directory): directory is string => {
+      if (!directory) return false
+      const key = pathKey(directory)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    },
+  )
 }
 
 export function settingsModelDirectory(

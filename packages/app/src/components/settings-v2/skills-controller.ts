@@ -1,6 +1,50 @@
 import { Skill } from "@opencode-ai/schema/skill"
 
 export type SkillStatusFilter = "all" | Skill.ManagementInfo["status"]
+export type SkillInstallation = { directory: string; item: Skill.ManagementInfo }
+export type DeviceSkill = Skill.ManagementInfo & { installations?: readonly SkillInstallation[] }
+export type SkillSnapshot = { directory: string; items: readonly Skill.ManagementInfo[] }
+
+export function mergeDeviceSkills(snapshots: readonly SkillSnapshot[]) {
+  const installations = new Map<Skill.ManagementID, SkillInstallation>()
+  snapshots.forEach((snapshot) =>
+    snapshot.items.forEach((item) => {
+      if (!installations.has(item.id)) installations.set(item.id, { directory: snapshot.directory, item })
+    }),
+  )
+  const groups = new Map<string, SkillInstallation[]>()
+  installations.forEach((installation) => {
+    const current = groups.get(installation.item.name)
+    if (current) {
+      current.push(installation)
+      return
+    }
+    groups.set(installation.item.name, [installation])
+  })
+  return [...groups.values()].map((group): DeviceSkill => {
+    const primary = group.toSorted((a, b) => statusRank(a.item.status) - statusRank(b.item.status))[0]!
+    if (snapshots.length === 1 && group.length === 1) return primary.item
+    const status = group.some((installation) => installation.item.status === "active")
+      ? "active"
+      : group.every((installation) => installation.item.status === "disabled")
+        ? "disabled"
+        : "shadowed"
+    return {
+      ...primary.item,
+      status,
+      enabled: group.some((installation) => installation.item.enabled),
+      deletable: group.length === 1 && primary.item.deletable,
+      deleteTarget: group.length === 1 ? primary.item.deleteTarget : undefined,
+      installations: group,
+    }
+  })
+}
+
+function statusRank(status: Skill.ManagementInfo["status"]) {
+  if (status === "active") return 0
+  if (status === "shadowed") return 1
+  return 2
+}
 
 export async function loadSkillManagement(
   list: () => Promise<Skill.ManagementInfo[]>,
@@ -103,14 +147,20 @@ export function createSkillRefreshLifecycle<Timer>(input: {
 }
 
 export function filterSkills(
-  items: readonly Skill.ManagementInfo[],
+  items: readonly DeviceSkill[],
   input: { query: string; status: SkillStatusFilter },
 ) {
   const query = input.query.trim().toLocaleLowerCase()
   return items.filter((item) => {
     if (input.status !== "all" && item.status !== input.status) return false
     if (!query) return true
-    return [item.name, item.description, item.location, item.source.value]
+    return (item.installations ?? [{ directory: "", item }])
+      .flatMap((installation) => [
+        installation.item.name,
+        installation.item.description,
+        installation.item.location,
+        installation.item.source.value,
+      ])
       .filter((value): value is string => value !== undefined)
       .some((value) => value.toLocaleLowerCase().includes(query))
   })

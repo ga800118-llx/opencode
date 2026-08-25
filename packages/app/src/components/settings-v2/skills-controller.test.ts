@@ -9,6 +9,7 @@ import {
   filterSkills,
   isPending,
   loadSkillManagement,
+  mergeDeviceSkills,
   skillPendingKey,
   scopeKey,
   sourceKey,
@@ -274,6 +275,65 @@ describe("Skill settings controller", () => {
     expect(filterSkills(items, { query: "", status: "disabled" }).every((item) => item.status === "disabled")).toBe(
       true,
     )
+  })
+
+  test("deduplicates repeated installations and groups distinct installations by Skill name", () => {
+    const first = decode({
+      id: "project-device-first",
+      name: "device-skill",
+      description: "First project copy",
+      location: "/one/.opencode/skills/device-skill/SKILL.md",
+      source: { type: "directory", scope: "project", value: "/one/.opencode/skills" },
+      status: "shadowed",
+      enabled: true,
+      deletable: true,
+      deleteTarget: "/one/.opencode/skills/device-skill",
+    })
+    const second = decode({
+      id: "project-device-second",
+      name: "device-skill",
+      description: "Second project copy",
+      location: "/two/.opencode/skills/device-skill/SKILL.md",
+      source: { type: "directory", scope: "project", value: "/two/.opencode/skills" },
+      status: "active",
+      enabled: true,
+      deletable: true,
+      deleteTarget: "/two/.opencode/skills/device-skill",
+    })
+    const result = mergeDeviceSkills([
+      { directory: "/one", items: [items[5]!, first] },
+      { directory: "/two", items: [items[5]!, second] },
+    ])
+
+    expect(result).toHaveLength(2)
+    expect(result.filter((item) => item.name === "agent-browser")).toHaveLength(1)
+    const grouped = result.find((item) => item.name === "device-skill")!
+    expect(grouped.description).toBe("Second project copy")
+    expect(grouped.status).toBe("active")
+    expect(grouped.enabled).toBe(true)
+    expect(grouped.deletable).toBe(false)
+    expect(grouped.installations?.map((installation) => installation.directory)).toEqual(["/one", "/two"])
+  })
+
+  test("keeps a single-location installation unchanged", () => {
+    expect(mergeDeviceSkills([{ directory: "/repo", items: [items[0]!] }])[0]).toBe(items[0])
+  })
+
+  test("searches metadata from every installation in a merged row", () => {
+    const secondary = decode({
+      ...items[0]!,
+      id: "project-deploy-secondary",
+      location: "/secondary/device-only/SKILL.md",
+      source: { type: "directory", scope: "project", value: "/secondary/device-only" },
+    })
+    const grouped = mergeDeviceSkills([
+      { directory: "/repo", items: [items[0]!] },
+      { directory: "/secondary", items: [secondary] },
+    ])
+
+    expect(filterSkills(grouped, { query: "device-only", status: "all" }).map((item) => item.name)).toEqual([
+      "deploy",
+    ])
   })
 
   test("maps project, global, built-in, remote, plugin, and shared presentation keys", () => {

@@ -108,6 +108,66 @@ test("discovers an externally installed Skill on polling and retains it after re
   await expect(dialog.getByText(refreshed.name, { exact: true })).toBeVisible()
 })
 
+test("opens one device Skill inventory from Home", async ({ page }) => {
+  const otherDirectory = "C:/OpenCode/SkillRefreshOther"
+  const project = projectFixture(directory, { id: "proj_skill_refresh", name: "SkillRefresh", color: "blue" })
+  const shared = {
+    ...existing,
+    id: "global-shared",
+    name: "shared-device-skill",
+    description: "Shared across device locations",
+    location: "C:/Users/test/.agents/skills/shared-device-skill/SKILL.md",
+    source: { type: "external", scope: "global", value: "C:/Users/test/.agents/skills" },
+    deletable: false,
+    deleteTarget: undefined,
+  }
+  const firstProject = {
+    ...existing,
+    id: "first-project-skill",
+    name: "first-project-skill",
+  }
+  const secondProject = {
+    ...existing,
+    id: "second-project-skill",
+    name: "second-project-skill",
+    location: `${otherDirectory}/.opencode/skills/second/SKILL.md`,
+    source: { type: "directory", scope: "project", value: `${otherDirectory}/.opencode/skills` },
+    deleteTarget: `${otherDirectory}/.opencode/skills/second`,
+  }
+  await setupMockApp(page, {
+    directory,
+    project,
+    projects: [
+      { worktree: directory, expanded: true },
+      { worktree: otherDirectory, expanded: true },
+    ],
+  })
+  const requested = new Set<string>()
+  await page.route("**/api/skill/management**", async (route) => {
+    const url = new URL(route.request().url())
+    if (route.request().method() !== "GET" || url.pathname !== "/api/skill/management") return route.fallback()
+    const location = url.searchParams.get("location[directory]") ?? ""
+    requested.add(location)
+    await fulfillJson(route, {
+      location: { directory: location, project: { id: project.id, directory: location } },
+      data: location === otherDirectory ? [shared, secondProject] : [shared, firstProject],
+    })
+  })
+
+  await page.goto("/")
+  const settings = page.getByRole("button", { name: "Settings", exact: true }).first()
+  await expectAppVisible(settings)
+  await settings.click()
+  const dialog = page.locator(".settings-v2-dialog")
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("tab", { name: "Skills", exact: true }).click()
+
+  await expect(dialog.getByText(firstProject.name, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(secondProject.name, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(shared.name, { exact: true })).toHaveCount(1)
+  await expect.poll(() => [...requested]).toEqual(expect.arrayContaining([directory, otherDirectory]))
+})
+
 test("opens session Skills settings in the active project directory", async ({ page }) => {
   const project = projectFixture(directory, { id: session.projectID, name: "SkillRefresh", color: "blue" })
   await setupMockApp(page, { directory, project, sessions: [session] })

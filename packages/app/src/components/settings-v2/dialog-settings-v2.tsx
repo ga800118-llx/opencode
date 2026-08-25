@@ -15,7 +15,7 @@ import { useLayout } from "@/context/layout"
 import { tabKey, useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsSkillsV2 } from "./skills"
-import { settingsDirectory, settingsModelDirectory, settingsSkillDirectory } from "@/components/settings-directory"
+import { settingsDirectory, settingsModelDirectory, settingsSkillDirectories } from "@/components/settings-directory"
 import { useSettings } from "@/context/settings"
 import { useServer } from "@/context/server"
 import { createRunLocationPresentation } from "@/product/workflow"
@@ -53,8 +53,13 @@ export const DialogSettings: Component<{
         (tab) => tabs.info[tabKey(tab)],
       ),
   )
-  const skillDirectory = createMemo(() =>
-    settingsSkillDirectory(directory(), serverSync().data.path.config || undefined),
+  const skillDirectories = createMemo(() =>
+    settingsSkillDirectories(
+      directory(),
+      server.projects.last(),
+      server.projects.list(),
+      serverSync().data.path.config || undefined,
+    ),
   )
   const modelDirectory = createMemo(() =>
     settingsModelDirectory(directory(), server.projects.last(), server.projects.list()),
@@ -155,7 +160,7 @@ export const DialogSettings: Component<{
           </ModelsProvider>
         </TabsV2.Content>
         <TabsV2.Content value="skills" class="settings-v2-panel">
-          <SettingsSkillsV2 directory={skillDirectory()} />
+          <SettingsSkillsV2 directories={skillDirectories()} active={tab() === "skills"} />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>

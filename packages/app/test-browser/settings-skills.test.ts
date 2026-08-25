@@ -172,6 +172,112 @@ describe("SettingsSkillsV2", () => {
     expect(view.host.textContent).not.toContain("cached description")
   })
 
+  test("shows one device inventory across all known Skill locations", async () => {
+    const shared = fixture({
+      id: "shared",
+      name: "shared",
+      source: { type: "external", scope: "global", value: "/Users/test/.agents/skills" },
+    })
+    const project = fixture({ id: "project", name: "project" })
+    const global = fixture({
+      id: "global",
+      name: "global",
+      source: { type: "directory", scope: "global", value: "/Users/test/.config/opencode/skills" },
+    })
+    const current = server("scope", [])
+    current.behavior.list = async (directory) => {
+      if (directory === "/project") return [shared, project]
+      if (directory === "/other") return [shared]
+      return [shared, global]
+    }
+    const view = mount(
+      () => ["/project", "/other", "/config"],
+      () => current.sdk,
+    )
+    await waitFor(() => view.host.textContent?.includes("3 installed") === true)
+
+    expect(current.listCalls).toBe(3)
+    expect(view.host.textContent).toContain("project description")
+    expect(view.host.textContent).toContain("global description")
+    expect(view.host.textContent?.match(/shared description/g)).toHaveLength(1)
+  })
+
+  test("toggles every installation represented by a merged Skill row", async () => {
+    const first = fixture({
+      id: "format-first",
+      name: "formatter",
+      location: "/first/.opencode/skills/formatter/SKILL.md",
+      source: { type: "directory", scope: "project", value: "/first/.opencode/skills" },
+    })
+    const second = fixture({
+      id: "format-second",
+      name: "formatter",
+      enabled: false,
+      status: "disabled",
+      location: "/second/.opencode/skills/formatter/SKILL.md",
+      source: { type: "directory", scope: "project", value: "/second/.opencode/skills" },
+    })
+    const current = server("scope", [])
+    current.behavior.list = async (directory) => (directory === "/first" ? [first] : [second])
+    const view = mount(
+      () => ["/first", "/second"],
+      () => current.sdk,
+    )
+    const toggle = await find<HTMLInputElement>(view.host, 'input[type="checkbox"]')
+
+    expect(toggle.checked).toBe(true)
+    expect(view.host.textContent).toContain("1 installed")
+    expect(view.host.textContent).toContain("Project +1")
+    expect(view.host.textContent).toContain("/first/.opencode/skills/formatter/SKILL.md +1")
+
+    click(toggle)
+    await waitFor(() => current.setEnabledCalls.length === 2)
+
+    expect(current.setEnabledCalls).toEqual([
+      { directory: "/first", id: first.id, enabled: false },
+      { directory: "/second", id: second.id, enabled: false },
+    ])
+  })
+
+  test("refreshes all locations after a partially failed merged toggle", async () => {
+    const first = fixture({ id: "partial-first", name: "partial" })
+    const second = fixture({ id: "partial-second", name: "partial" })
+    const current = server("scope", [])
+    current.behavior.list = async (directory) => (directory === "/first" ? [first] : [second])
+    current.behavior.setEnabled = async (_directory, id) => {
+      if (id === second.id) throw new Error("second installation failed")
+      return [first]
+    }
+    const view = mount(
+      () => ["/first", "/second"],
+      () => current.sdk,
+    )
+    click(await find<HTMLInputElement>(view.host, 'input[type="checkbox"]'))
+    await waitFor(() => current.listCalls === 4)
+
+    expect(current.setEnabledCalls).toHaveLength(2)
+    expect(toasts.at(-1)?.title).toBe("Request failed")
+    expect(toasts.at(-1)?.description).toBe("Could not disable partial.")
+  })
+
+  test("does not load the device inventory until the Skills tab is active", async () => {
+    const current = server("scope", [fixture({ id: "deferred", name: "deferred" })])
+    const [active, setActive] = createSignal(false)
+    const view = mount(
+      () => ["/project", "/config"],
+      () => current.sdk,
+      active,
+    )
+    await tick()
+
+    expect(current.listCalls).toBe(0)
+    expect(view.host.textContent).toContain("Loading Skills...")
+
+    setActive(true)
+    await waitFor(() => view.host.textContent?.includes("deferred description") === true)
+    expect(current.listCalls).toBe(2)
+  })
+
   test("closes an invalid covered confirmation only after it becomes active again", async () => {
     const item = fixture({ id: "old", name: "old-skill", deletable: true })
     const oldServer = server("old-scope", [item])
@@ -444,7 +550,11 @@ describe("SettingsSkillsV2", () => {
   })
 })
 
-function mount(directory: Accessor<string>, sdk: Accessor<ServerSDK>) {
+function mount(
+  directory: Accessor<string | readonly string[]>,
+  sdk: Accessor<ServerSDK>,
+  active: Accessor<boolean> = () => true,
+) {
   sdkAccessor = sdk
   const [visible, setVisible] = createSignal(true)
   const client = new QueryClient({
@@ -469,7 +579,15 @@ function mount(directory: Accessor<string>, sdk: Accessor<ServerSDK>) {
                 if (!visible()) return
                 return createComponent(SettingsSkillsV2, {
                   get directory() {
-                    return directory()
+                    const value = directory()
+                    return typeof value === "string" ? value : undefined
+                  },
+                  get directories() {
+                    const value = directory()
+                    return typeof value === "string" ? undefined : value
+                  },
+                  get active() {
+                    return active()
                   },
                 })
               },
@@ -555,6 +673,7 @@ function server(scope: string, initial: Skill.ManagementInfo[]) {
 function fixture(input: {
   id: string
   name: string
+  location?: string
   enabled?: boolean
   status?: "active" | "disabled" | "shadowed"
   source?: {
@@ -569,7 +688,7 @@ function fixture(input: {
     id: input.id,
     name: input.name,
     description: `${input.name} description`,
-    location: `/repo/${input.name}/SKILL.md`,
+    location: input.location ?? `/repo/${input.name}/SKILL.md`,
     source: input.source ?? { type: "directory", scope: "project", value: "/repo" },
     status: input.status ?? "active",
     enabled: input.enabled ?? true,

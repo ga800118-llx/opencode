@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
-import { Skill } from "@opencode-ai/schema/skill"
 import { Tag } from "@opencode-ai/ui/v2/badge-v2"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
@@ -15,6 +14,7 @@ import { type Component, createEffect, createMemo, For, onCleanup, Show } from "
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { type ServerSDK, useServerSDK } from "@/context/server-sdk"
+import { pathKey } from "@/utils/path-key"
 import { isSkillManagementNotFound, type SkillManagementApi } from "@/utils/skill-management-api"
 import { showToast } from "@/utils/toast"
 import {
@@ -24,10 +24,12 @@ import {
   createSkillRefreshQueue,
   filterSkills,
   isPending,
+  mergeDeviceSkills,
   skillPendingKey,
   scopeKey,
   sourceKey,
   statusKey,
+  type DeviceSkill,
   type SkillStatusFilter,
 } from "./skills-controller"
 import { SettingsListV2 } from "./parts/list"
@@ -36,20 +38,26 @@ import "./settings-v2.css"
 const FILTERS = ["all", "active", "disabled", "shadowed"] as const
 type SkillQueryKey = readonly [ServerSDK["scope"], string, "skill-management"]
 type MutationContext = {
-  directory: string
+  directories: readonly string[]
+  directoryKey: string
   scope: ServerSDK["scope"]
   api: SkillManagementApi
   queryKey: SkillQueryKey
 }
 type DeleteSnapshot = MutationContext & {
-  item: Skill.ManagementInfo
+  directory: string
+  item: DeviceSkill
   pendingKey: string
   token: number
   valid: boolean
   dialogID?: string
 }
 
-export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
+export const SettingsSkillsV2: Component<{
+  directory?: string
+  directories?: readonly string[]
+  active?: boolean
+}> = (props) => {
   const language = useLanguage()
   const dialog = useDialog()
   const serverSDK = useServerSDK()
@@ -71,25 +79,59 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
   onCleanup(() => {
     mounted = false
   })
-  const queryKey = () => [serverSDK().scope, props.directory, "skill-management"] as const
+  const directories = createMemo(() => {
+    const seen = new Set<string>()
+    return (props.directories ?? (props.directory ? [props.directory] : [])).filter((directory) => {
+      const key = pathKey(directory)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  })
+  const directoryKey = createMemo(() => {
+    const current = directories()
+    return current.length === 1 ? current[0]! : JSON.stringify(current)
+  })
+  const queryKey = () => [serverSDK().scope, directoryKey(), "skill-management"] as const
   const loadSkills = createSkillManagementLoader()
+  const mutationContext = () => {
+    const current = directories()
+    if (current.length === 0) return
+    const sdk = serverSDK()
+    return {
+      directories: current,
+      directoryKey: directoryKey(),
+      scope: sdk.scope,
+      api: sdk.skillManagement,
+      queryKey: [sdk.scope, directoryKey(), "skill-management"] as const,
+    }
+  }
+  const loadDeviceSkills = (context: MutationContext, options?: { refresh?: boolean }) => {
+    if (context.directories.length === 1) {
+      const directory = context.directories[0]!
+      return loadSkills(JSON.stringify([context.scope, directory]), () => context.api.list(directory, options))
+    }
+    return Promise.all(
+      context.directories.map(async (directory) => ({
+        directory,
+        items: await loadSkills(JSON.stringify([context.scope, directory]), () => context.api.list(directory, options)),
+      })),
+    ).then(mergeDeviceSkills)
+  }
   const skills = useQuery(() => ({
     queryKey: queryKey(),
     enabled: false,
     retry: false,
     queryFn: () => {
-      const sdk = serverSDK()
-      const directory = props.directory!
-      return loadSkills(JSON.stringify([sdk.scope, directory]), () =>
-        sdk.skillManagement.list(directory, { refresh: true }),
-      )
+      const context = mutationContext()
+      if (!context) return []
+      return loadDeviceSkills(context)
     },
   }))
   const items = createMemo(() => skills.data ?? [])
   const filtered = createMemo(() => filterSkills(items(), { query: state.query, status: state.status }))
   const refreshSkills = createSkillRefreshQueue(async (context: MutationContext) => {
-    const result = await context.api.list(context.directory)
-    queryClient.setQueryData(context.queryKey, result)
+    queryClient.setQueryData(context.queryKey, await loadDeviceSkills(context))
   })
   const begin = (key: string) => {
     if (state.pendingKeys.has(key)) return false
@@ -103,8 +145,8 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
 
   createEffect(() => {
     serverSDK()
-    const directory = props.directory
-    if (!directory) return
+    directoryKey()
+    if (!(props.active ?? true) || directories().length === 0) return
     const lifecycle = createSkillRefreshLifecycle({
       refresh: () => skills.refetch({ cancelRefetch: false }),
       visible: () => document.visibilityState === "visible",
@@ -122,18 +164,6 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     onCleanup(lifecycle.dispose)
   })
 
-  const mutationContext = () => {
-    const directory = props.directory
-    if (!directory) return
-    const sdk = serverSDK()
-    return {
-      directory,
-      scope: sdk.scope,
-      api: sdk.skillManagement,
-      queryKey: [sdk.scope, directory, "skill-management"] as const,
-    }
-  }
-
   const refreshAll = async () => {
     const context = mutationContext()
     if (!context || skills.isFetching) return
@@ -141,21 +171,28 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     await queryClient
       .fetchQuery({
         queryKey: context.queryKey,
-        queryFn: () => context.api.list(context.directory, { refresh: true }),
+        queryFn: () => loadDeviceSkills(context, { refresh: true }),
         staleTime: 0,
       })
       .catch(() => undefined)
     if (mounted) setState("refreshing", false)
   }
 
-  const setEnabled = async (item: Skill.ManagementInfo, enabled: boolean) => {
+  const setEnabled = async (item: DeviceSkill, enabled: boolean) => {
     const context = mutationContext()
     if (!context) return false
-    const pendingKey = skillPendingKey(context.scope, context.directory, item.id)
+    const installations = item.installations ?? [{ directory: context.directories[0]!, item }]
+    const pendingKey = skillPendingKey(context.scope, context.directoryKey, item.id)
     if (!begin(pendingKey)) return false
     try {
-      const next = await context.api.setEnabled(context.directory, item.id, enabled)
-      queryClient.setQueryData(context.queryKey, next)
+      const next = await Promise.all(
+        installations.map((installation) =>
+          context.api.setEnabled(installation.directory, installation.item.id, enabled),
+        ),
+      )
+      if (context.directories.length === 1 && installations.length === 1) {
+        queryClient.setQueryData(context.queryKey, next[0])
+      }
       await refreshSkills(context)
       showToast({
         title: language.t(enabled ? "settings.skills.enable.success" : "settings.skills.disable.success", {
@@ -164,7 +201,9 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
       })
       return true
     } catch (error) {
-      if (isSkillManagementNotFound(error)) await refreshSkills(context).catch(() => undefined)
+      if (installations.length > 1 || isSkillManagementNotFound(error)) {
+        await refreshSkills(context).catch(() => undefined)
+      }
       showToast({
         title: language.t("common.requestFailed"),
         description: language.t(enabled ? "settings.skills.enable.failure" : "settings.skills.disable.failure", {
@@ -181,7 +220,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     if (!snapshot.valid || !begin(snapshot.pendingKey)) return false
     try {
       const next = await snapshot.api.remove(snapshot.directory, snapshot.item.id)
-      queryClient.setQueryData(snapshot.queryKey, next)
+      if (snapshot.directories.length === 1) queryClient.setQueryData(snapshot.queryKey, next)
       await refreshSkills(snapshot)
       showToast({ title: language.t("settings.skills.delete.success", { name: snapshot.item.name }) })
       return true
@@ -202,13 +241,16 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
     if (state.confirmation?.token === snapshot.token) setState("confirmation", "valid", false)
     dialog.close()
   }
-  const confirmRemove = (item: Skill.ManagementInfo) => {
+  const confirmRemove = (item: DeviceSkill) => {
     const context = mutationContext()
     if (!item.deleteTarget || !context) return
+    const directory = item.installations?.[0]?.directory ?? context.directories[0]
+    if (!directory) return
     if (state.confirmation) setState("confirmation", "valid", false)
     setState("confirmation", {
+      directory,
       item,
-      pendingKey: skillPendingKey(context.scope, context.directory, item.id),
+      pendingKey: skillPendingKey(context.scope, context.directoryKey, item.id),
       token: ++confirmationToken,
       valid: true,
       ...context,
@@ -238,11 +280,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
 
   createEffect(() => {
     const sdk = serverSDK()
-    const directory = props.directory
+    const currentDirectoryKey = directoryKey()
     const snapshot = state.confirmation
     const activeID = dialog.active?.id
     if (!snapshot) return
-    if (snapshot.valid && (snapshot.scope !== sdk.scope || snapshot.directory !== directory)) {
+    if (snapshot.valid && (snapshot.scope !== sdk.scope || snapshot.directoryKey !== currentDirectoryKey)) {
       setState("confirmation", "valid", false)
       return
     }
@@ -272,7 +314,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
               class="settings-v2-skills-refresh"
               size="small"
               variant="ghost-muted"
-              disabled={!props.directory || skills.isFetching}
+              disabled={directories().length === 0 || skills.isFetching}
               aria-label={language.t("settings.skills.refresh")}
               icon={<Icon name="reset" size="small" />}
               data-refreshing={state.refreshing ? "" : undefined}
@@ -286,7 +328,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
             fallback={
               <div
                 class="settings-v2-skills-search-placeholder"
-                data-loading={props.directory && skills.isPending ? "" : undefined}
+                data-loading={directories().length > 0 && skills.isPending ? "" : undefined}
                 aria-hidden="true"
               />
             }
@@ -330,7 +372,10 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
           </div>
         </Show>
         <SettingsListV2>
-          <Show when={props.directory} fallback={<SkillState text={language.t("settings.skills.locationRequired")} />}>
+          <Show
+            when={directories().length > 0}
+            fallback={<SkillState text={language.t("settings.skills.locationRequired")} />}
+          >
             <Show when={!skills.isPending} fallback={<SkillState text={language.t("settings.skills.loading")} />}>
               <Show
                 when={!skills.isError || items().length > 0}
@@ -343,18 +388,43 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                   >
                     <For each={filtered()}>
                       {(item) => {
+                        const installations = () => item.installations ?? []
+                        const installationCount = () => installations().length
                         const source = () => language.t(sourceKey(item))
+                        const sourceLabel = () =>
+                          installationCount() > 1 ? `${source()} +${installationCount() - 1}` : source()
+                        const sourceTitle = () =>
+                          installations().length > 0
+                            ? [...new Set(installations().map((installation) => installation.item.source.value))].join(
+                                "\n",
+                              )
+                            : item.source.value
                         const scope = () => language.t(scopeKey(item))
                         const statusLabel = () => language.t(statusKey(item))
                         const blocked = () => {
                           const key = blockedKey(item)
                           return key ? language.t(key) : undefined
                         }
-                        const location = () => (item.source.type === "url" ? item.source.value : item.location)
+                        const locations = () =>
+                          installations().length > 0
+                            ? [
+                                ...new Set(
+                                  installations().map((installation) =>
+                                    installation.item.source.type === "url"
+                                      ? installation.item.source.value
+                                      : installation.item.location,
+                                  ),
+                                ),
+                              ]
+                            : [item.source.type === "url" ? item.source.value : item.location]
+                        const location = () =>
+                          locations().length > 1 ? `${locations()[0]} +${locations().length - 1}` : locations()[0]!
                         const pending = () => {
-                          const directory = props.directory
-                          if (!directory) return false
-                          return isPending(state.pendingKeys, skillPendingKey(serverSDK().scope, directory, item.id))
+                          if (directories().length === 0) return false
+                          return isPending(
+                            state.pendingKeys,
+                            skillPendingKey(serverSDK().scope, directoryKey(), item.id),
+                          )
                         }
                         return (
                           <div class="settings-v2-skills-row">
@@ -364,11 +434,11 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                                 {(description) => <div class="settings-v2-skills-description">{description()}</div>}
                               </Show>
                               <div class="settings-v2-skills-meta">
-                                <Tag title={item.source.value}>
+                                <Tag title={sourceTitle()}>
                                   <span class="sr-only">
-                                    {language.t("settings.skills.source.label", { value: source() })}
+                                    {language.t("settings.skills.source.label", { value: sourceLabel() })}
                                   </span>
-                                  <span aria-hidden="true">{source()}</span>
+                                  <span aria-hidden="true">{sourceLabel()}</span>
                                 </Tag>
                                 <Tag>
                                   <span class="sr-only">
@@ -390,7 +460,7 @@ export const SettingsSkillsV2: Component<{ directory?: string }> = (props) => {
                                   )}
                                 </Show>
                               </div>
-                              <div class="settings-v2-skills-location" title={location()}>
+                              <div class="settings-v2-skills-location" title={locations().join("\n")}>
                                 <span class="sr-only">
                                   {language.t("settings.skills.path.label", { value: location() })}
                                 </span>

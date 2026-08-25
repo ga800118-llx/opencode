@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ServerConnection } from "@/context/server"
 import type { SessionTab } from "@/context/tabs"
-import { settingsDirectory, settingsModelDirectory, settingsSkillDirectory } from "./settings-directory"
+import { settingsDirectory, settingsModelDirectory, settingsSkillDirectories } from "./settings-directory"
 
 describe("settingsDirectory", () => {
   test("resolves direct project routes", () => {
@@ -53,13 +53,39 @@ describe("settingsDirectory", () => {
   })
 })
 
-describe("settingsSkillDirectory", () => {
-  test("prefers the active project directory", () => {
-    expect(settingsSkillDirectory("/repo", "/home/test/.config/opencode")).toBe("/repo")
+describe("settingsSkillDirectories", () => {
+  test("collects active, recent, known project, and global locations in order", () => {
+    expect(
+      settingsSkillDirectories(
+        "/active",
+        "/recent",
+        [{ worktree: "/first" }, { worktree: "/second" }],
+        "/home/test/.config/opencode",
+      ),
+    ).toEqual(["/active", "/recent", "/first", "/second", "/home/test/.config/opencode"])
   })
 
-  test("uses the global config directory from Home", () => {
-    expect(settingsSkillDirectory(undefined, "/home/test/.config/opencode")).toBe("/home/test/.config/opencode")
+  test("uses recent and known projects from Home", () => {
+    expect(
+      settingsSkillDirectories(
+        undefined,
+        "/recent",
+        [{ worktree: "/first" }, { worktree: "/recent" }],
+        "/home/test/.config/opencode",
+      ),
+    ).toEqual(["/recent", "/first", "/home/test/.config/opencode"])
+  })
+
+  test("falls back to the global config directory without projects", () => {
+    expect(settingsSkillDirectories(undefined, undefined, [], "/home/test/.config/opencode")).toEqual([
+      "/home/test/.config/opencode",
+    ])
+  })
+
+  test("normalizes trailing separators when removing duplicate locations", () => {
+    expect(
+      settingsSkillDirectories("/repo/", "/repo", [{ worktree: "/repo//" }, { worktree: "/other" }], undefined),
+    ).toEqual(["/repo/", "/other"])
   })
 })
 
