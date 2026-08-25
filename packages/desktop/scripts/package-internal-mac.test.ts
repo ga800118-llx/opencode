@@ -264,7 +264,7 @@ describe("internal Mac package", () => {
       schemaVersion: 5,
       product: "Guai Code Beta",
       channel: "beta",
-      version: "0.1.0-alpha.7",
+      version: "0.1.0-alpha.8",
       platform: "darwin",
       arch: "arm64",
       source: {

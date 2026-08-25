@@ -39,17 +39,17 @@ const guidePath = path.join(
 
 describe("internal Windows package", () => {
   test("uses the Windows internal Beta package metadata", () => {
-    expect(pkg.version).toBe("0.1.0-alpha.7")
+    expect(pkg.version).toBe("0.1.0-alpha.8")
     expect(pkg.description).toBeTruthy()
     expect(pkg.scripts["package:win:internal"]).toBe("bun ./scripts/package-internal-windows.ts")
   })
 
-  test("identifies Alpha 7 artifacts and states the Windows testing and SmartScreen constraints", async () => {
+  test("identifies Alpha 8 artifacts and states the Windows testing and SmartScreen constraints", async () => {
     const guide = await Bun.file(guidePath).text()
 
-    expect(guide).toContain("版本：`0.1.0-alpha.7`")
-    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.7-win-x64.exe")
-    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.7-win-x64-portable.zip")
+    expect(guide).toContain("版本：`0.1.0-alpha.8`")
+    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.8-win-x64.exe")
+    expect(guide).toContain("Guai-Code-Beta-0.1.0-alpha.8-win-x64-portable.zip")
     expect(guide).not.toContain("alpha.2")
     expect(guide).not.toContain("Windows SmartScreen 会显示风险提示")
     expect(guide).not.toContain("SmartScreen 显示“Windows 已保护你的电脑”时")
