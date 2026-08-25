@@ -24,6 +24,8 @@ import { ToolSchemaProjection } from "./utils/tool-schema"
 import { ToolStream } from "./utils/tool-stream"
 
 const ADAPTER = "openai-chat"
+const COMPATIBLE_ADAPTER = "openai-compatible-chat"
+const COMPATIBLE_ERROR_MESSAGE = "OpenAI-compatible Chat stream error"
 const IMAGE_MIMES = new Set<string>(ProviderShared.IMAGE_MIMES)
 export const DEFAULT_BASE_URL = "https://api.openai.com/v1"
 export const PATH = "/chat/completions"
@@ -158,6 +160,32 @@ const OpenAIChatEvent = Schema.Struct({
   usage: optionalNull(OpenAIChatUsage),
 })
 type OpenAIChatEvent = Schema.Schema.Type<typeof OpenAIChatEvent>
+
+const OpenAICompatibleChatErrorEvent = Schema.Struct({
+  error: JsonObject,
+})
+
+const OpenAICompatibleChatStandardEvent = Schema.Struct({
+  ...OpenAIChatEvent.fields,
+  error: Schema.optional(Schema.Never),
+})
+
+const OpenAICompatibleChatEvent = Schema.Union([
+  OpenAICompatibleChatErrorEvent,
+  OpenAICompatibleChatStandardEvent,
+  Schema.Struct({
+    usage: OpenAIChatUsage,
+    choices: Schema.optional(Schema.Never),
+    error: Schema.optional(Schema.Never),
+  }),
+  Schema.Struct({
+    base_resp: JsonObject,
+    choices: Schema.optional(Schema.Never),
+    usage: Schema.optional(Schema.Never),
+    error: Schema.optional(Schema.Never),
+  }),
+])
+type OpenAICompatibleChatEvent = Schema.Schema.Type<typeof OpenAICompatibleChatEvent>
 type OpenAIChatRequestMessage = LLMRequest["messages"][number]
 
 interface ParserState {
@@ -459,6 +487,24 @@ const step = (state: ParserState, event: OpenAIChatEvent) =>
     ] as const
   })
 
+const compatibleStep = (state: ParserState, event: OpenAICompatibleChatEvent) => {
+  if ("error" in event && event.error) {
+    const message = typeof event.error.message === "string" ? event.error.message : COMPATIBLE_ERROR_MESSAGE
+    const sanitized = {
+      message,
+      ...(typeof event.error.type === "string" ? { type: event.error.type } : {}),
+      ...(typeof event.error.code === "string" || typeof event.error.code === "number"
+        ? { code: event.error.code }
+        : {}),
+    }
+    return Effect.fail(ProviderShared.eventError(COMPATIBLE_ADAPTER, message, ProviderShared.encodeJson(sanitized)))
+  }
+  if ("choices" in event && event.choices) return step(state, event)
+  if ("usage" in event && event.usage)
+    return Effect.succeed([{ ...state, usage: mapUsage(event.usage) ?? state.usage }, []] as const)
+  return Effect.succeed([state, []] as const)
+}
+
 const finishEvents = (state: ParserState): ReadonlyArray<LLMEvent> => {
   const events: LLMEvent[] = []
   const hasToolCalls = state.toolCallEvents.length > 0
@@ -473,10 +519,9 @@ const finishEvents = (state: ParserState): ReadonlyArray<LLMEvent> => {
 // Protocol And OpenAI Route
 // =============================================================================
 /**
- * The OpenAI Chat protocol — request body construction, body schema, and the
- * streaming-event state machine. Reused by every route that speaks OpenAI Chat
- * over HTTP+SSE: native OpenAI, DeepSeek, TogetherAI, Cerebras, Baseten,
- * Fireworks, DeepInfra, and (once added) Azure OpenAI Chat.
+ * The strict OpenAI Chat protocol — request body construction, body schema,
+ * and the standard streaming-event state machine. Native OpenAI routes use
+ * this protocol; compatible routes use the tolerant protocol below.
  */
 export const protocol = Protocol.make({
   id: ADAPTER,
@@ -488,6 +533,17 @@ export const protocol = Protocol.make({
     event: Protocol.jsonEvent(OpenAIChatEvent),
     initial: () => ({ tools: ToolStream.empty<number>(), toolCallEvents: [], lifecycle: Lifecycle.initial() }),
     step,
+    onHalt: finishEvents,
+  },
+})
+
+export const compatibleProtocol = Protocol.make({
+  id: COMPATIBLE_ADAPTER,
+  body: protocol.body,
+  stream: {
+    event: Protocol.jsonEvent(OpenAICompatibleChatEvent),
+    initial: protocol.stream.initial,
+    step: compatibleStep,
     onHalt: finishEvents,
   },
 })

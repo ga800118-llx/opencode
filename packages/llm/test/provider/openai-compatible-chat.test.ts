@@ -6,7 +6,7 @@ import { Auth, LLMClient } from "../../src/route"
 import * as OpenAICompatible from "../../src/providers/openai-compatible"
 import * as OpenAICompatibleChat from "../../src/protocols/openai-compatible-chat"
 import { it } from "../lib/effect"
-import { dynamicResponse } from "../lib/http"
+import { dynamicResponse, fixedResponse } from "../lib/http"
 import { sseEvents } from "../lib/sse"
 
 const Json = Schema.fromJsonString(Schema.Unknown)
@@ -233,6 +233,174 @@ describe("OpenAI-compatible Chat route", () => {
       expect(response.text).toBe("Hello!")
       expect(response.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
       expect(response.events.at(-1)).toMatchObject({ type: "finish", reason: "stop" })
+    }),
+  )
+
+  it.effect("ignores base_resp metadata before standard stream chunks", () =>
+    Effect.gen(function* () {
+      const response = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents(
+              { base_resp: { status_code: 0, status_msg: "success" } },
+              deltaChunk({ role: "assistant", content: "Hello" }),
+              deltaChunk({}, "stop"),
+            ),
+          ),
+        ),
+      )
+
+      expect(response.text).toBe("Hello")
+      expect(response.events.map((event) => event.type)).toEqual([
+        "step-start",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "step-finish",
+        "finish",
+      ])
+    }),
+  )
+
+  it.effect("retains usage-only chunks without choices", () =>
+    Effect.gen(function* () {
+      const response = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents(
+              deltaChunk({ role: "assistant", content: "Hello" }),
+              deltaChunk({}, "stop"),
+              { usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 } },
+            ),
+          ),
+        ),
+      )
+
+      expect(response.text).toBe("Hello")
+      expect(response.usage).toMatchObject({ inputTokens: 5, outputTokens: 1, totalTokens: 6 })
+      expect(response.events.map((event) => event.type)).toEqual([
+        "step-start",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "step-finish",
+        "finish",
+      ])
+    }),
+  )
+
+  it.effect("surfaces explicit in-band upstream errors", () =>
+    Effect.gen(function* () {
+      const error = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents({
+              error: {
+                message: "Temporary upstream failure",
+                type: "server_error",
+                code: "upstream_busy",
+              },
+            }),
+          ),
+        ),
+        Effect.flip,
+      )
+
+      expect(error.message).toContain("Temporary upstream failure")
+      expect(error.message).not.toContain("Invalid deepseek/openai-compatible-chat stream event")
+      expect(error.reason).toMatchObject({
+        _tag: "InvalidProviderOutput",
+        raw: '{"message":"Temporary upstream failure","type":"server_error","code":"upstream_busy"}',
+      })
+    }),
+  )
+
+  it.effect("prioritizes malformed error envelopes over otherwise valid choices", () =>
+    Effect.gen(function* () {
+      const error = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents({
+              ...deltaChunk({ role: "assistant", content: "must not succeed" }, "stop"),
+              error: {
+                message: null,
+                type: "server_error",
+                code: "upstream_busy",
+              },
+            }),
+          ),
+        ),
+        Effect.flip,
+      )
+
+      expect(error.message).toContain("OpenAI-compatible Chat stream error")
+      expect(error.message).not.toContain("Invalid deepseek/openai-compatible-chat stream event")
+      expect(error.reason).toMatchObject({
+        _tag: "InvalidProviderOutput",
+        raw: '{"message":"OpenAI-compatible Chat stream error","type":"server_error","code":"upstream_busy"}',
+      })
+    }),
+  )
+
+  it.effect("ignores nullable error type and code while surfacing its message", () =>
+    Effect.gen(function* () {
+      const error = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents({
+              error: {
+                message: "Temporary upstream failure",
+                type: null,
+                code: null,
+              },
+            }),
+          ),
+        ),
+        Effect.flip,
+      )
+
+      expect(error.message).toContain("Temporary upstream failure")
+      expect(error.reason).toMatchObject({
+        _tag: "InvalidProviderOutput",
+        raw: '{"message":"Temporary upstream failure"}',
+      })
+    }),
+  )
+
+  it.effect("removes unknown sensitive fields from in-band error metadata", () =>
+    Effect.gen(function* () {
+      const error = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents({
+              error: {
+                message: "Sensitive upstream failure",
+                type: "server_error",
+                code: 503,
+                token: "private-token",
+                debug: { authorization: "Bearer private-token" },
+              },
+            }),
+          ),
+        ),
+        Effect.flip,
+      )
+      const raw = "raw" in error.reason ? error.reason.raw : undefined
+
+      expect(raw).toBe('{"message":"Sensitive upstream failure","type":"server_error","code":503}')
+      expect(raw).not.toContain("private-token")
+      expect(raw).not.toContain("debug")
+    }),
+  )
+
+  it.effect("rejects malformed choices in compatible stream events", () =>
+    Effect.gen(function* () {
+      const error = yield* LLMClient.generate(request).pipe(
+        Effect.provide(fixedResponse(sseEvents({ choices: "invalid" }))),
+        Effect.flip,
+      )
+
+      expect(error.message).toContain("Invalid deepseek/openai-compatible-chat stream event")
     }),
   )
 })
