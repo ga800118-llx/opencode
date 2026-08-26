@@ -15,8 +15,9 @@ surfaces use one coherent identity.
   white G. The background is `#0D0D0D` and the mark is white.
 - Compact in-app marks use the standalone G and inherit the existing light or
   dark theme icon color tokens.
-- Wordmarks pair the G with `Guai Code`. Product identity, bundle identifiers,
-  storage namespaces, and channel names remain unchanged.
+- Brand wordmarks pair the G with `GUAI`. The formal product name remains
+  `Guai Code`; bundle identifiers, storage namespaces, and channel names remain
+  unchanged.
 - Gold remains a secondary brand accent and is not used for the default app
   icon.
 
