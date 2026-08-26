@@ -9,10 +9,23 @@ import {
   maximumSunsetTimeout,
   newLayoutDesignsDefault,
   nextSunsetCheckDelay,
+  normalizePersonalizationInstructions,
   resolveNewLayoutDesigns,
   shouldDisplayTabsToast,
   shouldEnableNewLayout,
 } from "./settings"
+
+describe("personalization settings", () => {
+  test("normalizes surrounding whitespace without changing multiline content", () => {
+    expect(normalizePersonalizationInstructions("  Be concise.\nKeep explanations practical.  ")).toBe(
+      "Be concise.\nKeep explanations practical.",
+    )
+  })
+
+  test("normalizes whitespace-only content to the built-in default", () => {
+    expect(normalizePersonalizationInstructions(" \n\t ")).toBe("")
+  })
+})
 
 describe("presentation settings", () => {
   test("restores an existing advanced presentation without side effects", () => {

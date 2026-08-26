@@ -132,6 +132,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
             type: "user",
             metadata: event.metadata,
             text: event.data.prompt.text,
+            system: event.data.prompt.system,
             files: event.data.prompt.files,
             agents: event.data.prompt.agents,
             time: { created: event.data.timestamp },

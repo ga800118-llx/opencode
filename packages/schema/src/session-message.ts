@@ -45,6 +45,7 @@ export interface User extends Schema.Schema.Type<typeof User> {}
 export const User = Schema.Struct({
   ...Base,
   text: Prompt.fields.text,
+  system: Prompt.fields.system,
   files: Prompt.fields.files,
   agents: Prompt.fields.agents,
   type: Schema.Literal("user"),

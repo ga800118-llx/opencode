@@ -300,6 +300,7 @@ describe("createCompatibleApi", () => {
       sessionID: "ses_1",
       id: "msg_1",
       text: "hello @src/index.ts",
+      system: "Reply concisely.",
       agent: "build",
       model: { providerID: "provider", modelID: "model" },
       variant: "high",
@@ -315,6 +316,7 @@ describe("createCompatibleApi", () => {
     const body = await requests[0]!.json()
     expect(body).toMatchObject({
       messageID: "msg_1",
+      system: "Reply concisely.",
       agent: "build",
       model: { providerID: "provider", modelID: "model" },
       variant: "high",

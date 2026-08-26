@@ -141,12 +141,21 @@ describe("createProductTaskAdapter", () => {
     ]
 
     await expect(
-      adapter.prompt({ taskID: "session-1", directory: "/repo", parts, agent: "build", model }),
+      adapter.prompt({
+        taskID: "session-1",
+        directory: "/repo",
+        system: "Reply concisely.",
+        parts,
+        agent: "build",
+        model,
+      }),
     ).resolves.toEqual({ taskID: "session-1", operationID: "msg-generated" })
     expect(calls.prompt).toEqual([
       {
         sessionID: "session-1",
         id: "msg-generated",
+        system: "Reply concisely.",
+        metadata: { "guai.personalization": "Reply concisely." },
         agent: "build",
         model: { providerID: "provider-1", modelID: "model-1" },
         variant: "high",

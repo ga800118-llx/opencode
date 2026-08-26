@@ -47,6 +47,7 @@ export type CompatibleApi = Omit<ServerApi, "session" | "permission"> & {
   readonly permission: CompatiblePermissionApi
 }
 type LegacyPrompt = {
+  system?: string
   agent?: string
   model?: { providerID: string; modelID: string }
   variant?: string
@@ -276,6 +277,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           sessionID: value.sessionID,
           directory: directory(value.location),
           messageID: value.id ?? undefined,
+          system: value.system,
           agent: value.agent,
           model: value.model,
           variant: value.variant,

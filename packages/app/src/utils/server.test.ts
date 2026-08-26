@@ -50,6 +50,7 @@ describe("createApiForServer", () => {
       sessionID: "ses_1",
       id: "msg_1",
       text: "Inspect this",
+      metadata: { "guai.personalization": "Reply concisely." },
       files: [
         {
           uri: "file:///repo/a.ts",
@@ -68,6 +69,7 @@ describe("createApiForServer", () => {
       id: "msg_1",
       prompt: {
         text: "Inspect this",
+        system: "Reply concisely.",
         files: [
           {
             uri: "file:///repo/a.ts",

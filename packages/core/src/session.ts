@@ -522,6 +522,7 @@ const layer = Layer.effect(
 const resolvePrompt = (input: PromptInput.Prompt) =>
   Prompt.make({
     text: input.text,
+    system: input.system,
     agents: input.agents,
     files: input.files?.map((file) => {
       const dataMime = file.uri.match(/^data:([^;,]+)[;,]/i)?.[1]

@@ -128,10 +128,13 @@ export type ProductCreateTaskOutput<SessionRecord = unknown> = {
   readonly record: Readonly<SessionRecord>
 }
 
+export const productPersonalizationMetadataKey = "guai.personalization"
+
 export type ProductPromptInput = {
   readonly taskID: ProductTaskID
   readonly directory: ProductDirectory
   readonly messageID?: ProductMessageID
+  readonly system?: string
   readonly parts: readonly ProductPromptPart[]
   readonly agent: string
   readonly model: ProductModelSelection
@@ -187,7 +190,10 @@ export type ProductTaskEvent<Type extends string = string, Data = unknown> = Pro
   readonly taskID: ProductTaskID
 }
 
-export type ProductOptionalTaskEvent<Type extends string = string, Data = unknown> = ProductEventEnvelope<Type, Data> & {
+export type ProductOptionalTaskEvent<Type extends string = string, Data = unknown> = ProductEventEnvelope<
+  Type,
+  Data
+> & {
   readonly taskID?: ProductTaskID
 }
 

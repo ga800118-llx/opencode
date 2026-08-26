@@ -40,6 +40,7 @@ export const AgentAttachment = Schema.Struct({
 export interface Prompt extends Schema.Schema.Type<typeof Prompt> {}
 export const Prompt = Schema.Struct({
   text: Schema.String,
+  system: Schema.String.pipe(optional),
   files: Schema.Array(FileAttachment).pipe(optional),
   agents: Schema.Array(AgentAttachment).pipe(optional),
 })
@@ -47,9 +48,10 @@ export const Prompt = Schema.Struct({
   .pipe(
     statics((schema) => ({
       equivalence: Schema.toEquivalence(schema),
-      fromUserMessage: (input: Pick<Prompt, "text" | "files" | "agents">) =>
+      fromUserMessage: (input: Pick<Prompt, "text" | "system" | "files" | "agents">) =>
         schema.make({
           text: input.text,
+          ...(input.system === undefined ? {} : { system: input.system }),
           ...(input.files === undefined ? {} : { files: input.files }),
           ...(input.agents === undefined ? {} : { agents: input.agents }),
         }),

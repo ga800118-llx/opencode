@@ -15,13 +15,14 @@ import { useLayout } from "@/context/layout"
 import { tabKey, useTabs } from "@/context/tabs"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsSkillsV2 } from "./skills"
+import { SettingsPersonalizationV2 } from "./personalization"
 import { settingsDirectory, settingsModelDirectory, settingsSkillDirectories } from "@/components/settings-directory"
 import { useSettings } from "@/context/settings"
 import { useServer } from "@/context/server"
 import { createRunLocationPresentation } from "@/product/workflow"
 import { ModelsProvider } from "@/context/models"
 
-export type SettingsTab = "general" | "shortcuts" | "models" | "providers" | "servers" | "skills"
+export type SettingsTab = "general" | "personalization" | "shortcuts" | "models" | "providers" | "servers" | "skills"
 
 export const DialogSettings: Component<{
   sessionID?: string
@@ -99,6 +100,10 @@ export const DialogSettings: Component<{
                       <Icon name="sliders" />
                       {language.t("settings.tab.general")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="personalization">
+                      <Icon name="brain" />
+                      {language.t("settings.personalization.title")}
+                    </TabsV2.Trigger>
                     <TabsV2.Trigger value="shortcuts">
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
@@ -142,6 +147,9 @@ export const DialogSettings: Component<{
         </TabsV2.List>
         <TabsV2.Content value="general" class="settings-v2-panel">
           <SettingsGeneralV2 sessionID={props.sessionID} directory={directory} />
+        </TabsV2.Content>
+        <TabsV2.Content value="personalization" class="settings-v2-panel">
+          <SettingsPersonalizationV2 />
         </TabsV2.Content>
         <TabsV2.Content value="shortcuts" class="settings-v2-panel">
           <SettingsKeybinds v2 />

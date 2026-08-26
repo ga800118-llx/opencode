@@ -2,6 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
 import type { ServerConnection } from "@/context/server"
 import { decode64 } from "@/utils/base64"
+import { productPersonalizationMetadataKey } from "@/product/contracts"
 
 export function authTokenFromCredentials(input: { username?: string; password: string }) {
   return btoa(`${input.username ?? "opencode"}:${input.password}`)
@@ -72,10 +73,17 @@ async function currentPromptBody(request: Request) {
   if (request.method !== "POST" || !/^\/api\/session\/[^/]+\/prompt$/.test(new URL(request.url).pathname)) return
   const value: unknown = await request.clone().json()
   if (!isRecord(value) || typeof value.text !== "string") return
+  const metadata = isRecord(value.metadata) ? value.metadata : undefined
   return {
     id: value.id,
     prompt: {
       text: value.text,
+      system:
+        typeof value.system === "string"
+          ? value.system
+          : typeof metadata?.[productPersonalizationMetadataKey] === "string"
+            ? metadata[productPersonalizationMetadataKey]
+            : undefined,
       files: Array.isArray(value.files) ? value.files.map(renameMentionToSource) : undefined,
       agents: Array.isArray(value.agents) ? value.agents.map(renameMentionToSource) : undefined,
     },

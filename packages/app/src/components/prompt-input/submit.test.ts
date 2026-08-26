@@ -61,6 +61,7 @@ let createSessionGate: Promise<void> | undefined
 let protocol: "v1" | "v2" = "v2"
 let projectMetadata: { commands?: { start?: string } } | undefined
 let projectMetadataReady: Promise<unknown> | undefined
+let personalizationInstructions = ""
 
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 const [promptStore, setPromptStore] = createStore<PromptStore>({
@@ -225,6 +226,14 @@ beforeAll(async () => {
     return { usePermission: () => ({ currentServerState: () => state(permissionServer) }) }
   })
 
+  mock.module("@/context/settings", () => ({
+    useSettings: () => ({
+      personalization: {
+        instructions: () => personalizationInstructions,
+      },
+    }),
+  }))
+
   mock.module("@/context/server", () => ({
     useServer: () => ({ key: "server-key" }),
   }))
@@ -378,6 +387,7 @@ beforeEach(() => {
   protocol = "v2"
   projectMetadata = undefined
   projectMetadataReady = undefined
+  personalizationInstructions = ""
   serverSessionSyncs = 0
   directSessionCalls = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
@@ -778,9 +788,10 @@ describe("prompt submit worktree selection", () => {
     expect(promotedDrafts).toEqual([{ draftID: "draft-1", server: "project-server", sessionId: "session-1" }])
   })
 
-  test("includes the selected variant on optimistic prompts", async () => {
+  test("includes the selected variant and personalization on normal prompts", async () => {
     params = { id: "session-1" }
     variant = "high"
+    personalizationInstructions = "Reply concisely."
 
     const submit = createPromptSubmit({
       prompt,
@@ -816,6 +827,7 @@ describe("prompt submit worktree selection", () => {
     expect(promptInputs[0]).toMatchObject({
       taskID: "session-1",
       directory: "/repo/main",
+      system: "Reply concisely.",
       agent: "agent",
       model: { providerID: "provider", modelID: "model", variant: "high" },
     })
@@ -829,6 +841,7 @@ describe("prompt submit worktree selection", () => {
     params = { id: "session-1" }
     variant = "high"
     commands.push({ name: "review" })
+    personalizationInstructions = "Reply concisely."
     promptValue = [{ type: "text", content: "/review staged changes", start: 0, end: 22 }]
 
     const submit = createPromptSubmit({

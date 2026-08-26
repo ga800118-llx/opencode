@@ -70,6 +70,55 @@
   gap: 16px;
 }
 
+.settings-v2-personalization {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.settings-v2-personalization-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-v2-personalization-label {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 20px;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-personalization-description {
+  max-width: 640px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+}
+
+.settings-v2-personalization [data-component="textarea-v2"] {
+  width: 100%;
+}
+
+.settings-v2-personalization [data-slot="textarea-v2-textarea"] {
+  min-height: 260px;
+  resize: vertical;
+}
+
+.settings-v2-personalization-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-v2-personalization-restore-body {
+  max-width: 420px;
+  line-height: 20px;
+}
+
 .settings-v2-section-title {
   padding-bottom: 8px;
   font-size: 15px;

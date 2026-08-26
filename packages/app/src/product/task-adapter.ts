@@ -4,11 +4,12 @@ import type { AgentPartInput, FilePartInput, TextPartInput } from "@opencode-ai/
 import { Event } from "@opencode-ai/schema/event"
 import { Identifier } from "@/utils/id"
 import type { CompatibleApi } from "@/utils/server-compat"
-import type {
-  ProductFilePart,
-  ProductPromptPart,
-  ProductTaskAdapter,
-  ProductTextPart,
+import {
+  productPersonalizationMetadataKey,
+  type ProductFilePart,
+  type ProductPromptPart,
+  type ProductTaskAdapter,
+  type ProductTextPart,
 } from "./contracts"
 import { normalizeProductError } from "./errors"
 
@@ -26,7 +27,10 @@ type PermissionModeSessionApi = Omit<CompatibleApi["session"], "create"> & {
   ) => ReturnType<CompatibleApi["session"]["create"]>
 }
 
-export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAdapterIDs = {}): ProductTaskAdapter<SessionInfo> {
+export function createProductTaskAdapter(
+  api: CompatibleApi,
+  ids: ProductTaskAdapterIDs = {},
+): ProductTaskAdapter<SessionInfo> {
   const messageID = ids.messageID ?? (() => Identifier.ascending("message"))
   const operationID = ids.operationID ?? (() => Event.ID.create())
 
@@ -55,6 +59,8 @@ export function createProductTaskAdapter(api: CompatibleApi, ids: ProductTaskAda
         api.session.prompt({
           sessionID: input.taskID,
           id,
+          system: input.system,
+          metadata: input.system ? { [productPersonalizationMetadataKey]: input.system } : undefined,
           agent: input.agent,
           model: { providerID: input.model.providerID, modelID: input.model.modelID },
           variant: input.model.variant,

@@ -446,6 +446,7 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
+      readonly system?: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -464,6 +465,7 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
+      readonly system?: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -482,6 +484,7 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
+      readonly system?: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -500,6 +503,7 @@ export type SessionsPromptInput = {
     readonly id?: string | null
     readonly prompt: {
       readonly text: string
+      readonly system?: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly name?: string
@@ -523,6 +527,7 @@ export type SessionsPromptOutput = {
     readonly sessionID: string
     readonly prompt: {
       readonly text: string
+      readonly system?: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly mime: string
@@ -613,6 +618,7 @@ export type SessionsContextOutput = {
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }
         readonly text: string
+        readonly system?: string
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string
@@ -830,6 +836,7 @@ export type SessionsHistoryOutput = {
           readonly messageID: string
           readonly prompt: {
             readonly text: string
+            readonly system?: string
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
@@ -857,6 +864,7 @@ export type SessionsHistoryOutput = {
           readonly messageID: string
           readonly prompt: {
             readonly text: string
+            readonly system?: string
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
@@ -1371,6 +1379,7 @@ export type SessionsEventsOutput =
         readonly messageID: string
         readonly prompt: {
           readonly text: string
+          readonly system?: string
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string
@@ -1398,6 +1407,7 @@ export type SessionsEventsOutput =
         readonly messageID: string
         readonly prompt: {
           readonly text: string
+          readonly system?: string
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string
@@ -1857,6 +1867,7 @@ export type SessionsMessageOutput = {
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }
         readonly text: string
+        readonly system?: string
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string
@@ -2029,6 +2040,7 @@ export type MessagesListOutput = {
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }
         readonly text: string
+        readonly system?: string
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string

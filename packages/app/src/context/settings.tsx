@@ -52,6 +52,9 @@ export interface Settings {
   permissions: {
     autoApprove: boolean
   }
+  personalization: {
+    instructions: string
+  }
   notifications: NotificationSettings
   sounds: SoundSettings
 }
@@ -182,6 +185,10 @@ export function terminalFontFamily(font: string | undefined) {
   return stack(font, terminalBase)
 }
 
+export function normalizePersonalizationInstructions(value: string) {
+  return value.trim()
+}
+
 const defaultSettings: Settings = {
   general: {
     presentationMode: "simple",
@@ -208,6 +215,9 @@ const defaultSettings: Settings = {
   keybinds: {},
   permissions: {
     autoApprove: false,
+  },
+  personalization: {
+    instructions: "",
   },
   notifications: {
     agent: true,
@@ -522,6 +532,12 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         autoApprove: withFallback(() => store.permissions?.autoApprove, defaultSettings.permissions.autoApprove),
         setAutoApprove(value: boolean) {
           setStore("permissions", "autoApprove", value)
+        },
+      },
+      personalization: {
+        instructions: createMemo(() => normalizePersonalizationInstructions(store.personalization?.instructions ?? "")),
+        setInstructions(value: string) {
+          setStore("personalization", "instructions", normalizePersonalizationInstructions(value))
         },
       },
       notifications: {

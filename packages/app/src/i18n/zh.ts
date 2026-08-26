@@ -5,6 +5,16 @@ import { workflowEn, workflowZh } from "./workflow-copy"
 type Keys = keyof typeof en
 
 export const dict = {
+  "settings.personalization.title": "个性化",
+  "settings.personalization.field.label": "自定义性格",
+  "settings.personalization.field.description":
+    "保存在这台设备上，并从下一条消息开始应用于所有项目。留空时保持系统现有默认行为。",
+  "settings.personalization.field.placeholder": "填写希望智能体长期遵循的表达方式和工作偏好。",
+  "settings.personalization.save.success": "个性化设置已保存",
+  "settings.personalization.restore.action": "恢复默认",
+  "settings.personalization.restore.title": "恢复默认性格？",
+  "settings.personalization.restore.confirm": "这会清空自定义性格，系统现有的智能体默认行为不会改变。",
+  "settings.personalization.restore.success": "已恢复默认性格",
   "settings.skills.title": "Skills",
   "settings.skills.count": "已安装 {{count}} 个",
   "settings.skills.search": "搜索 Skill",

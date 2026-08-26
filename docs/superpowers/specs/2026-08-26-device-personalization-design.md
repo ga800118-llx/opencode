@@ -69,4 +69,3 @@ This request-level transport means one desktop installation behaves consistently
 - Verify internal prompt paths do not receive the personalization.
 - Type-check the app and desktop packages.
 - Run the focused settings and prompt submission tests, followed by a desktop production build.
-

@@ -28,6 +28,7 @@ import { ScopedKey } from "@/utils/server-scope"
 import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
+import { useSettings } from "@/context/settings"
 
 type PendingPrompt = {
   abort: AbortController
@@ -39,6 +40,7 @@ const pending = new Map<string, PendingPrompt>()
 export type FollowupDraft = {
   sessionID: string
   sessionDirectory: string
+  system?: string
   prompt: Prompt
   context: (ContextItem & { key: string })[]
   agent: string
@@ -170,6 +172,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       taskID: input.draft.sessionID,
       directory: input.draft.sessionDirectory,
       messageID,
+      system: input.draft.system,
       agent: input.draft.agent,
       model: { ...input.draft.model, variant: input.draft.variant },
       parts: requestParts,
@@ -216,6 +219,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const serverSync = useServerSync()
   const local = useLocal()
   const permission = usePermission()
+  const settings = useSettings()
   const prompt = input.prompt
   const layout = useLayout()
   const language = useLanguage()
@@ -445,6 +449,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
+      system: settings.personalization.instructions() || undefined,
       prompt: currentPrompt,
       context,
       agent,

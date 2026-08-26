@@ -2,6 +2,18 @@ import { modelCenterEn } from "./model-center-copy"
 import { workflowEn } from "./workflow-copy"
 
 export const dict = {
+  "settings.personalization.title": "Personalization",
+  "settings.personalization.field.label": "Custom personality",
+  "settings.personalization.field.description":
+    "Applied on this device to your next message in every project. Leave blank to keep the built-in behavior.",
+  "settings.personalization.field.placeholder":
+    "Describe the response style and working preferences you want the agent to follow.",
+  "settings.personalization.save.success": "Personalization saved",
+  "settings.personalization.restore.action": "Restore default",
+  "settings.personalization.restore.title": "Restore default personality?",
+  "settings.personalization.restore.confirm":
+    "This clears your custom personality. The existing built-in agent behavior will remain unchanged.",
+  "settings.personalization.restore.success": "Default personality restored",
   "settings.skills.title": "Skills",
   "settings.skills.count": "{{count}} installed",
   "settings.skills.search": "Search Skills",

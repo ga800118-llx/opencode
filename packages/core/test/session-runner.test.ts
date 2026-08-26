@@ -644,6 +644,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("starts a real runner turn after default prompt recording", () =>
     Effect.gen(function* () {
       yield* setup
+      requests.length = 0
       const session = yield* SessionV2.Service
       requests.length = 0
       responses = undefined
@@ -663,6 +664,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("generates a durable title after the first successful turn", () =>
     Effect.gen(function* () {
       yield* setup
+      requests.length = 0
       const session = yield* SessionV2.Service
       const events = yield* EventV2.Service
       const { db } = yield* Database.Service
@@ -928,6 +930,69 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
 
       expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Build agent instructions", "Initial context"])
+    }),
+  )
+
+  it.effect("uses only the latest user personalization for each provider turn", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      const session = yield* SessionV2.Service
+
+      response = fragmentFixture("text", "text-personalized-first", ["First done"]).completeEvents
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "First", system: "Reply concisely." }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      response = fragmentFixture("text", "text-personalized-second", ["Second done"]).completeEvents
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Second", system: "Explain decisions." }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      response = fragmentFixture("text", "text-personalized-default", ["Third done"]).completeEvents
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
+      yield* session.resume(sessionID)
+
+      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
+        ["Initial context", "Reply concisely."],
+        ["Initial context", "Explain decisions."],
+        ["Initial context"],
+      ])
+    }),
+  )
+
+  it.effect("keeps user personalization during a tool continuation", () =>
+    Effect.gen(function* () {
+      yield* setup
+      requests.length = 0
+      const session = yield* SessionV2.Service
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-personalized", name: "echo", input: { text: "hello" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        fragmentFixture("text", "text-personalized-tool", ["Done"]).completeEvents,
+      ]
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Use a tool", system: "Reply concisely." }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      expect(requests).toHaveLength(2)
+      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
+        ["Initial context", "Reply concisely."],
+        ["Initial context", "Reply concisely."],
+      ])
     }),
   )
 
