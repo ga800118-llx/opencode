@@ -8,8 +8,11 @@ import {
   assertInternalWindowsHost,
   assertMinGitChecksum,
   assertMinGitSize,
+  assertRipgrepChecksum,
+  assertRipgrepSize,
   createDesktopBuildCommands,
   createMinGitDownloadCommand,
+  createRipgrepDownloadCommand,
   createInternalWindowsArtifactPlan,
   createPortableZipCommand,
   createPortableZipVerificationCommand,
@@ -22,6 +25,11 @@ import {
   MINGIT_SIZE_BYTES,
   MINGIT_URL,
   PORTABLE_ZIP_REQUIRED_ENTRIES,
+  RIPGREP_ASSET,
+  RIPGREP_RELEASE,
+  RIPGREP_SHA256,
+  RIPGREP_SIZE_BYTES,
+  RIPGREP_URL,
   runDownloadAttempts,
   runProcessWithHardTimeout,
   withDownloadTemporaryFile,
@@ -83,6 +91,10 @@ describe("internal Windows package", () => {
     )
     expect(plan.unpacked).toBe(path.join(packageDir, "dist", "win-unpacked"))
     expect(plan.staging).toBe(path.join(packageDir, "dist", "internal-resources", "mingit"))
+    expect(plan.ripgrepStaging).toBe(path.join(packageDir, "dist", "internal-resources", "ripgrep"))
+    expect(plan.ripgrepExtracted).toBe(
+      path.join(packageDir, "dist", "internal-resources", "ripgrep-15.1.0-x86_64-pc-windows-msvc"),
+    )
     expect(plan.directory).toBe(
       path.join(packageDir, "dist", "internal-beta", "0.1.0-alpha.3", "windows-x64"),
     )
@@ -134,6 +146,24 @@ describe("internal Windows package", () => {
     expect(() => assertMinGitChecksum("0".repeat(64))).toThrow("checksum mismatch")
   })
 
+  test("pins the official Windows x64 ripgrep release", () => {
+    expect(RIPGREP_RELEASE).toBe("15.1.0")
+    expect(RIPGREP_ASSET).toBe("ripgrep-15.1.0-x86_64-pc-windows-msvc.zip")
+    expect(RIPGREP_URL).toBe(
+      "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
+    )
+    expect(RIPGREP_SHA256).toBe("124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a")
+    expect(RIPGREP_SIZE_BYTES).toBe(1_810_687)
+  })
+
+  test("fails closed on ripgrep archive metadata", () => {
+    expect(() => assertRipgrepSize(RIPGREP_SIZE_BYTES)).not.toThrow()
+    expect(() => assertRipgrepChecksum(RIPGREP_SHA256)).not.toThrow()
+
+    expect(() => assertRipgrepSize(RIPGREP_SIZE_BYTES + 1)).toThrow("size mismatch")
+    expect(() => assertRipgrepChecksum("0".repeat(64))).toThrow("checksum mismatch")
+  })
+
   test("always removes the current download temporary file", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mingit-download-"))
     const temporary = path.join(directory, "MinGit.zip.download")
@@ -163,6 +193,23 @@ describe("internal Windows package", () => {
       "--output",
       temporary,
       MINGIT_URL,
+    ])
+  })
+
+  test("downloads ripgrep with curl.exe and visible transfer progress", () => {
+    const temporary = path.join("C:\\cache", `${RIPGREP_ASSET}.download`)
+
+    expect(createRipgrepDownloadCommand(temporary)).toEqual([
+      "curl.exe",
+      "--fail",
+      "--location",
+      "--show-error",
+      "--progress-bar",
+      "--connect-timeout",
+      "30",
+      "--output",
+      temporary,
+      RIPGREP_URL,
     ])
   })
 
@@ -241,6 +288,8 @@ describe("internal Windows package", () => {
       "Guai Code Beta.exe",
       "resources/mingit/cmd/git.exe",
       "resources/mingit/LICENSE.txt",
+      "resources/ripgrep/rg.exe",
+      "resources/ripgrep/LICENSE-MIT",
       "resources/licenses/OpenCode-MIT.txt",
     ])
     expect(PORTABLE_ZIP_REQUIRED_ENTRIES.every((entry) => verify.includes(entry))).toBeTrue()

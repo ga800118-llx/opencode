@@ -123,6 +123,36 @@ test("does not bundle MinGit from an empty environment path", async () => {
   })
 })
 
+test("bundles ripgrep from a nonempty environment path", async () => {
+  const previous = process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR
+  process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR = "C:\\staging\\ripgrep"
+  const module = await import("./electron-builder.config.ts?bundled-ripgrep-resource")
+  const config = module.default as Configuration
+  if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR
+  if (previous !== undefined) process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR = previous
+
+  expect(config.extraResources).toContainEqual({
+    from: "C:\\staging\\ripgrep",
+    to: "ripgrep",
+    filter: ["**/*"],
+  })
+})
+
+test("does not bundle ripgrep from an empty environment path", async () => {
+  const previous = process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR
+  process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR = "   "
+  const module = await import("./electron-builder.config.ts?no-bundled-ripgrep-resource")
+  const config = module.default as Configuration
+  if (previous === undefined) delete process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR
+  if (previous !== undefined) process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR = previous
+
+  expect(config.extraResources).not.toContainEqual({
+    from: expect.any(String),
+    to: "ripgrep",
+    filter: ["**/*"],
+  })
+})
+
 test("uses a one-click unelevated per-user Windows installer", async () => {
   const module = await import("./electron-builder.config.ts?windows-installer")
   const config = module.default as Configuration

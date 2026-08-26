@@ -149,6 +149,8 @@ const verifierEvidence = () => ({
       "Guai Code Beta.exe",
       "resources/mingit/cmd/git.exe",
       "resources/mingit/LICENSE.txt",
+      "resources/ripgrep/rg.exe",
+      "resources/ripgrep/LICENSE-MIT",
       "resources/licenses/OpenCode-MIT.txt",
     ],
     executable: executable(),

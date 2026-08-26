@@ -17,10 +17,17 @@ export const MINGIT_SIZE_BYTES = 38_791_206
 export const MINGIT_DOWNLOAD_TIMEOUT_MS = 120_000
 export const MINGIT_DOWNLOAD_ATTEMPTS = 3
 export const MINGIT_DOWNLOAD_RETRY_DELAY_MS = 5_000
+export const RIPGREP_RELEASE = "15.1.0"
+export const RIPGREP_ASSET = `ripgrep-${RIPGREP_RELEASE}-x86_64-pc-windows-msvc.zip`
+export const RIPGREP_URL = `https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_RELEASE}/${RIPGREP_ASSET}`
+export const RIPGREP_SHA256 = "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a"
+export const RIPGREP_SIZE_BYTES = 1_810_687
 export const PORTABLE_ZIP_REQUIRED_ENTRIES = [
   "Guai Code Beta.exe",
   "resources/mingit/cmd/git.exe",
   "resources/mingit/LICENSE.txt",
+  "resources/ripgrep/rg.exe",
+  "resources/ripgrep/LICENSE-MIT",
   "resources/licenses/OpenCode-MIT.txt",
 ] as const
 
@@ -37,6 +44,8 @@ export function createInternalWindowsArtifactPlan(packageDir: string, version: s
     builderInstaller: path.join(dist, `guai-code-desktop-beta-${version}-win-x64.exe`),
     unpacked: path.join(dist, "win-unpacked"),
     staging: path.join(dist, "internal-resources", "mingit"),
+    ripgrepStaging: path.join(dist, "internal-resources", "ripgrep"),
+    ripgrepExtracted: path.join(dist, "internal-resources", RIPGREP_ASSET.slice(0, -4)),
     directory,
     installer: path.join(directory, `${deliveryStem}.exe`),
     portableZip: path.join(directory, `${deliveryStem}-portable.zip`),
@@ -74,6 +83,16 @@ export function assertMinGitChecksum(checksum: string) {
   throw new Error(`MinGit checksum mismatch: expected ${MINGIT_SHA256}, received ${checksum}`)
 }
 
+export function assertRipgrepSize(size: number) {
+  if (size === RIPGREP_SIZE_BYTES) return
+  throw new Error(`ripgrep size mismatch: expected ${RIPGREP_SIZE_BYTES}, received ${size}`)
+}
+
+export function assertRipgrepChecksum(checksum: string) {
+  if (checksum === RIPGREP_SHA256) return
+  throw new Error(`ripgrep checksum mismatch: expected ${RIPGREP_SHA256}, received ${checksum}`)
+}
+
 export async function withDownloadTemporaryFile<T>(temporary: string, action: () => Promise<T>) {
   try {
     return await action()
@@ -94,6 +113,21 @@ export function createMinGitDownloadCommand(temporary: string) {
     "--output",
     temporary,
     MINGIT_URL,
+  ]
+}
+
+export function createRipgrepDownloadCommand(temporary: string) {
+  return [
+    "curl.exe",
+    "--fail",
+    "--location",
+    "--show-error",
+    "--progress-bar",
+    "--connect-timeout",
+    "30",
+    "--output",
+    temporary,
+    RIPGREP_URL,
   ]
 }
 
@@ -128,16 +162,18 @@ export async function runDownloadAttempts(options: {
   attempts: number
   retryDelayMs: number
   run: (attempt: number) => Promise<void>
+  label?: string
   log?: (message: string) => void
   delay?: (milliseconds: number) => Promise<void>
 }) {
+  const label = options.label ?? "MinGit"
   const log = options.log ?? console.log
   const delay =
     options.delay ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)))
 
   const attempt = async (current: number): Promise<void> => {
     await rm(options.temporary, { force: true })
-    log(`[MinGit] Download attempt ${current}/${options.attempts}`)
+    log(`[${label}] Download attempt ${current}/${options.attempts}`)
     const result = await options.run(current).then(
       () => ({ success: true as const }),
       (error: unknown) => ({ success: false as const, error }),
@@ -146,14 +182,14 @@ export async function runDownloadAttempts(options: {
 
     await rm(options.temporary, { force: true })
     const message = result.error instanceof Error ? result.error.message : String(result.error)
-    log(`[MinGit] Download attempt ${current}/${options.attempts} failed: ${message}`)
+    log(`[${label}] Download attempt ${current}/${options.attempts} failed: ${message}`)
     if (current >= options.attempts) {
-      throw new Error(`MinGit download failed after ${options.attempts} attempts: ${message}`, {
+      throw new Error(`${label} download failed after ${options.attempts} attempts: ${message}`, {
         cause: result.error,
       })
     }
 
-    log(`[MinGit] Retrying in ${options.retryDelayMs} ms`)
+    log(`[${label}] Retrying in ${options.retryDelayMs} ms`)
     await delay(options.retryDelayMs)
     return attempt(current + 1)
   }
@@ -206,6 +242,43 @@ async function downloadMinGit() {
   })
 }
 
+async function downloadRipgrep() {
+  const directory = path.join(homedir(), ".cache", "guai-code", "internal-package")
+  const archive = path.join(directory, RIPGREP_ASSET)
+  await mkdir(directory, { recursive: true })
+
+  console.log(`[ripgrep] Checking cache: ${archive}`)
+  if (await Bun.file(archive).exists()) {
+    if ((await stat(archive)).size === RIPGREP_SIZE_BYTES && (await sha256(archive)) === RIPGREP_SHA256) {
+      console.log("[ripgrep] Using verified cached archive")
+      return archive
+    }
+    console.log("[ripgrep] Cached archive is invalid; removing it")
+    await rm(archive, { force: true })
+  }
+
+  const temporary = `${archive}.${process.pid}-${randomUUID()}.download`
+  return withDownloadTemporaryFile(temporary, async () => {
+    console.log(`[ripgrep] Cache miss; downloading ${RIPGREP_URL}`)
+    await runDownloadAttempts({
+      temporary,
+      attempts: MINGIT_DOWNLOAD_ATTEMPTS,
+      retryDelayMs: MINGIT_DOWNLOAD_RETRY_DELAY_MS,
+      label: "ripgrep",
+      run: async () => {
+        await runProcessWithHardTimeout(createRipgrepDownloadCommand(temporary), MINGIT_DOWNLOAD_TIMEOUT_MS)
+        console.log("[ripgrep] Validating downloaded archive size")
+        assertRipgrepSize((await stat(temporary)).size)
+        console.log("[ripgrep] Validating downloaded archive SHA-256")
+        assertRipgrepChecksum(await sha256(temporary))
+      },
+    })
+    console.log("[ripgrep] Promoting verified archive to cache")
+    await rename(temporary, archive)
+    return archive
+  })
+}
+
 async function runPowerShell(command: string) {
   const child = Bun.spawn(
     ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
@@ -247,6 +320,8 @@ export async function packageInternalWindows() {
     rm(plan.builderInstaller, { force: true }),
     rm(plan.unpacked, { recursive: true, force: true }),
     rm(plan.staging, { recursive: true, force: true }),
+    rm(plan.ripgrepStaging, { recursive: true, force: true }),
+    rm(plan.ripgrepExtracted, { recursive: true, force: true }),
   ])
 
   console.log("[Windows package] Preparing bundled MinGit")
@@ -261,7 +336,25 @@ export async function packageInternalWindows() {
     requireFile(path.join(plan.staging, "LICENSE.txt")),
   ])
 
+  console.log("[Windows package] Preparing bundled ripgrep")
+  const ripgrepArchive = await downloadRipgrep()
+  console.log("[Windows package] Extracting bundled ripgrep")
+  await runPowerShell(
+    `$global:ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath ${quotePowerShell(ripgrepArchive)} -DestinationPath ${quotePowerShell(path.dirname(plan.ripgrepStaging))} -Force`,
+  )
+  await Promise.all([
+    requireFile(path.join(plan.ripgrepExtracted, "rg.exe")),
+    requireFile(path.join(plan.ripgrepExtracted, "LICENSE-MIT")),
+    mkdir(plan.ripgrepStaging, { recursive: true }),
+  ])
+  await Promise.all([
+    copyFile(path.join(plan.ripgrepExtracted, "rg.exe"), path.join(plan.ripgrepStaging, "rg.exe")),
+    copyFile(path.join(plan.ripgrepExtracted, "LICENSE-MIT"), path.join(plan.ripgrepStaging, "LICENSE-MIT")),
+  ])
+  await rm(plan.ripgrepExtracted, { recursive: true, force: true })
+
   process.env.GUAI_CODE_BUNDLED_GIT_DIR = plan.staging
+  process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR = plan.ripgrepStaging
   console.log("[Windows package] Preparing desktop assets")
   await $`bun ./scripts/prebuild.ts`.cwd(packageDir)
   console.log("[Windows package] Building desktop application")
@@ -282,6 +375,8 @@ export async function packageInternalWindows() {
     requireFile(path.join(plan.unpacked, "Guai Code Beta.exe")),
     requireFile(path.join(resources, "mingit", "cmd", "git.exe")),
     requireFile(path.join(resources, "mingit", "LICENSE.txt")),
+    requireFile(path.join(resources, "ripgrep", "rg.exe")),
+    requireFile(path.join(resources, "ripgrep", "LICENSE-MIT")),
     requireFile(path.join(resources, "licenses", "OpenCode-MIT.txt")),
   ])
 

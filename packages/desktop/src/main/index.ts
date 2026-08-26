@@ -13,6 +13,7 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { createBundledGitEnvironment } from "../product/bundled-git"
+import { createBundledRipgrepEnvironment } from "../product/bundled-ripgrep"
 import { normalizeProductDeepLinks } from "../product/deep-link"
 import {
   createUnavailableSidecarStatus,
@@ -339,6 +340,17 @@ const main = Effect.gen(function* () {
     if ("gitConfigSystem" in bundledGit) process.env.GIT_CONFIG_SYSTEM = bundledGit.gitConfigSystem
     if ("gitTemplateDir" in bundledGit) process.env.GIT_TEMPLATE_DIR = bundledGit.gitTemplateDir
     logger.log("bundled git enabled", { directory: bundledGit.directory })
+  }
+  const bundledRipgrep = createBundledRipgrepEnvironment({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    inheritedPath: process.env.PATH,
+    exists: existsSync,
+  })
+  if (bundledRipgrep) {
+    process.env.PATH = bundledRipgrep.path
+    logger.log("bundled ripgrep enabled", { directory: bundledRipgrep.directory })
   }
 
   app.on("second-instance", (_event: Event, argv: string[]) => {

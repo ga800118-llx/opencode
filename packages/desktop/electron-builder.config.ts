@@ -11,6 +11,7 @@ const packageDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(packageDir, "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 const bundledGitDir = process.env.GUAI_CODE_BUNDLED_GIT_DIR?.trim()
+const bundledRipgrepDir = process.env.GUAI_CODE_BUNDLED_RIPGREP_DIR?.trim()
 
 const metainfoFpm = (appId: string) =>
   `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
@@ -72,6 +73,15 @@ const getBase = (identity: ProductIdentity): Configuration => ({
           {
             from: bundledGitDir,
             to: "mingit",
+            filter: ["**/*"],
+          },
+        ]
+      : []),
+    ...(bundledRipgrepDir
+      ? [
+          {
+            from: bundledRipgrepDir,
+            to: "ripgrep",
             filter: ["**/*"],
           },
         ]
