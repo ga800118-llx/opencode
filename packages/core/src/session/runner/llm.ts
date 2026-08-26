@@ -330,52 +330,91 @@ const layer = Layer.effect(
         Effect.gen(function* () {
           const claimedStream = yield* restore(
             runModelCall(session.id, () =>
-              llm.stream(request).pipe(
-                Stream.runForEach((event) =>
-                  Effect.gen(function* () {
-                    if (overflowFailure || publisher.hasProviderError()) return
-                    if (LLMEvent.is.providerError(event)) {
-                      if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
-                        overflowFailure = event
+              Effect.gen(function* () {
+                const startedAt = Date.now()
+                let firstEventAt: number | undefined
+                let eventCount = 0
+                yield* Effect.logInfo("provider turn started", {
+                  sessionID: session.id,
+                  step: currentStep,
+                  providerID: model.provider,
+                  modelID: model.id,
+                  toolCount: request.tools.length,
+                })
+                return yield* llm.stream(request).pipe(
+                  Stream.runForEach((event) =>
+                    Effect.gen(function* () {
+                      eventCount += 1
+                      if (firstEventAt === undefined) {
+                        firstEventAt = Date.now()
+                        yield* Effect.logInfo("provider turn first event", {
+                          sessionID: session.id,
+                          step: currentStep,
+                          providerID: model.provider,
+                          modelID: model.id,
+                          elapsedMs: firstEventAt - startedAt,
+                        })
+                      }
+                      if (overflowFailure || publisher.hasProviderError()) return
+                      if (LLMEvent.is.providerError(event)) {
+                        if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
+                          overflowFailure = event
+                          return
+                        }
+                      }
+                      yield* publish(event)
+                      if (event.type !== "tool-call" || event.providerExecuted) return
+                      if (!toolMaterialization) {
+                        yield* withPublication(
+                          publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"),
+                        )
                         return
                       }
-                    }
-                    yield* publish(event)
-                    if (event.type !== "tool-call" || event.providerExecuted) return
-                    if (!toolMaterialization) {
-                      yield* withPublication(
-                        publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"),
-                      )
-                      return
-                    }
-                    needsContinuation = true
-                    const assistantMessageID = yield* publisher.assistantMessageID(event.id)
-                    yield* Effect.uninterruptibleMask((restore) =>
-                      restore(
-                        toolMaterialization.settle({
-                          sessionID: session.id,
-                          agent: agent.id,
-                          assistantMessageID,
-                          call: event,
-                        }),
-                      ).pipe(
-                        Effect.flatMap((settlement) =>
-                          publish(
-                            LLMEvent.toolResult({
-                              id: event.id,
-                              name: event.name,
-                              result: settlement.result,
-                              output: settlement.output,
-                            }),
-                            settlement.outputPaths ?? [],
+                      needsContinuation = true
+                      const assistantMessageID = yield* publisher.assistantMessageID(event.id)
+                      yield* Effect.uninterruptibleMask((restore) =>
+                        restore(
+                          toolMaterialization.settle({
+                            sessionID: session.id,
+                            agent: agent.id,
+                            assistantMessageID,
+                            call: event,
+                          }),
+                        ).pipe(
+                          Effect.flatMap((settlement) =>
+                            publish(
+                              LLMEvent.toolResult({
+                                id: event.id,
+                                name: event.name,
+                                result: settlement.result,
+                                output: settlement.output,
+                              }),
+                              settlement.outputPaths ?? [],
+                            ),
                           ),
                         ),
-                      ),
-                    ).pipe(FiberSet.run(toolFibers))
-                  }),
-                ),
-                Effect.ensuring(withPublication(publisher.flush())),
-              ),
+                      ).pipe(FiberSet.run(toolFibers))
+                    }),
+                  ),
+                  Effect.ensuring(withPublication(publisher.flush())),
+                  Effect.onExit((exit) =>
+                    Effect.logInfo("provider turn finished", {
+                      sessionID: session.id,
+                      step: currentStep,
+                      providerID: model.provider,
+                      modelID: model.id,
+                      outcome: Exit.isSuccess(exit)
+                        ? "completed"
+                        : Cause.hasInterrupts(exit.cause)
+                          ? "interrupted"
+                          : "failed",
+                      elapsedMs: Date.now() - startedAt,
+                      eventCount,
+                      ...(firstEventAt === undefined ? {} : { firstEventMs: firstEventAt - startedAt }),
+                    }),
+                  ),
+                )
+              }),
             ),
           ).pipe(Effect.exit)
           if (Exit.isSuccess(claimedStream) && Option.isNone(claimedStream.value))

@@ -157,33 +157,39 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.prompt",
         Effect.fn(function* (ctx) {
-          return {
-            data: yield* session
-              .prompt({
-                sessionID: ctx.params.sessionID,
-                id: ctx.payload.id,
-                prompt: ctx.payload.prompt,
-                delivery: ctx.payload.delivery,
-                resume: ctx.payload.resume,
-              })
-              .pipe(
-                Effect.catchTag("Session.NotFoundError", (error) =>
-                  Effect.fail(
-                    new SessionNotFoundError({
-                      sessionID: error.sessionID,
-                      message: `Session not found: ${error.sessionID}`,
-                    }),
-                  ),
-                ),
-                Effect.catchTag("Session.PromptConflictError", (error) =>
-                  Effect.fail(
-                    new ConflictError({
-                      message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
-                      resource: error.messageID,
-                    }),
-                  ),
+          const admitted = yield* session
+            .prompt({
+              sessionID: ctx.params.sessionID,
+              id: ctx.payload.id,
+              prompt: ctx.payload.prompt,
+              delivery: ctx.payload.delivery,
+              resume: ctx.payload.resume,
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
                 ),
               ),
+              Effect.catchTag("Session.PromptConflictError", (error) =>
+                Effect.fail(
+                  new ConflictError({
+                    message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
+                    resource: error.messageID,
+                  }),
+                ),
+              ),
+            )
+          yield* Effect.logInfo("session prompt admitted", {
+            sessionID: admitted.sessionID,
+            messageID: admitted.id,
+            delivery: admitted.delivery,
+          })
+          return {
+            data: admitted,
           }
         }),
       )
