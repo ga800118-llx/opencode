@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" fill="#131010"/>
-  <path d="M96 96H416V160H96V96Z" fill="#F1ECEC"/>
-  <path d="M96 96H160V416H96V96Z" fill="#F1ECEC"/>
-  <path d="M96 352H416V416H96V352Z" fill="#F1ECEC"/>
-  <path d="M256 224H416V288H256V224Z" fill="#F1ECEC"/>
-  <path d="M352 288H416V416H352V288Z" fill="#5A5858"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="surface" x1="512" y1="48" x2="512" y2="976" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#202020" stop-opacity="0.56"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="#0D0D0D"/>
+  <rect x="49" y="49" width="926" height="926" rx="207" fill="url(#surface)" stroke="#2A2A2A" stroke-width="2"/>
+  <path d="M50 4L74 18L31 43V70L50 81L67 71L50 61L72 49H94V78L50 104L6 78V30L50 4Z" transform="translate(208 176) scale(6.08)" fill="#FFFFFF"/>
 </svg>
