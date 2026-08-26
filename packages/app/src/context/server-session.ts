@@ -63,6 +63,8 @@ const cmpMessage = (a: Message, b: Message) => a.time.created - b.time.created |
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 const initialMessagePageSize = 20
 const historyMessagePageSize = 200
+const normalizeMessagePageSize = (value: number) =>
+  Math.max(1, Math.min(historyMessagePageSize, Number.isFinite(value) ? Math.trunc(value) : initialMessagePageSize))
 const sessionInfoLimit = 2_048
 const activityClockSkewTolerance = 60_000
 const emptyIDs: ReadonlySet<string> = new Set()
@@ -648,11 +650,14 @@ export function createServerSession(
     )
 
   const fetchMessages = async (sessionID: string, limit: number, before?: string, onAttempt?: () => void) => {
+    const pageSize = normalizeMessagePageSize(limit)
     if (messageApi && (await options?.protocol) !== "v1") {
       const request = (cursor?: string) =>
         (options?.retry ?? retry)(() => {
           onAttempt?.()
-          return messageApi.list(cursor ? { sessionID, limit, cursor } : { sessionID, limit, order: "desc" })
+          return messageApi.list(
+            cursor ? { sessionID, limit: pageSize, cursor } : { sessionID, limit: pageSize, order: "desc" },
+          )
         })
       const first = await request(before)
       const pages = [first]
@@ -678,7 +683,7 @@ export function createServerSession(
     }
     const response = await (options?.retry ?? retry)(() => {
       onAttempt?.()
-      return client.session.messages({ sessionID, limit, before })
+      return client.session.messages({ sessionID, limit: pageSize, before })
     })
     const items = (response.data ?? []).filter((item) => !!item?.info?.id)
     return {

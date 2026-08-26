@@ -530,14 +530,33 @@ describe("server session", () => {
     expect(store.data.session_message.child).toBeUndefined()
   })
 
-  test("preserves an explicit zero message limit on V1", async () => {
+  test("normalizes an explicit zero message limit on V1", async () => {
     const client = messageClient(response())
     const store = createServerSession(client, { protocol: Promise.resolve("v1") })
     store.remember(session("child"))
 
     await store.sync("child", { force: true, messageLimit: 0 })
 
-    expect(client.requests).toEqual([{ sessionID: "child", limit: 0, before: undefined }])
+    expect(client.requests).toEqual([{ sessionID: "child", limit: 1, before: undefined }])
+  })
+
+  test("normalizes an oversized message limit on V2", async () => {
+    const requests: unknown[] = []
+    const messageApi = {
+      list: async (input: unknown) => {
+        requests.push(input)
+        return { data: [], cursor: { previous: null, next: null } }
+      },
+    } as unknown as MessageApi
+    const sessionApi = { get: async () => session("child") } as unknown as SessionApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, messageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+    store.remember(session("child"))
+
+    await store.sync("child", { force: true, messageLimit: 201 })
+
+    expect(requests).toEqual([{ sessionID: "child", limit: 200, order: "desc" }])
   })
 
   test("extends a current page to include the user for split assistant turns", async () => {
